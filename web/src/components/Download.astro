@@ -1,0 +1,442 @@
+---
+/**
+ * 下载区
+ * - 大下载按钮 + 系统要求
+ * - 副链接：源码 / 文档
+ * - 订阅区已移除（v0.1.1+），改用 GitHub Watch 引导
+ *
+ * v0.1.3 起：按钮直接指向 GitHub Release 上的具体文件名，并提供 SHA256 校验值。
+ */
+const githubUrl = 'https://github.com/MatuX-ai/Rokit';
+const version = '0.1.5'; // 与 ai-launch-master/package.json 同步
+
+const nsisName = `Rokit-${version}-x64.exe`;
+const portableName = `Rokit-${version}-portable.exe`;
+const nsisUrl = `https://github.com/MatuX-ai/Rokit/releases/download/v${version}/${nsisName}`;
+const portableUrl = `https://github.com/MatuX-ai/Rokit/releases/download/v${version}/${portableName}`;
+// SHA256 通过 Get-FileHash -Algorithm SHA256 生成（部署日 2026-09-26 重打后重新计算）。
+const nsisSha256 = 'FD6F07195940B92C31734022B68C61F2BB72638B2D0BBB13B8DD480402C18C6C';
+const portableSha256 = '00CEB007C168647D3AA4FFAB876450E668B8246C5D9FD03677C5976934228B48';
+
+const otherPlatforms = [
+  // 与 [Roadmap.astro](Roadmap.astro) MVP 2.0 路线图一致；macOS / Linux 打包计划于 MVP 2.0 推进。
+  // 本表 ETA 仅作参考，不代表确切发布日期；以 GitHub Release 为准。
+  { name: 'macOS', status: '计划中', eta: 'MVP 2.0 · 预计 2026 Q4', icon: '🍎' },
+  { name: 'Linux', status: '计划中', eta: 'MVP 2.0 · 预计 2026 Q4', icon: '🐧' },
+];
+---
+
+<section class="section download" id="download">
+  <div class="container">
+    <div class="dl-card">
+      <div class="dl-copy">
+        <span class="eyebrow eyebrow-light">GET STARTED</span>
+        <h2>现在就<span class="highlight">下载 Rokit</span></h2>
+        <p>Windows 10 / 11 · Electron 36 · 零账号 · 零遥测 · 全部数据存本机。</p>
+
+        <div class="dl-cta">
+          <a href={nsisUrl} class="btn btn-primary btn-lg" target="_blank" rel="noopener noreferrer">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            下载 v{version} 安装版（NSIS）
+          </a>
+          <a href={portableUrl} class="btn btn-ghost btn-lg" target="_blank" rel="noopener noreferrer">
+            下载 v{version} Portable（免安装）
+          </a>
+        </div>
+
+        <details class="dl-hashes">
+          <summary>SHA256 校验值 · 点击展开</summary>
+          <dl>
+            <div class="hash-row">
+              <dt>NSIS 安装版 <code>{nsisName}</code></dt>
+              <dd><code>{nsisSha256}</code></dd>
+            </div>
+            <div class="hash-row">
+              <dt>Portable 单文件 <code>{portableName}</code></dt>
+              <dd><code>{portableSha256}</code></dd>
+            </div>
+          </dl>
+          <p class="hash-hint">
+            校验方法（PowerShell）：
+            <code>Get-FileHash .\Rokit-{version}-x64.exe -Algorithm SHA256</code>
+          </p>
+        </details>
+
+        <div class="dl-meta">
+          <a href={githubUrl} target="_blank" rel="noopener noreferrer">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">
+              <path d="M12 .5C5.7.5.5 5.7.5 12c0 5.1 3.3 9.4 7.9 10.9.6.1.8-.2.8-.6v-2.2c-3.2.7-3.9-1.4-3.9-1.4-.5-1.3-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.6-.3-5.3-1.3-5.3-5.8 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.2 1.2.9-.3 1.9-.4 2.9-.4s2 .1 2.9.4c2.2-1.5 3.2-1.2 3.2-1.2.6 1.6.2 2.8.1 3.1.8.8 1.2 1.9 1.2 3.1 0 4.5-2.7 5.5-5.3 5.8.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6 4.6-1.5 7.9-5.8 7.9-10.9C23.5 5.7 18.3.5 12 .5z"/>
+            </svg>
+            查看源码与 Release
+          </a>
+        </div>
+      </div>
+
+      <aside class="dl-side">
+        <div class="dl-req">
+          <h3>系统要求</h3>
+          <ul>
+            <li><span class="req-k">系统</span><span class="req-v">Windows 10 / 11 (64-bit)</span></li>
+            <li><span class="req-k">架构</span><span class="req-v">x64</span></li>
+            <li><span class="req-k">内存</span><span class="req-v">≥ 4 GB</span></li>
+            <li><span class="req-k">磁盘</span><span class="req-v">≥ 300 MB</span></li>
+            <li><span class="req-k">AI 接入</span><span class="req-v">BYOK 自带 Key<br /><span class="req-sub">未配置时自动回退内置引擎</span></span></li>
+            <li><span class="req-k">网络</span><span class="req-v">发布到第三方平台需要<br /><span class="req-sub">本地物料生成无需联网</span></span></li>
+          </ul>
+        </div>
+
+        <div class="dl-platforms">
+          <h3>其他平台</h3>
+          <ul class="plat-list">
+            {otherPlatforms.map((p) => (
+              <li class="plat-item">
+                <span class="plat-icon">{p.icon}</span>
+                <span class="plat-info">
+                  <span class="plat-name">{p.name}</span>
+                  <span class="plat-eta">{p.eta}</span>
+                </span>
+                <span class="plat-status">{p.status}</span>
+              </li>
+            ))}
+          </ul>
+          <div class="dl-watch">
+            <div class="dl-watch-hint">🔔 想第一时间收到 macOS / Linux 版上线通知？</div>
+            <a class="btn btn-ghost btn-block" href={githubUrl} target="_blank" rel="noopener noreferrer">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
+                <path d="M12 .5C5.7.5.5 5.7.5 12c0 5.1 3.3 9.4 7.9 10.9.6.1.8-.2.8-.6v-2.2c-3.2.7-3.9-1.4-3.9-1.4-.5-1.3-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.6-.3-5.3-1.3-5.3-5.8 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.2 1.2.9-.3 1.9-.4 2.9-.4s2 .1 2.9.4c2.2-1.5 3.2-1.2 3.2-1.2.6 1.6.2 2.8.1 3.1.8.8 1.2 1.9 1.2 3.1 0 4.5-2.7 5.5-5.3 5.8.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6 4.6-1.5 7.9-5.8 7.9-10.9C23.5 5.7 18.3.5 12 .5z"/>
+              </svg>
+              Watch Rokit on GitHub
+            </a>
+            <div class="dl-watch-sub">打开仓库后点击右上角 <strong>Watch → Releases only</strong>，每个新版本都会自动邮件通知你。</div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<style>
+  .dl-card {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 48px;
+    padding: 48px;
+    background: linear-gradient(135deg, rgba(14, 124, 123, 0.12) 0%, rgba(31, 156, 154, 0.04) 100%);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-lg);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .dl-card::before {
+    content: '';
+    position: absolute;
+    top: -100px;
+    right: -100px;
+    width: 400px;
+    height: 400px;
+    background: radial-gradient(circle at center, rgba(31, 156, 154, 0.15) 0%, transparent 60%);
+    pointer-events: none;
+  }
+
+  .eyebrow-light {
+    color: var(--primary-soft);
+  }
+
+  .dl-copy h2 {
+    margin: 16px 0 12px;
+    color: var(--text);
+  }
+
+  .dl-copy h2 .highlight {
+    background: linear-gradient(135deg, #ffffff 0%, #94d4d0 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .dl-copy > p {
+    margin-bottom: 28px;
+    font-size: 1rem;
+  }
+
+  .dl-cta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    margin-bottom: 24px;
+  }
+
+  .dl-meta a {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.88rem;
+    color: var(--text-dim);
+    transition: color 0.2s var(--ease);
+  }
+
+  .dl-meta a:hover {
+    color: var(--primary-soft);
+  }
+
+  .dl-side {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .dl-req {
+    position: relative;
+    z-index: 1;
+    background: rgba(10, 14, 20, 0.6);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    backdrop-filter: blur(8px);
+  }
+
+  .dl-req h3 {
+    margin-bottom: 16px;
+    font-size: 0.92rem;
+    color: var(--primary-soft);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .dl-req ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .dl-req li {
+    display: grid;
+    grid-template-columns: 70px 1fr;
+    gap: 12px;
+    padding: 10px 0;
+    border-top: 1px solid var(--border);
+    font-size: 0.88rem;
+  }
+
+  .dl-req li:first-child {
+    border-top: none;
+  }
+
+  .req-k {
+    color: var(--text-mute);
+    font-size: 0.78rem;
+  }
+
+  .req-v {
+    color: var(--text);
+  }
+
+  .req-sub {
+    display: block;
+    font-size: 0.78rem;
+    color: var(--text-mute);
+    margin-top: 2px;
+  }
+
+  /* 其他平台 */
+  .dl-platforms {
+    background: rgba(10, 14, 20, 0.6);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 24px;
+    backdrop-filter: blur(8px);
+  }
+
+  .dl-platforms h3 {
+    margin-bottom: 14px;
+    font-size: 0.92rem;
+    color: var(--primary-soft);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .plat-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .plat-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .plat-item:first-child {
+    border-top: none;
+    padding-top: 0;
+  }
+
+  .plat-icon {
+    font-size: 1.1rem;
+  }
+
+  .plat-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .plat-name {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .plat-eta {
+    font-size: 0.75rem;
+    color: var(--text-mute);
+  }
+
+  .plat-status {
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: rgba(255, 200, 80, 0.12);
+    color: #f5b94d;
+    border: 1px solid rgba(255, 200, 80, 0.3);
+    letter-spacing: 0.03em;
+  }
+
+  /* GitHub Watch CTA（替代旧的订阅表单） */
+  .dl-watch {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+  }
+
+  .dl-watch-hint {
+    font-size: 0.78rem;
+    color: var(--text-mute);
+  }
+
+  .dl-watch .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  /* SHA256 校验值折叠区 */
+  .dl-hashes {
+    margin: 4px 0 24px;
+    padding: 12px 16px;
+    background: rgba(10, 14, 20, 0.5);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 0.82rem;
+    color: var(--text-dim);
+  }
+
+  .dl-hashes summary {
+    cursor: pointer;
+    color: var(--primary-soft);
+    font-weight: 600;
+    list-style: none;
+    user-select: none;
+  }
+
+  .dl-hashes summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .dl-hashes summary::before {
+    content: '▸ ';
+    display: inline-block;
+    transition: transform 0.2s var(--ease);
+  }
+
+  .dl-hashes[open] summary::before {
+    content: '▾ ';
+  }
+
+  .dl-hashes dl {
+    margin: 12px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .dl-hashes .hash-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .dl-hashes dt {
+    color: var(--text-mute);
+    font-size: 0.74rem;
+    letter-spacing: 0.04em;
+  }
+
+  .dl-hashes dd {
+    margin: 0;
+  }
+
+  .dl-hashes code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.76rem;
+    color: var(--text);
+    word-break: break-all;
+  }
+
+  .dl-hashes .hash-hint {
+    margin: 10px 0 0;
+    font-size: 0.72rem;
+    color: var(--text-mute);
+  }
+
+  .dl-hashes .hash-hint code {
+    background: rgba(255, 255, 255, 0.04);
+    padding: 1px 6px;
+    border-radius: 4px;
+  }
+
+  .btn-block {
+    width: 100%;
+  }
+
+  .dl-watch-sub {
+    font-size: 0.72rem;
+    color: var(--text-mute);
+    line-height: 1.5;
+  }
+
+  .dl-watch-sub strong {
+    color: var(--primary-soft);
+    font-weight: 600;
+  }
+
+  @media (max-width: 768px) {
+    .dl-card {
+      grid-template-columns: 1fr;
+      padding: 28px;
+      gap: 28px;
+    }
+    .dl-req li {
+      grid-template-columns: 60px 1fr;
+    }
+  }
+</style>

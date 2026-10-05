@@ -1,0 +1,121 @@
+---
+/**
+ * 痛点：4 个学生/独立开发者做作品时最头疼的问题
+ */
+const pains = [
+  {
+    icon: 'compass',
+    title: '花了一周研究发哪',
+    desc: '平台规则各不同，什么时间发、发什么内容、带什么标签——光做功课就要一周，热情都磨没了。',
+  },
+  {
+    icon: 'package',
+    title: '不会写文案做海报',
+    desc: '代码写得飞起，一到介绍自己就卡壳。明明产品很好，却输在「不会包装」这一步。',
+  },
+  {
+    icon: 'eye-off',
+    title: '发出去就石沉大海',
+    desc: '熬了几个通宵做的项目，发出去只有 3 个 Star。看不到反馈，下一个还做不做？',
+  },
+  {
+    icon: 'cold',
+    title: '0 到 1 完全没头绪',
+    desc: '第一批用户从哪来？找谁？怎么说？没人教，也没人带，全靠自己瞎摸索。',
+  },
+];
+---
+
+<section class="section pain" id="pain">
+  <div class="container">
+    <header class="section-head">
+      <span class="eyebrow">THE PROBLEM</span>
+      <h2>做项目难，<br /><span class="highlight">让别人看见更难</span></h2>
+      <p>你花了几个月把产品做出来，却在「怎么让别人知道」这一步卡住了。</p>
+    </header>
+
+    <ul class="pain-grid">
+      {pains.map((p) => (
+        <li class="card pain-card">
+          <div class="pain-icon" aria-hidden="true">
+            {p.icon === 'compass' && (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>
+              </svg>
+            )}
+            {p.icon === 'package' && (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="16.5" y1="9.4" x2="7.5" y2="4.21"/>
+                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+                <line x1="12" y1="22.08" x2="12" y2="12"/>
+              </svg>
+            )}
+            {p.icon === 'eye-off' && (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+                <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+                <path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/>
+                <line x1="1" y1="1" x2="23" y2="23"/>
+              </svg>
+            )}
+            {p.icon === 'cold' && (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 2v20"/>
+                <path d="M2 12h20"/>
+                <path d="m4.93 4.93 14.14 14.14"/>
+                <path d="m19.07 4.93-14.14 14.14"/>
+              </svg>
+            )}
+          </div>
+          <h3>{p.title}</h3>
+          <p>{p.desc}</p>
+        </li>
+      ))}
+    </ul>
+  </div>
+</section>
+
+<style>
+  .pain-grid {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 20px;
+  }
+
+  .pain-card {
+    text-align: left;
+  }
+
+  .pain-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, rgba(14, 124, 123, 0.25) 0%, rgba(31, 156, 154, 0.15) 100%);
+    border: 1px solid var(--border-strong);
+    color: var(--primary-soft);
+    margin-bottom: 18px;
+  }
+
+  .pain-icon svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  .pain-card h3 {
+    margin-bottom: 10px;
+    color: var(--text);
+  }
+
+  .pain-card p {
+    font-size: 0.92rem;
+    line-height: 1.65;
+  }
+</style>

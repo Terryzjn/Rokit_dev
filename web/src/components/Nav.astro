@@ -1,0 +1,214 @@
+---
+/**
+ * 顶栏导航
+ * - 毛玻璃深色背景
+ * - Logo + 锚点 + Star + 下载 CTA
+ * - 移动端汉堡菜单（纯 CSS）
+ *
+ * ⚠ DOM 顺序依赖（移动端 CSS 兄弟选择器）：
+ *   必须保持顺序  checkbox#nav-toggle  →  label.nav-burger  →  nav.nav-links
+ *   调换顺序会导致汉堡菜单打不开 / 收不回。
+ */
+const githubUrl = 'https://github.com/MatuX-ai/Rokit';
+const version = '0.1.5'; // 与 ai-launch-master/package.json 同步
+// 与 [Download.astro](Download.astro) / [Hero.astro](Hero.astro) 一致使用具体版本直链，
+// 不走 /releases/latest 重定向（避免 GitHub alias 变动导致 404）。
+const nsisName = `Rokit-${version}-x64.exe`;
+const releaseUrl = `https://github.com/MatuX-ai/Rokit/releases/download/v${version}/${nsisName}`;
+---
+
+<header class="nav">
+  <div class="container nav-inner">
+    <a href="#top" class="brand" aria-label="Rokit 首页">
+      <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true">
+        <defs>
+          <linearGradient id="navLogoBody" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#94D4D0"/>
+            <stop offset="100%" stop-color="#0E7C7B"/>
+          </linearGradient>
+        </defs>
+        <path d="M16 2 C 22 8, 24 14, 24 22 L 24 26 L 8 26 L 8 22 C 8 14, 10 8, 16 2 Z" fill="url(#navLogoBody)"/>
+        <circle cx="16" cy="13" r="3.5" fill="#0a0e14"/>
+        <circle cx="16" cy="13" r="2.2" fill="#4DD0E1"/>
+        <path d="M12 24 L 14 30 L 16 27 L 18 30 L 20 24 Z" fill="#E94B8C"/>
+      </svg>
+      <span class="brand-text">Rokit</span>
+    </a>
+
+    <!-- ⚠ 移动端汉堡菜单依赖兄弟选择器：以下三个节点顺序不可调换 -->
+
+    <input type="checkbox" id="nav-toggle" class="nav-toggle" aria-hidden="true" />
+    <label for="nav-toggle" class="nav-burger" aria-label="切换菜单" role="button" tabindex="0" aria-expanded="false">
+      <span></span>
+      <span></span>
+      <span></span>
+    </label>
+
+    <nav class="nav-links" aria-label="主导航">
+      <a href="#pain">痛点</a>
+      <a href="#features">功能</a>
+      <a href="#flow">流程</a>
+      <a href="#platforms">平台</a>
+      <a href="#shots">截图</a>
+      <a href="#faq">FAQ</a>
+      <a href="#download">下载</a>
+      <a href={githubUrl} class="btn btn-ghost btn-sm" target="_blank" rel="noopener noreferrer">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
+          <path d="M12 .5C5.7.5.5 5.7.5 12c0 5.1 3.3 9.4 7.9 10.9.6.1.8-.2.8-.6v-2.2c-3.2.7-3.9-1.4-3.9-1.4-.5-1.3-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.6-.3-5.3-1.3-5.3-5.8 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.2 1.2.9-.3 1.9-.4 2.9-.4s2 .1 2.9.4c2.2-1.5 3.2-1.2 3.2-1.2.6 1.6.2 2.8.1 3.1.8.8 1.2 1.9 1.2 3.1 0 4.5-2.7 5.5-5.3 5.8.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6 4.6-1.5 7.9-5.8 7.9-10.9C23.5 5.7 18.3.5 12 .5z"/>
+        </svg>
+        Star
+      </a>
+      <a href={releaseUrl} class="btn btn-primary btn-sm" target="_blank" rel="noopener noreferrer">
+        下载 v{version}
+      </a>
+    </nav>
+  </div>
+  <script is:inline>
+    // 移动端导航可访问性增强
+    (function() {
+      const toggle = document.getElementById('nav-toggle');
+      const burger = document.querySelector('.nav-burger');
+      if (!toggle || !burger) return;
+
+      function updateAria() {
+        burger.setAttribute('aria-expanded', toggle.checked ? 'true' : 'false');
+      }
+
+      toggle.addEventListener('change', updateAria);
+
+      // 支持 Enter / Space 键打开菜单
+      burger.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          toggle.checked = !toggle.checked;
+          updateAria();
+        }
+        // Esc 关闭菜单
+        if (e.key === 'Escape' && toggle.checked) {
+          toggle.checked = false;
+          updateAria();
+          burger.focus();
+        }
+      });
+    })();
+  </script>
+</header>
+
+<style>
+  .nav {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: rgba(10, 14, 20, 0.7);
+    backdrop-filter: saturate(180%) blur(16px);
+    -webkit-backdrop-filter: saturate(180%) blur(16px);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .nav-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 64px;
+    gap: 24px;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 800;
+    font-size: 1.15rem;
+    letter-spacing: 0.04em;
+    color: var(--text);
+  }
+
+  .brand-text {
+    background: linear-gradient(135deg, #ffffff 0%, #94D4D0 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .nav-links {
+    display: flex;
+    align-items: center;
+    gap: 28px;
+  }
+
+  .nav-links a {
+    font-size: 0.92rem;
+    color: var(--text-dim);
+    transition: color 0.2s var(--ease);
+  }
+
+  .nav-links a:not(.btn):hover {
+    color: var(--primary-soft);
+  }
+
+  .btn-sm {
+    padding: 8px 14px;
+    font-size: 0.85rem;
+    border-radius: 8px;
+  }
+
+  .nav-toggle,
+  .nav-burger {
+    display: none;
+  }
+
+  @media (max-width: 768px) {
+    .nav-burger {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-around;
+      width: 28px;
+      height: 24px;
+      cursor: pointer;
+      margin-left: auto;
+    }
+    .nav-burger span {
+      display: block;
+      height: 2px;
+      background: var(--text);
+      border-radius: 2px;
+      transition: all 0.3s var(--ease);
+    }
+    .nav-links {
+      position: absolute;
+      top: 64px;
+      left: 0;
+      right: 0;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0;
+      padding: 16px 24px 24px;
+      background: rgba(10, 14, 20, 0.96);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.3s var(--ease);
+    }
+    .nav-toggle:checked ~ .nav-links {
+      max-height: 480px;
+    }
+    .nav-toggle:checked ~ .nav-burger span:nth-child(1) {
+      transform: translateY(7px) rotate(45deg);
+    }
+    .nav-toggle:checked ~ .nav-burger span:nth-child(2) {
+      opacity: 0;
+    }
+    .nav-toggle:checked ~ .nav-burger span:nth-child(3) {
+      transform: translateY(-7px) rotate(-45deg);
+    }
+    .nav-links a {
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-links a:last-child {
+      border-bottom: none;
+      margin-top: 8px;
+    }
+  }
+</style>

@@ -1,0 +1,146 @@
+---
+/**
+ * 常见问题 FAQ
+ * - 原生 <details> 手风琴，零 JS
+ * - 解答用户最关心的 6-8 个问题
+ */
+const faqs = [
+  {
+    q: 'Rokit 是免费的吗？',
+    a: '是的，完全免费且开源（MIT 协议）。Rokit 采用 BYOK（Bring Your Own Key）模式，你用自己的 AI API Key 调用大模型，费用直接付给 AI 服务商（如 DeepSeek、OpenAI 等），Rokit 本身不收取任何费用。如果没有 API Key，也可以使用内置的试用引擎。',
+  },
+  {
+    q: '我的数据安全吗？会上传到服务器吗？',
+    a: '所有数据都存在你本地的 SQLite 数据库里，Rokit 没有云端服务器，也不会收集任何遥测数据。只有在你主动调用 AI 生成物料时，相关内容才会发送到你配置的 AI 服务商——而且完全由你掌控。',
+  },
+  {
+    q: '支持 Mac 吗？Linux 呢？',
+    a: '目前首发版本只支持 Windows 10/11（x64）。macOS / Linux 版计划在 MVP 2.0 推进，预计 2026 Q4 之后上线（以 GitHub Release 为准）。点击页面底部的 "Watch Rokit on GitHub" 按钮订阅 Releases，即可第一时间收到新版本通知（无需留邮箱）。',
+  },
+  {
+    q: '需要会写代码才能用吗？',
+    a: '完全不需要。Rokit 的目标用户是独立开发者和学生开发者，但使用门槛为零——下载安装，回答几个关于你作品的问题，剩下的 AI 全包。哪怕你是第一次做产品推广，也能一条龙搞定。',
+  },
+  {
+    q: '支持哪些 AI 模型？',
+    a: '目前支持 DeepSeek、OpenAI（GPT-4 / GPT-3.5）、通义千问，以及本地 Ollama（完全离线运行）。后续会持续接入更多主流模型。你可以在设置里一键切换。',
+  },
+  {
+    q: '"L1 直发 / L2 跳转" 是什么意思？',
+    a: 'L2 跳转：Rokit v0.1.4 中除 GitHub 外的 12 个平台都通过浏览器自动填表 + 一键跳转实现——Rokit 帮你备好文案与素材，跳到平台发布页后自动填好，你只需点一下"发布"。L1 直发：GitHub 已在 v0.1.4 上线（调用 GitHub Releases API 直创建 Release，无需人工点发布）；其他平台后续 MVP 2.0 接入开放 API（如店铺 OAuth）后，真正"全自动一键"无需人工。',
+  },
+  {
+    q: '生成的内容质量怎么样？会很模板化吗？',
+    a: 'Rokit 会先通过 AI 深度诊断你的作品类型、亮点和目标人群，再针对性生成各平台的文案风格——不是千篇一律的模板。你可以随时预览、修改、重新生成，直到满意为止。',
+  },
+];
+---
+
+<section class="section faq" id="faq">
+  <div class="container">
+    <header class="section-head">
+      <span class="eyebrow">FAQ</span>
+      <h2>你可能<span class="highlight">想问的</span></h2>
+      <p>还有其他问题？欢迎去 GitHub 提 Issue，或者加入交流群。</p>
+    </header>
+
+    <div class="faq-list">
+      {faqs.map((item, i) => (
+        <details class="faq-item" open={i === 0}>
+          <summary class="faq-q">
+            <span>{item.q}</span>
+            <span class="faq-icon" aria-hidden="true">+</span>
+          </summary>
+          <div class="faq-a">
+            <p>{item.a}</p>
+          </div>
+        </details>
+      ))}
+    </div>
+  </div>
+</section>
+
+<style>
+  .faq-list {
+    max-width: 720px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .faq-item {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    transition: all 0.25s var(--ease);
+  }
+
+  .faq-item[open] {
+    border-color: var(--border-strong);
+    background: var(--bg-card-hover);
+  }
+
+  .faq-item:hover {
+    border-color: var(--border-strong);
+  }
+
+  .faq-q {
+    list-style: none;
+    cursor: pointer;
+    padding: 18px 22px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text);
+    user-select: none;
+  }
+
+  .faq-q::-webkit-details-marker {
+    display: none;
+  }
+
+  .faq-icon {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    font-weight: 400;
+    color: var(--primary-soft);
+    transition: transform 0.25s var(--ease);
+    line-height: 1;
+  }
+
+  .faq-item[open] .faq-icon {
+    transform: rotate(45deg);
+  }
+
+  .faq-a {
+    padding: 0 22px 20px;
+    color: var(--text-dim);
+    font-size: 0.9rem;
+    line-height: 1.7;
+  }
+
+  .faq-a p {
+    color: var(--text-dim);
+  }
+
+  @media (max-width: 768px) {
+    .faq-q {
+      padding: 16px 18px;
+      font-size: 0.9rem;
+    }
+    .faq-a {
+      padding: 0 18px 18px;
+      font-size: 0.88rem;
+    }
+  }
+</style>

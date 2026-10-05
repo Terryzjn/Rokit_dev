@@ -1,0 +1,116 @@
+---
+/**
+ * 页脚：协议 + GitHub + 文档 + 隐私
+ */
+const year = new Date().getFullYear();
+const startYear = 2026;
+const githubUrl = 'https://github.com/MatuX-ai/Rokit';
+const repoDocs = {
+  prd: `${githubUrl}/blob/main/docs/Rokit-产品方案.html`,
+  privacy: `${githubUrl}/blob/main/ai-launch-master/PRIVACY.md`,
+  contributing: `${githubUrl}/blob/main/CONTRIBUTING.md`,
+  changelog: `${githubUrl}/blob/main/ai-launch-master/CHANGELOG.md`,
+};
+// 仅当年份跨年时才输出连字符区间，避免“2026–2026”这类冗余样式
+const yearSpan = year > startYear ? `–${year}` : '';
+---
+
+<footer class="footer">
+  <div class="container footer-inner">
+    <div class="footer-brand">
+      <svg viewBox="0 0 32 32" width="22" height="22" aria-hidden="true">
+        <defs>
+          <linearGradient id="footerLogo" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#94D4D0"/>
+            <stop offset="100%" stop-color="#0E7C7B"/>
+          </linearGradient>
+        </defs>
+        <path d="M16 2 C 22 8, 24 14, 24 22 L 24 26 L 8 26 L 8 22 C 8 14, 10 8, 16 2 Z" fill="url(#footerLogo)"/>
+        <circle cx="16" cy="13" r="3.5" fill="#0a0e14"/>
+        <circle cx="16" cy="13" r="2.2" fill="#4DD0E1"/>
+        <path d="M12 24 L 14 30 L 16 27 L 18 30 L 20 24 Z" fill="#E94B8C"/>
+      </svg>
+      <span>Rokit</span>
+    </div>
+
+    <nav class="footer-links" aria-label="页脚导航">
+      <a href={githubUrl} target="_blank" rel="noopener noreferrer">GitHub</a>
+      <a href={repoDocs.prd} target="_blank" rel="noopener noreferrer">产品方案</a>
+      <a href={repoDocs.privacy} target="_blank" rel="noopener noreferrer">隐私政策</a>
+      <a href={repoDocs.contributing} target="_blank" rel="noopener noreferrer">贡献指南</a>
+      <a href={repoDocs.changelog} target="_blank" rel="noopener noreferrer">更新日志</a>
+    </nav>
+
+    <div class="footer-meta">
+      <span>MIT License</span>
+      <span class="dot">·</span>
+      <span>Copyright &copy; 2026{yearSpan} ProClips+</span>
+    </div>
+  </div>
+</footer>
+
+<style>
+  .footer {
+    margin-top: 40px;
+    padding: 36px 0;
+    border-top: 1px solid var(--border);
+    background: rgba(10, 14, 20, 0.4);
+  }
+
+  .footer-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 20px;
+  }
+
+  .footer-brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 800;
+    font-size: 1rem;
+    color: var(--primary-soft);
+  }
+
+  .footer-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    font-size: 0.88rem;
+  }
+
+  .footer-links a {
+    color: var(--text-dim);
+    transition: color 0.2s var(--ease);
+  }
+
+  .footer-links a:hover {
+    color: var(--primary-soft);
+  }
+
+  .footer-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.82rem;
+    color: var(--text-mute);
+  }
+
+  .footer-meta .dot {
+    opacity: 0.5;
+  }
+
+  @media (max-width: 768px) {
+    .footer-inner {
+      justify-content: center;
+      text-align: center;
+    }
+    .footer-brand,
+    .footer-links {
+      width: 100%;
+      justify-content: center;
+    }
+  }
+</style>

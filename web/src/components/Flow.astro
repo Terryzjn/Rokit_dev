@@ -1,0 +1,396 @@
+---
+/**
+ * 3 步流程：登记 → 生成 → 发布
+ * - 水平时间线，桌面端三列；移动端单列
+ */
+const steps = [
+  {
+    num: '01',
+    title: '登记作品',
+    desc: '打开 Rokit，回答几个简单问题。AI 自动定位类型、亮点、目标人群、一句话卖点。',
+    time: '约 2 分钟',
+  },
+  {
+    num: '02',
+    title: 'AI 生成物料',
+    desc: '一键生成 13 个平台专属文案 + 落地页 + 演示视频 + 海报——零剪辑、零基础。',
+    time: '约 3 分钟',
+  },
+  {
+    num: '03',
+    title: '一键分平台发布',
+    desc: '按 72h 发布计划逐日逐渠道执行；L2 自动填表后人工确认发布，未来 L1 真正全自动。',
+    time: '约 10 分钟',
+  },
+];
+---
+
+<section class="section flow" id="flow">
+  <div class="container">
+    <header class="section-head">
+      <span class="eyebrow">HOW IT WORKS</span>
+      <h2>以前要 3 天，<span class="highlight">现在一条龙搞定</span></h2>
+      <p>从「作品做完了」到「13 个平台发出去了」，中间所有繁琐步骤——Rokit 全包。<br /><span style="font-size:0.82rem;color:var(--text-mute)">*MVP 1.0 已上线：文案 + L2 自动填表；MVP 1.5 将加入录屏成片 + 数据看板</span></p>
+    </header>
+
+    <!-- 对比区 -->
+    <div class="flow-compare">
+      <div class="compare-col compare-before">
+        <div class="compare-label">
+          <span class="compare-icon">😮‍💨</span>
+          <span>你自己做</span>
+        </div>
+        <ul class="compare-list">
+          <li>研究 13 个平台规则 · 3 天</li>
+          <li>写各平台文案 · 4 小时</li>
+          <li>做海报 / 剪视频 · 5 小时</li>
+          <li>逐个平台粘贴发布 · 2 小时</li>
+          <li>不知道效果怎么样 · 永远</li>
+        </ul>
+        <div class="compare-total">
+          <span class="total-num">~3<span>天</span></span>
+          <span class="total-label">还不一定有效果</span>
+        </div>
+      </div>
+
+      <div class="compare-vs">VS</div>
+
+      <div class="compare-col compare-after">
+        <div class="compare-label">
+          <span class="compare-icon">🚀</span>
+          <span>用 Rokit</span>
+        </div>
+        <ul class="compare-list">
+          <li>AI 自动识别作品类型 · 1 分钟</li>
+          <li>13 平台文案一键生成 · 2 分钟</li>
+          <li>海报/视频/落地页全有 · 5 分钟</li>
+          <li>72h 发布计划一键执行 · 7 分钟</li>
+          <li>数据看板实时追踪 · 持续</li>
+        </ul>
+        <div class="compare-total">
+          <span class="total-num">~1<span>小时</span></span>
+          <span class="total-label">喝杯茶的功夫就搞定</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="flow-divider">
+      <span>三步走完整个首秀</span>
+    </div>
+
+    <ol class="flow-track">
+      {steps.map((s, i) => (
+        <li class="flow-step">
+          <div class="flow-marker">
+            <span class="flow-num">{s.num}</span>
+            {i < steps.length - 1 && <span class="flow-line" aria-hidden="true"></span>}
+          </div>
+          <div class="card flow-card">
+            <div class="flow-time">{s.time}</div>
+            <h3>{s.title}</h3>
+            <p>{s.desc}</p>
+          </div>
+        </li>
+      ))}
+    </ol>
+
+    <div class="flow-summary">
+      <div class="flow-summary-num">~1<span>小时</span></div>
+      <div class="flow-summary-label">从打开 Rokit 到完成 13 平台首秀（首推建议预留 1 小时，熟练后更快）</div>
+    </div>
+  </div>
+</section>
+
+<style>
+  /* 对比区 */
+  .flow-compare {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 24px;
+    align-items: stretch;
+    margin-bottom: 56px;
+  }
+
+  .compare-col {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .compare-before {
+    opacity: 0.85;
+  }
+
+  .compare-after {
+    border-color: var(--primary-glow);
+    background: linear-gradient(180deg, rgba(31, 156, 154, 0.08) 0%, var(--bg-card) 60%);
+    box-shadow: 0 12px 40px -12px rgba(14, 124, 123, 0.35);
+    position: relative;
+  }
+
+  .compare-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: var(--text-dim);
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .compare-after .compare-label {
+    color: var(--primary-soft);
+  }
+
+  .compare-icon {
+    font-size: 1.1rem;
+  }
+
+  .compare-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 20px;
+    flex: 1;
+  }
+
+  .compare-list li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.88rem;
+    color: var(--text-dim);
+    padding: 7px 0;
+    border-bottom: 1px dashed rgba(148, 212, 208, 0.08);
+  }
+
+  .compare-list li::before {
+    content: '';
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--text-mute);
+    flex-shrink: 0;
+  }
+
+  .compare-after .compare-list li::before {
+    background: var(--primary-glow);
+    box-shadow: 0 0 4px var(--primary-glow);
+  }
+
+  .compare-after .compare-list li {
+    color: var(--text);
+  }
+
+  .compare-total {
+    text-align: center;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+
+  .compare-before .total-num {
+    font-size: 2rem;
+    font-weight: 800;
+    color: var(--text-mute);
+    line-height: 1;
+  }
+
+  .compare-after .total-num {
+    font-size: 2.4rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, #94D4D0 0%, #4DD0E1 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    line-height: 1;
+  }
+
+  .total-num span {
+    font-size: 0.9rem;
+    margin-left: 2px;
+    -webkit-text-fill-color: initial;
+    opacity: 0.7;
+  }
+
+  .compare-before .total-num span {
+    color: var(--text-mute);
+  }
+
+  .total-label {
+    display: block;
+    font-size: 0.78rem;
+    color: var(--text-mute);
+    margin-top: 6px;
+  }
+
+  .compare-vs {
+    align-self: center;
+    font-family: 'SF Mono', Monaco, monospace;
+    font-size: 0.75rem;
+    font-weight: 800;
+    color: var(--primary-soft);
+    padding: 6px 10px;
+    border-radius: 8px;
+    background: rgba(14, 124, 123, 0.15);
+    border: 1px solid var(--border-strong);
+    letter-spacing: 0.1em;
+  }
+
+  .flow-divider {
+    text-align: center;
+    margin-bottom: 40px;
+    position: relative;
+  }
+
+  .flow-divider::before,
+  .flow-divider::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    width: calc(50% - 80px);
+    height: 1px;
+    background: var(--border);
+  }
+
+  .flow-divider::before { left: 0; }
+  .flow-divider::after { right: 0; }
+
+  .flow-divider span {
+    display: inline-block;
+    padding: 4px 16px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text-mute);
+    background: var(--bg-deep);
+    position: relative;
+    z-index: 1;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .flow-track {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+    position: relative;
+  }
+
+  .flow-step {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .flow-marker {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding-left: 4px;
+  }
+
+  .flow-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-glow) 100%);
+    color: #fff;
+    font-family: 'SF Mono', 'Monaco', monospace;
+    font-size: 0.9rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    flex-shrink: 0;
+    box-shadow: 0 4px 12px rgba(14, 124, 123, 0.3);
+  }
+
+  .flow-line {
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, var(--border-strong) 0%, transparent 100%);
+  }
+
+  .flow-card {
+    flex: 1;
+  }
+
+  .flow-time {
+    display: inline-block;
+    font-family: 'SF Mono', 'Monaco', monospace;
+    font-size: 0.78rem;
+    color: var(--primary-soft);
+    letter-spacing: 0.05em;
+    margin-bottom: 10px;
+    padding: 2px 8px;
+    background: rgba(14, 124, 123, 0.1);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+
+  .flow-card h3 {
+    margin-bottom: 10px;
+  }
+
+  .flow-card p {
+    font-size: 0.92rem;
+  }
+
+  .flow-summary {
+    margin-top: 56px;
+    padding: 32px;
+    text-align: center;
+    background: linear-gradient(135deg, rgba(14, 124, 123, 0.12) 0%, rgba(31, 156, 154, 0.04) 100%);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-lg);
+  }
+
+  .flow-summary-num {
+    font-size: 3.5rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, #94D4D0 0%, #4DD0E1 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    line-height: 1;
+    margin-bottom: 8px;
+  }
+
+  .flow-summary-num span {
+    font-size: 1.5rem;
+    margin-left: 4px;
+    opacity: 0.7;
+  }
+
+  .flow-summary-label {
+    color: var(--text-dim);
+    font-size: 0.95rem;
+  }
+
+  @media (max-width: 768px) {
+    .flow-compare {
+      grid-template-columns: 1fr;
+      gap: 16px;
+    }
+    .compare-vs {
+      justify-self: center;
+    }
+    .flow-track {
+      grid-template-columns: 1fr;
+      gap: 20px;
+    }
+    .flow-line {
+      display: none;
+    }
+    .flow-summary-num {
+      font-size: 2.8rem;
+    }
+  }
+</style>

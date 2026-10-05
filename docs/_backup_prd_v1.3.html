@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 推广大师 · 产品方案 PRD</title>
+<style>
+  :root {
+    --primary: #0E7C7B;
+    --primary-soft: #94D4D0;
+    --primary-bg: #E6F4F3;
+    --text: #1A1B1C;
+    --text-secondary: #4B5563;
+    --bg: #F7F8F7;
+    --card: #FFFFFF;
+    --border: #E4E3DD;
+    --green: #2E8B33;
+    --green-bg: #F3FBF3;
+    --amber: #B36B00;
+    --amber-bg: #FDF6E9;
+    --red: #C0392B;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif; background: var(--bg); color: var(--text); line-height: 1.7; padding: 32px 20px; }
+  .container { max-width: 960px; margin: 0 auto; }
+  header.hero { background: linear-gradient(135deg, #0E7C7B, #1F9C9A); color: #fff; border-radius: 16px; padding: 40px 36px; margin-bottom: 28px; }
+  header.hero .tag { display: inline-block; background: rgba(255,255,255,0.2); border-radius: 20px; padding: 3px 14px; font-size: 13px; margin-bottom: 14px; }
+  header.hero h1 { font-size: 30px; font-weight: 700; margin-bottom: 8px; }
+  header.hero .sub { font-size: 15px; opacity: 0.92; }
+  header.hero .meta { margin-top: 16px; font-size: 12.5px; opacity: 0.8; }
+  section { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 26px 30px; margin-bottom: 22px; }
+  h2 { font-size: 20px; font-weight: 700; color: var(--primary); margin-bottom: 14px; padding-bottom: 10px; border-bottom: 2px solid var(--primary-bg); }
+  h3 { font-size: 15.5px; font-weight: 600; margin: 18px 0 8px; }
+  p { font-size: 14px; color: var(--text-secondary); margin-bottom: 10px; }
+  ul, ol { margin: 8px 0 12px 22px; }
+  li { font-size: 14px; color: var(--text-secondary); margin-bottom: 6px; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0 16px; font-size: 13.5px; }
+  th, td { border: 1px solid var(--border); padding: 9px 12px; text-align: left; vertical-align: top; }
+  th { background: var(--primary-bg); color: var(--text); font-weight: 600; }
+  td { color: var(--text-secondary); }
+  .highlight { background: var(--primary-bg); border-left: 4px solid var(--primary); padding: 12px 16px; border-radius: 0 10px 10px 0; margin: 12px 0; font-size: 14px; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; margin-right: 6px; }
+  .badge.ai { background: rgba(148,212,208,0.25); color: #0E7C7B; }
+  .badge.user { background: rgba(82,196,26,0.12); color: #2E8B33; }
+  .badge.hybrid { background: rgba(250,173,20,0.15); color: #B36B00; }
+  .badge.star { background: #FFF3D6; color: #B36B00; }
+  .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin: 12px 0; }
+  .mcard { border: 1px solid var(--border); border-radius: 12px; padding: 16px; background: #FCFDFD; }
+  .mcard .m-title { font-weight: 700; font-size: 14.5px; margin-bottom: 6px; color: var(--text); }
+  .mcard .m-desc { font-size: 13px; color: var(--text-secondary); }
+  .mcard .m-out { font-size: 12.5px; color: var(--primary); margin-top: 8px; }
+  .pill { display: inline-block; background: var(--primary-bg); color: var(--primary); border-radius: 6px; padding: 2px 8px; font-size: 12px; margin: 2px 4px 2px 0; }
+  .footnote { font-size: 12px; color: #9CA3AF; margin-top: 8px; }
+  .toc { background: #FBFCFB; }
+  .toc ol { margin-left: 20px; }
+  .toc li { margin-bottom: 4px; }
+  .kpi { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0; }
+  .kpi .k { flex: 1 1 160px; background: var(--primary-bg); border-radius: 12px; padding: 14px; text-align: center; }
+  .kpi .k .num { font-size: 22px; font-weight: 700; color: var(--primary); }
+  .kpi .k .label { font-size: 12px; color: var(--text-secondary); }
+  .stage { border-left: 3px solid var(--primary); padding-left: 14px; margin: 14px 0; }
+  .stage .st-title { font-weight: 700; font-size: 14px; }
+  .stage .st-body { font-size: 13.5px; color: var(--text-secondary); margin-top: 4px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<header class="hero">
+  <span class="tag">产品需求文档 · PRD</span>
+  <h1>AI 推广大师</h1>
+  <div class="sub">面向学生开发者与独立开发者的「作品首秀运营闭环」——让用户专注开发，其余全部交给 AI 大师。</div>
+  <div class="meta">版本 v1.3 ｜ 2026-09-03 ｜ 状态：产品定义稿（已定稿技术形态：开源 · 桌面端应用 · 本地 SQLite · BYOK 本地接入）</div>
+</header>
+
+<div class="toc">
+  <h2>目录</h2>
+  <ol>
+    <li>产品概述</li>
+    <li>目标用户与核心场景</li>
+    <li>用户痛点与机会窗口</li>
+    <li>核心价值主张</li>
+    <li>功能架构（六大模块）</li>
+    <li>录屏引导式短视频创作（核心差异化模块）</li>
+    <li>多作品管理（作品库 + 主推队列）</li>
+    <li>交互设计：对话式项目向导</li>
+    <li>平台打通策略（L1 / L2 / L3）</li>
+    <li>反馈采集与 AI 分析引擎</li>
+    <li>冷启动策略引擎</li>
+    <li>社区与资源库</li>
+    <li>技术架构</li>
+    <li>MVP 范围与里程碑</li>
+    <li>风险与合规边界</li>
+    <li>名词表（专业实体词表）</li>
+  </ol>
+</div>
+
+<!-- 一、产品概述 -->
+<section>
+  <h2>一、产品概述</h2>
+  <p><b>一句话定位：</b>给独立开发者、学生开发者的「作品首秀发射台」——登记作品 → AI 一键生成全套推广物料 → 引导分平台发布 → 采集反馈 → 生成迭代建议，形成「开发-推广-反馈-迭代」的运营飞轮。</p>
+  <div class="highlight">核心承诺：<b>用户只做一件事——专注开发。</b>推广、文案、发布、数据、复盘、迭代建议，全部由「AI 推广大师」接管。</div>
+  <h3>产品形态</h3>
+  <p>对话式「项目向导」界面，以聊天/引导流驱动，减少用户思考与页面跳转时间。AI 大师以导师人格推进全流程。</p>
+  <div class="highlight"><b>技术形态决策（v1.3 定稿）：</b>本项目为 <b>开源软件 · 桌面端应用 · 本地 SQLite 存储 · BYOK（Bring Your Own Key）</b>。用户只需下载安装、填入自己的模型 API Key 即可使用，无需注册账号、无云端后端、数据全部留在本地。AI 能力采用「本地接入、用户自带 Key」模式（类似 DeepSeek Harness），可接入任意 OpenAI 兼容端点（DeepSeek / OpenAI / 通义 / 本地 Ollama 等）。</div>
+  <p><b>由此推导的产品约束：</b></p>
+  <ul>
+    <li><b>零账号</b>：不设账号体系、不做云同步；数据主权归用户，开源社区靠可审计代码赢得信任</li>
+    <li><b>本地优先</b>：作品档案、发布记录、文案历史、反馈缓存、指标数据全部存本地 SQLite；支持一键导出/导入，便于备份与迁移</li>
+    <li><b>开箱即用</b>：安装后首次启动引导填写 API Key（Base URL / Key / 模型名），填完即用；Key 仅存本地</li>
+    <li><b>离线可用</b>：除调用模型 API 与平台发布外，核心流程可离线运行</li>
+  </ul>
+  <h3>产品愿景</h3>
+  <p>让每一个认真做出第一个作品的年轻人，都能被「看见」，并有动力做出第二个、第三个作品。解决独立开发者生态中「作品发布即沉没、开发热情消退」的系统性问题。</p>
+</section>
+
+<!-- 二、目标用户 -->
+<section>
+  <h2>二、目标用户与核心场景</h2>
+  <div class="card-grid">
+    <div class="mcard"><div class="m-title">🎓 高中生开发者</div><div class="m-desc">利用课余时间开发小应用/小游戏，时间零散有限。缺推广经验，缺时间研究渠道，作品做完即搁置。</div></div>
+    <div class="mcard"><div class="m-title">🎓 职校/高职学生</div><div class="m-desc">偏实操导向，能做出作品但普遍不会营销与运营。需要「照做就能发布」的极简指引。</div></div>
+    <div class="mcard"><div class="m-title">👨‍💻 独立开发者</div><div class="m-desc">一人公司模式，时间即成本。需要自动化推广 + 数据化运营，把精力投入产品本身。</div></div>
+  </div>
+  <h3>典型场景</h3>
+  <ul>
+    <li>学生花了 3 个月做出第一款 Android 应用，发布到应用商店后无人问津，不知道接下来该做什么。</li>
+    <li>独立开发者做出了工具，但不会写宣传文案、不会做演示视频、不知道发到哪些社区。</li>
+    <li>作品在 GitHub 有零星 star，但用户反馈散落在评论区，无法判断该修什么、该加什么。</li>
+  </ul>
+</section>
+
+<!-- 三、痛点与机会 -->
+<section>
+  <h2>三、用户痛点与机会窗口</h2>
+  <table>
+    <tr><th>痛点</th><th>描述</th><th>产品对策</th></tr>
+    <tr><td><b>决策负担</b></td><td>不知道发到哪、怎么写、何时发</td><td>AI 大师直接给 72h 发布计划，用户只需「点发布」</td></tr>
+    <tr><td><b>包装能力缺失</b></td><td>不会写文案、做视频、做落地页</td><td>自动化生成全套推广物料包</td></tr>
+    <tr><td><b>正反馈缺失</b></td><td>发布即沉没，看不到任何数据回报，热情消退</td><td>数据看板 + AI 主动「报喜」里程碑</td></tr>
+    <tr><td><b>冷启动迷茫</b></td><td>0→1 用户获取最痛，无从下手</td><td>冷启动策略引擎，个性化可执行动作</td></tr>
+    <tr><td><b>迭代无方向</b></td><td>不知道用户想要什么、该改什么</td><td>反馈采集 + AI 聚类分析，输出 P0/P1/P2 清单</td></tr>
+  </table>
+</section>
+
+<!-- 四、价值主张 -->
+<section>
+  <h2>四、核心价值主张</h2>
+  <div class="kpi">
+    <div class="k"><div class="num">≤ 10 分钟</div><div class="label">从登记到生成全套物料</div></div>
+    <div class="k"><div class="num">72 h</div><div class="label">完成首次全平台发布</div></div>
+    <div class="k"><div class="num">1 周</div><div class="label">拿到首份反馈与迭代清单</div></div>
+    <div class="k"><div class="num">0</div><div class="label">用户需要学习的营销知识</div></div>
+  </div>
+  <div class="highlight"><b>设计三原则：</b>① 交互极简——只剩「按发布」一个动作；② 正反馈优先——主动报喜里程碑；③ 用节奏代替学习——照做即可，不教理论。</div>
+</section>
+
+<!-- 五、功能架构 -->
+<section>
+  <h2>五、功能架构（六大模块）</h2>
+
+  <div class="card-grid">
+    <div class="mcard">
+      <div class="m-title">M1 · 自动化多平台文案生成 <span class="badge ai">AI 全包</span></div>
+      <div class="m-desc">输入项目一句话+功能列表，自动生成各平台适配文案：B站标题党、小红书种草体、GitHub 技术介绍、V2EX 讨论帖、Product Hunt 英文介绍、应用商店 ASO 关键词。</div>
+      <div class="m-out">产出：N 平台文案包 · 可一键再生成/改风格</div>
+    </div>
+    <div class="mcard">
+      <div class="m-title">M2 · 冷启动策略引擎 <span class="badge star">★ 核心</span></div>
+      <div class="m-desc">根据作品类型（工具/游戏/应用）、技术栈、目标用户，生成个性化冷启动计划：渠道优先级排序、首 100 个种子用户获取路径、72h 行动清单。</div>
+      <div class="m-out">产出：个性化冷启动路线图（可执行动作，非理论文章）</div>
+    </div>
+    <div class="mcard">
+      <div class="m-title">M3 · 一键发布与平台打通 <span class="badge hybrid">AI 排期 · 用户点发布</span></div>
+      <div class="m-desc">「平台连接中心」：点击平台图标 → OAuth 授权/扫码 → 打通状态点亮。按 L1 直发 / L2 跳转分层实现（见第七节）。</div>
+      <div class="m-out">产出：多平台发布计划 · 单点发布/批量发布</div>
+    </div>
+    <div class="mcard">
+      <div class="m-title">M4 · 反馈采集与 AI 分析 <span class="badge ai">AI 全包</span></div>
+      <div class="m-desc">每日增量抓取各平台评论/评分/Issue，AI 聚类归因，输出 Bug 清单（含复现路径、影响面、修复难度）、功能需求排序、情绪趋势。</div>
+      <div class="m-out">产出：运营周报 · P0/P1/P2 迭代清单</div>
+    </div>
+    <div class="mcard">
+      <div class="m-title">M5 · 数据看板 <span class="badge star">★ 反馈闭环</span></div>
+      <div class="m-desc">追踪推广效果：各平台曝光/点击/转化/下载/star、评论情感趋势、渠道对比。AI 主动报喜里程碑（第 1 个 star、第 1 条好评）。</div>
+      <div class="m-out">产出：实时数据看板 · 里程碑推送</div>
+    </div>
+    <div class="mcard">
+      <div class="m-title">M6 · 社区与资源库 <span class="badge star">★ 生态</span></div>
+      <div class="m-desc">成功案例库（学生/独立开发者 0→1 全过程复盘）、工具推荐（推广/素材/自动化工具）、榜单与成长路径。UGC 与官方内容共建。</div>
+      <div class="m-out">产出：案例库 · 工具库 · 榜单</div>
+    </div>
+  </div>
+  <div class="highlight"><b>视频创作定位：</b>短视频创作（录屏引导式）是 M1 文案生成的自然延伸，也是当前最重要的推广抓手——已作为独立核心模块，详见第六节。</div>
+</section>
+
+<!-- 六、录屏引导式短视频创作 -->
+<section>
+  <h2>六、录屏引导式短视频创作（★ 核心差异化模块）</h2>
+  <div class="highlight"><b>为什么必须是短视频：</b>当前是短视频推广时代——没有短视频，作品首秀几乎等于没有传播。对学生与独立开发者而言，<b>录屏是他们唯一真实、零成本、零门槛的素材来源</b>（没有剪辑能力、没有现成画面、时间有限）。因此「AI 引导录屏 → 自动做成多版本推广视频 → 跟读配音 → 本地保存 → 进入发布」是本产品最核心的差异化模块。</div>
+
+  <h3>6.1 核心流水线（8 步，全流程 AI 引导，用户不被卡住）</h3>
+  <ol>
+    <li><b>启动录屏</b>：AI 发起 → 浏览器弹出屏幕捕获 → 用户选择产品窗口（本地程序 / 网页均可）→ 自动开始录制</li>
+    <li><b>引导演示</b>：AI 分 5 步脚本引导操作（打开首页停留 3 秒 → 进入核心功能 → 完整操作一次 → 展示结果 → 回到首页），每步有进度条与提示，实时计时</li>
+    <li><b>停止录制</b>：原始录屏本地保存（webm），用户全程零剪辑负担</li>
+    <li><b>智能拆条</b>：画面差异 + 操作停顿检测自动切出 N 个镜头（本地可选接入视觉模型打标签，自动识别「首页 / 功能 / 操作 / 结果」）</li>
+    <li><b>多画幅多版本</b>：同一份素材重组为 4 个版本（见 6.2 版本矩阵），自动适配横竖屏平台</li>
+    <li><b>多文稿</b>：每个版本独立 AI 生成文稿，可换风格、可编辑</li>
+    <li><b>跟读录音</b>：真人对着文稿念稿录音（规避 AI 声音克隆合规风险），每个版本独立保存</li>
+    <li><b>合成交付</b>：对齐配音与字幕 → 套用模板与品牌色 → 渲染多版本成片 → 本地保存 → 进入发布计划</li>
+  </ol>
+
+  <h3>6.2 多画幅版本矩阵（横竖屏全覆盖）</h3>
+  <table>
+    <tr><th>版本</th><th>画幅</th><th>分辨率</th><th>镜头组合</th><th>目标平台</th></tr>
+    <tr><td>15s 精华</td><td>竖屏 9:16</td><td>720×1280</td><td>镜头 2·4·5</td><td>抖音 · 快手</td></tr>
+    <tr><td>30s 种草</td><td>竖屏 9:16</td><td>720×1280</td><td>镜头 1·2·3·4</td><td>小红书 · 视频号</td></tr>
+    <tr><td>30s 演示</td><td>横屏 16:9</td><td>1280×720</td><td>镜头 1·2·3·4</td><td>B站 · 西瓜视频</td></tr>
+    <tr><td>60s 讲解</td><td>横屏 16:9</td><td>1280×720</td><td>全部镜头</td><td>B站 · YouTube</td></tr>
+  </table>
+  <div class="highlight"><b>画幅适配规则：</b>横竖屏共用同一份录屏素材，仅渲染画布不同——竖屏时录屏画面居中、上下用同源模糊填充（剪映同款做法）；横屏时铺满。B站等平台明确要求横屏，抖音 / 小红书要竖屏，因此版本矩阵必须同时覆盖两种画幅，缺一不可。</div>
+
+  <h3>6.3 素材来源矩阵（用户永远不被卡住）</h3>
+  <table>
+    <tr><th>素材</th><th>来源优先级（自动降级）</th></tr>
+    <tr><td>讲稿 / 字幕</td><td>AI 根据作品档案自动生成</td></tr>
+    <tr><td>Logo</td><td>用户上传（首选）→ GitHub 仓库头像 / README 自动抓取 → AI 生成临时 Logo 兜底</td></tr>
+    <tr><td>产品画面</td><td>录屏（首选）→ 用户截图 → GitHub 抓取 → AI 文生图兜底</td></tr>
+    <tr><td>背景模板</td><td>内置库按作品类型匹配（工具→极简科技、游戏→动感、应用→清新）+ 自动套用品牌色</td></tr>
+    <tr><td>配乐</td><td>内置版权曲库按版本节奏自动匹配</td></tr>
+    <tr><td>配音</td><td>用户跟读真人录音（默认）→ AI 合成配音兜底（合规允许时）</td></tr>
+  </table>
+
+  <h3>6.4 三种场景兜底策略</h3>
+  <ul>
+    <li><b>有 GitHub 仓库</b>：自动抓取 README / 头像 / 截图，录屏引导从「打开仓库或在线 Demo」开始</li>
+    <li><b>只有截图</b>：截图串联 + 缓慢缩放（Ken Burns 运镜）生成视频</li>
+    <li><b>连截图都没有</b>：AI 文生图 + 排版生成示意画面，配音走 AI 兜底</li>
+  </ul>
+
+  <h3>6.5 技术实现要点</h3>
+  <table>
+    <tr><th>环节</th><th>方案</th><th>说明</th></tr>
+    <tr><td>录屏采集</td><td>浏览器 getDisplayMedia（授权选窗口）</td><td>无需服务端介入；Web 端直接可用，桌面端可集成 Electron 补强</td></tr>
+    <tr><td>拆条算法</td><td>帧间差异检测（SSIM / 直方图）+ 操作停顿检测</td><td>检测场景切换点与功能操作段落；可选 CLIP 视觉模型打标签（首页 / 功能 / 结果）实现镜头语义化</td></tr>
+    <tr><td>版本重组</td><td>镜头序列 → 各版本镜头组合 + 变速 / 裁剪</td><td>按版本时长与节奏自动裁剪</td></tr>
+    <tr><td>字幕对齐</td><td>用户录音 → ASR 转写 → 时间戳对齐文稿</td><td>生成字幕轨；也可按文稿分段估算</td></tr>
+    <tr><td>渲染管线</td><td>Remotion 代码化渲染（本地桌面端）</td><td>每版本一个 composition：画幅 / 模板 / 品牌色 / 字幕 / 配音输入 → 输出 H.264 MP4</td></tr>
+    <tr><td>画幅适配</td><td>竖屏 1080×1920 模糊填充 / 横屏 1920×1080 铺满</td><td>统一素材比例处理</td></tr>
+    <tr><td>录音采集</td><td>浏览器 MediaRecorder（wav）→ 上传</td><td>真人跟读，本地同时保留原件</td></tr>
+  </table>
+</section>
+
+<!-- 七、多作品管理 -->
+<section>
+  <h2>七、多作品管理（作品库 + 主推队列）</h2>
+  <div class="highlight"><b>关键认知：</b>学生 / 独立开发者往往不止一个作品。多作品管理的核心不是「多存几个作品」，而是<b>帮用户决定「现在该推哪个」</b>——时间有限，多个作品同时大力推广会精力与流量双分散，反而全都不温不火。因此引入「作品库 + 主推队列」两层机制。</div>
+
+  <h3>7.1 两层结构</h3>
+  <ul>
+    <li><b>作品库（全局层）</b>：所有作品以卡片呈现，每卡 = 作品完整档案（类型 / 生命周期状态 / 关键指标 / 下一步动作），一眼看清「哪个在跑、哪个要处理」，支持一键新增作品</li>
+    <li><b>单作品工作区</b>：点卡片进入后即现有的全流程向导（登记 → 物料 → 发布 → 看板 → 迭代），互不干扰</li>
+  </ul>
+
+  <h3>7.2 作品生命周期状态机</h3>
+  <table>
+    <tr><th>状态</th><th>含义</th><th>AI 干预程度</th></tr>
+    <tr><td>待启动</td><td>已登记、未推广</td><td>等待进入主推队列</td></tr>
+    <tr><td>首秀中</td><td>正在做首次推广</td><td>全力引导（录屏、物料、发布）</td></tr>
+    <tr><td>运营期</td><td>持续推广 + 数据跟踪</td><td>自动回复、定期内容、运营周报</td></tr>
+    <tr><td>稳定期</td><td>已有稳定用户群</td><td>日常维护，释放主推位</td></tr>
+    <tr><td>已归档</td><td>暂停推广</td><td>可随时唤醒重启</td></tr>
+  </table>
+
+  <h3>7.3 主推队列（灵魂机制）</h3>
+  <p>同一时间 AI 只安排 <b>1 个主推</b>（全力投入，素材与物料优先供给）+ 若干<b>挂机</b>（自动回复、每周 1 条内容，不抢主推资源）+ <b>排队</b>（等待唤醒）。主推作品进入稳定期后，AI 自动切换下一个——连「推哪个」都由 AI 决定，用户只需专注开发。</p>
+
+  <h3>7.4 反馈与数据按作品归集</h3>
+  <ul>
+    <li>每个作品的反馈、数据看板、迭代清单完全独立，互不混淆</li>
+    <li>全局总览：所有作品一屏对比（曝光 / 转化 / 反馈量），AI 自动识别「哪个值得加注」</li>
+  </ul>
+
+  <h3>7.5 素材与模板复用</h3>
+  <p>品牌色、模板、风格库跨作品复用，第二个作品开始的物料成本骤降。</p>
+</section>
+
+<!-- 八、交互设计 -->
+<section>
+  <h2>八、交互设计：对话式项目向导</h2>
+  <p>产品以「AI 大师」导师人格推进，用户全程被动引导，减少思考与跳转。主对话流如下：</p>
+  <table>
+    <tr><th>环节</th><th>用户动作</th><th>AI 大师动作</th><th>耗时</th></tr>
+    <tr><td>1. 交付作品</td><td>丢一个 GitHub/下载链接 + 一句话介绍</td><td>登记作品档案</td><td>≈2 分钟</td></tr>
+    <tr><td>2. 智能诊断</td><td>确认/修正</td><td>定位、亮点、目标人群、一句话卖点</td><td>自动</td></tr>
+    <tr><td>3. 物料生成</td><td>点「生成」</td><td>生成文案包 + 落地页 + 演示视频 + 海报</td><td>≈3 分钟</td></tr>
+    <tr><td>4. 发布计划</td><td>点「按计划发布」</td><td>72h 渠道排期，逐个引导发布</td><td>用户点 N 下</td></tr>
+    <tr><td>5. 数据跟踪</td><td>只看</td><td>采集数据，主动报喜里程碑</td><td>后台自动</td></tr>
+    <tr><td>6. 迭代建议</td><td>拿清单开写</td><td>每周输出 P0/P1/P2 迭代清单</td><td>每周 1 分钟</td></tr>
+  </table>
+  <div class="highlight">效率原则：<b>授权一次长期有效、发布确认极简化、一切跳转最短路径</b>。用户永远不需要离开向导去学习「如何做」。 </div>
+</section>
+
+<!-- 七、平台打通策略 -->
+<section>
+  <h2>九、平台打通策略（L1 / L2 / L3）</h2>
+  <p>「点击图标直接打通」是核心体验目标，但需按平台开放能力分层实现：</p>
+  <table>
+    <tr><th>层级</th><th>策略</th><th>覆盖平台（示例）</th><th>说明</th></tr>
+    <tr>
+      <td><span class="pill">L1</span><b>官方 API 直发</b></td>
+      <td>本地 OAuth 授权（Device Flow / 本地回调），Token 仅存本地</td>
+      <td>GitHub（release/issue）、Product Hunt、Google Play / App Store、X/Twitter（受限）</td>
+      <td>全自动，体验最好。需在平台开发者后台完成应用注册与权限申请。</td>
+    </tr>
+    <tr>
+      <td><span class="pill">L2</span><b>AI 备料 + 一键跳转</b></td>
+      <td>生成好文案/图片 → 复制到剪贴板 → 自动打开平台发布页 → 粘贴发布</td>
+      <td>抖音、小红书、B站、知乎、微博、掘金等国内主流内容平台</td>
+      <td>规避个人开发者拿不到发布 API、以及自动化发帖风控问题；用户跳转与思考时间近零。</td>
+    </tr>
+    <tr>
+      <td><span class="pill">L3</span><b>浏览器自动化兜底</b></td>
+      <td>RPA 模拟操作创作者后台</td>
+      <td>无 API 且有条件的平台（如部分社区、私信回复）</td>
+      <td>参考开源方案（PostFlow、social-auto-upload 等）。页面更新需维护，且有平台 ToS 风险，默认降级使用。</td>
+    </tr>
+  </table>
+  <div class="highlight"><b>关键认知：</b>国内主流内容平台的「视频/图文发布 API」普遍要求企业资质认证（如抖音投稿能力需审核、小红书发布无公开 API），个人开发者无法全自动。因此 <b>L1+L2 混合</b>是最务实架构——官方 API 能直发的直发，不能直发的把用户动作压缩到「点一下粘贴」。</div>
+  <div class="highlight"><b>本地化原则：</b>所有平台授权 Token、发布凭据一律<b>只存本地</b>（SQLite 加密存储或系统钥匙串），随应用安装在用户机器上，绝不经过任何第三方服务器——与「无云端后端」的桌面端形态一致。桌面端 L1 直发通过本地 OAuth 完成授权。</div>
+  <p class="footnote">注：平台能力与开发者政策实时变动，产品侧以「平台连接中心」统一封装，按需适配，不因单平台政策变化影响整体体验。</p>
+</section>
+
+<!-- 八、反馈采集 -->
+<section>
+  <h2>十、反馈采集与 AI 分析引擎</h2>
+  <h3>10.1 采集分层</h3>
+  <table>
+    <tr><th>反馈源</th><th>采集方式</th><th>可行性</th></tr>
+    <tr><td>GitHub Issues / star / release 评论</td><td>官方 REST API</td><td>✅ 全自动，无门槛</td></tr>
+    <tr><td>Google Play / App Store 评分评论</td><td>商店官方 Developer API</td><td>✅ 全自动（需开发者账号）</td></tr>
+    <tr><td>抖音评论</td><td>开放平台评论管理 API（需申请能力）</td><td>⚠️ 有条件</td></tr>
+    <tr><td>B站评论</td><td>开放平台/接口</td><td>⚠️ 需申请</td></tr>
+    <tr><td>小红书评论</td><td>无官方 API（社区 MCP/逆向方案）</td><td>⚠️ 半自动，有风控风险</td></tr>
+    <tr><td>私信/站内信</td><td>各平台消息接口</td><td>⚠️ 多数受限</td></tr>
+  </table>
+  <h3>10.2 AI 分析产出</h3>
+  <ul>
+    <li><b>问题聚类</b>：多人反馈同一问题自动归并为单条高优事项</li>
+    <li><b>Bug 清单</b>：复现描述 + 影响面 + 修复难度评估</li>
+    <li><b>需求洞察</b>：Feature Request 排序（想要的功能）</li>
+    <li><b>情绪趋势</b>：正负面比例变化，判断口碑走向</li>
+    <li><b>迭代路线图</b>：P0/P1/P2 优先级清单，直接交付开发</li>
+  </ul>
+  <div class="highlight">产品原则：分析结论<b>「喂给用户」而不是「给用户看」</b>——AI 直接说人话：「本周 87 条反馈，3 人说导入卡死（P0），2 人想要暗色模式（P2），建议先修前者。」</div>
+</section>
+
+<!-- 九、冷启动引擎 -->
+<section>
+  <h2>十一、冷启动策略引擎（★ 解决最头疼问题）</h2>
+  <p>冷启动（0→1 用户获取）是独立开发者最痛的环节。本模块不是理论文章，而是<b>个性化可执行动作</b>：</p>
+  <ol>
+    <li><b>作品画像</b>：类型（工具/游戏/应用）× 技术栈 × 目标人群 × 分发平台</li>
+    <li><b>渠道优先级</b>：按「用户密度 × 获取难度 × 即时反馈」排序（如工具类优先 GitHub/V2EX/即刻，游戏类优先 B站/抖音/itch.io）</li>
+    <li><b>首 100 用户路径</b>：种子用户获取策略（社区潜水定向邀请、站内首发帖、学习/教学场景切入）</li>
+    <li><b>72h 行动清单</b>：逐日逐渠道的发布节奏，用户照做</li>
+    <li><b>策略复盘</b>：结合数据看板反馈，自动调整下一轮渠道侧重</li>
+  </ol>
+</section>
+
+<!-- 十、社区资源库 -->
+<section>
+  <h2>十二、社区与资源库（★ 生态）</h2>
+  <ul>
+    <li><b>成功案例库</b>：学生/独立开发者 0→1 全过程复盘（做了什么、发了哪、数据如何、转折点），UGC 征集 + 官方精选</li>
+    <li><b>工具推荐库</b>：推广工具、素材工具、自动化工具分类榜单</li>
+    <li><b>成长路径</b>：从「首个作品」到「稳定用户群」的成长里程碑体系，配合成就激励</li>
+    <li><b>社区价值</b>：案例即获客（用户看到别人成功 → 想用本产品）、即留存（持续学习）、即传播（案例可分享）</li>
+  </ul>
+</section>
+
+<!-- 十一、技术架构 -->
+<section>
+  <h2>十三、技术架构</h2>
+  <div class="highlight"><b>总体架构：</b>纯本地桌面应用，<b>无服务器、无账号、无云后端</b>。所有数据落本地 SQLite，所有 AI 能力走用户自备 Key（BYOK）。</div>
+  <table>
+    <tr><th>层</th><th>组件</th><th>说明</th></tr>
+    <tr><td>桌面壳</td><td>Electron / Tauri（桌面端应用壳）</td><td>跨平台安装包；Tauri 更轻量（首选），Electron 生态更全（备选）</td></tr>
+    <tr><td>UI</td><td>对话式向导界面（React/Vue，承接现有交互原型）</td><td>项目向导 + 平台连接中心 + 数据看板 + 设置（API Key 管理）</td></tr>
+    <tr><td>AI 接入层</td><td>BYOK LLM 接入（OpenAI 兼容 Chat Completions 协议）</td><td>用户配置 Base URL / API Key / 模型名即可接入 DeepSeek、OpenAI、通义、本地 Ollama / LM Studio 等；Key 仅存本地</td></tr>
+    <tr><td>AI 编排</td><td>LLM 编排（文案生成 / 诊断 / 聚类分析 / 策略生成）</td><td>多 Agent：文案 Agent、冷启动 Agent、反馈分析 Agent、报喜 Agent</td></tr>
+    <tr><td>平台连接层</td><td>本地 OAuth + 各平台适配器</td><td>L1 API 适配器（本地 OAuth，Token 存本地）/ L2 深链与剪贴板 / L3 RPA 兜底</td></tr>
+    <tr><td>采集层</td><td>本地定时任务 + 增量去重</td><td>评论/评分/Issue/数据指标；应用在后台时按需轮询</td></tr>
+    <tr><td>数据层</td><td>SQLite（本地单文件）</td><td>作品档案 / 发布记录 / 文案历史 / 反馈库 / 指标库；统一反馈模型与指标口径</td></tr>
+    <tr><td>交付层</td><td>本地物料生成管线（详见第六节 6.5）</td><td>文案包 / 落地页（模板引擎）/ 录屏引导式短视频（拆条 → 多版本 → 渲染）</td></tr>
+  </table>
+  <div class="highlight"><b>视频选型：</b>演示视频用 <b>Remotion</b>（React 写视频，代码化渲染，适合自动化按项目信息生成），而非改造完整开源剪辑器——OpenCut/Clypra 面向「人剪」，不适合程序化批量生成。桌面端渲染在本地执行，无需服务端。</div>
+</section>
+
+<!-- 十二、MVP -->
+<section>
+  <h2>十四、MVP 范围与里程碑</h2>
+  <table>
+    <tr><th>阶段</th><th>范围</th><th>验证目标</th></tr>
+    <tr>
+      <td><b>MVP 1.0</b></td>
+      <td>桌面端应用壳（安装即用）· 首次启动 API Key 设置（BYOK）· 对话式向导 · 作品登记（本地 SQLite）· 多平台文案生成（接真实 LLM）· 冷启动 72h 计划（可编辑）· L2 一键跳转发布 · 发布队列与结果回填</td>
+      <td>验证「登记→生成→发布」是否顺畅，用户是否愿意走完流程；BYOK 配置是否够简单</td>
+    </tr>
+    <tr>
+      <td><b>MVP 1.5</b></td>
+      <td>落地页生成 · GitHub/商店 API 直发（L1，本地 OAuth）· 数据看板 v1 · 里程碑报喜 · 录屏引导 v1（录屏 + 单版本竖屏成片）· 多作品作品库 v1（卡片管理 + 主推队列）· 数据导出/导入</td>
+      <td>验证反馈闭环雏形 + 录屏成片是否顺畅</td>
+    </tr>
+    <tr>
+      <td><b>MVP 2.0</b></td>
+      <td>反馈采集 + AI 分析（周报/迭代清单）· 多画幅多版本渲染（Remotion 本地渲染）· 开源发布与社区案例库</td>
+      <td>验证「运营飞轮」+ 短视频多平台分发是否转起来</td>
+    </tr>
+  </table>
+  <p class="footnote">建议 MVP 1.0 优先做「桌面壳 + BYOK 接入 + 文案生成 + 冷启动计划 + L2 跳转发布」——成本最低、见效最快；录屏单版本成片放入 1.5（用户最迫切想要的实物），多画幅多版本渲染与开源社区放入 2.0。</p>
+</section>
+
+<!-- 十三、风险 -->
+<section>
+  <h2>十五、风险与合规边界</h2>
+  <table>
+    <tr><th>风险</th><th>应对</th></tr>
+    <tr><td>平台 API 政策变动 / 个人开发者拿不到发布权限</td><td>L1/L2 混合架构，单平台变化不影响整体；平台连接中心统一封装适配</td></tr>
+    <tr><td>自动化发布触发平台风控</td><td>限频、延迟发布、优先官方 API；L3 兜底标注 ToS 风险</td></tr>
+    <tr><td>反馈采集涉及用户隐私</td><td>只采集与作品相关的公开评论/数据，遵守平台 ToS 与个人信息保护要求</td></tr>
+    <tr><td>用户授权范围信任问题</td><td>授权时明示权限范围，发布动作保留用户确认；Token 仅存本地，可随时撤销</td></tr>
+    <tr><td>AI 文案同质化 / 平台判定营销</td><td>文案风格模型多版本 + 人工微调入口</td></tr>
+    <tr><td>BYOK 依赖用户自带 Key（成本自担 / 不同模型效果差异）</td><td>支持多端点与模型自由切换、用量与成本提示；提示词精简以控成本</td></tr>
+    <tr><td>开源软件信任与二次分发</td><td>代码开源可审计、数据全本地不收集；提供官方签名安装包与校验</td></tr>
+    <tr><td>录屏 / 录音涉及用户隐私</td><td>全程本地采集、仅用户主动上传；授权时明示用途与保存范围，可随时删除</td></tr>
+  </table>
+</section>
+
+<!-- 十四、名词表 -->
+<section>
+  <h2>十六、名词表（专业实体词表）</h2>
+  <table>
+    <tr><th>实体</th><th>定义</th><th>用途/场景</th></tr>
+    <tr><td>AI 推广大师</td><td>人格化的推广/运营智能体，接管作品从发布到迭代的全流程</td><td>产品核心交互角色</td></tr>
+    <tr><td>作品档案</td><td>用户作品的标准化结构化描述（类型/技术栈/定位/链接/卖点）</td><td>所有模块的输入基座</td></tr>
+    <tr><td>平台连接中心</td><td>统一管理各平台 OAuth 授权与连接状态的界面</td><td>打通体验入口</td></tr>
+    <tr><td>L1 直发 / L2 跳转 / L3 RPA</td><td>平台发布的三层打通策略</td><td>发布架构设计</td></tr>
+    <tr><td>冷启动策略引擎</td><td>生成个性化 0→1 用户获取计划（渠道/种子用户/72h 清单）</td><td>核心差异化模块</td></tr>
+    <tr><td>反馈采集层</td><td>定时抓取各平台评论/评分/Issue 的增量采集系统</td><td>数据闭环输入</td></tr>
+    <tr><td>反馈分析引擎</td><td>对原始反馈做聚类/归因/情绪分析并输出迭代清单</td><td>数据闭环输出</td></tr>
+    <tr><td>里程碑报喜</td><td>对关键数据节点（首个 star/首个下载/首条好评）的主动推送</td><td>留存与正反馈设计</td></tr>
+    <tr><td>72h 首秀计划</td><td>发布后 72 小时内的逐日渠道发布节奏</td><td>冷启动执行单元</td></tr>
+    <tr><td>运营周报</td><td>AI 生成的周期性反馈分析报告（Bug/需求/情绪/优先级）</td><td>迭代指导</td></tr>
+    <tr><td>P0/P1/P2 迭代清单</td><td>按影响面与频次分级的开发优先级清单</td><td>开发排期输入</td></tr>
+    <tr><td>Remotion 演示视频管线</td><td>基于代码化渲染（React）自动生成作品演示视频</td><td>物料生成模块</td></tr>
+    <tr><td>录屏引导式创作流水线</td><td>AI 引导录屏 → 拆条 → 多版本 → 文稿 → 跟读 → 合成的视频创作全流程</td><td>核心差异化模块</td></tr>
+    <tr><td>镜头（Shot）</td><td>拆条后按语义切分的最小画面单元（含起止时间戳 / 标签 / 缩略图）</td><td>版本重组的素材单元</td></tr>
+    <tr><td>拆条</td><td>把原始录屏自动切分为多个镜头的算法过程（画面差异 + 操作停顿检测）</td><td>视频创作步骤</td></tr>
+    <tr><td>多画幅版本矩阵</td><td>同一素材按「时长 × 画幅」产出多版本成片的组合</td><td>适配横竖屏平台</td></tr>
+    <tr><td>画幅适配</td><td>竖屏 9:16 模糊填充 / 横屏 16:9 铺满的素材比例处理规则</td><td>渲染管线</td></tr>
+    <tr><td>跟读录音</td><td>用户对着 AI 文稿真人念稿录音的方式（规避 AI 声音克隆合规风险）</td><td>配音采集</td></tr>
+    <tr><td>素材来源矩阵</td><td>各素材按优先级自动降级获取的来源规则（用户永远不被卡住）</td><td>物料生成设计</td></tr>
+    <tr><td>作品库</td><td>多作品统一管理的全局层（卡片 = 作品档案：类型 / 状态 / 指标 / 下一步）</td><td>多作品管理</td></tr>
+    <tr><td>生命周期状态机</td><td>作品按「待启动 → 首秀中 → 运营期 → 稳定期 → 已归档」流转</td><td>多作品管理</td></tr>
+    <tr><td>主推队列</td><td>同一时间只主推 1 个作品，其余挂机 / 排队，AI 自动切换的策略</td><td>多作品管理核心机制</td></tr>
+    <tr><td>挂机 / 排队</td><td>非主推作品的两种低强度状态：自动维护 或 等待 AI 唤醒安排首秀</td><td>主推队列执行态</td></tr>
+    <tr><td>成功案例库</td><td>学生/独立开发者作品 0→1 复盘集合</td><td>社区获客与留存</td></tr>
+    <tr><td>BYOK（Bring Your Own Key）</td><td>用户自带模型 API Key 的接入模式；应用不内置模型与账号</td><td>AI 接入层核心机制</td></tr>
+    <tr><td>DeepSeek Harness 模式</td><td>本地接入任意 OpenAI 兼容模型端点的 BYOK 接入范式</td><td>AI 接入方式参考</td></tr>
+    <tr><td>桌面端应用（Electron/Tauri）</td><td>本地安装运行的应用形态，无服务器、无账号</td><td>产品交付形态</td></tr>
+    <tr><td>本地 SQLite</td><td>应用唯一的本地数据存储（作品 / 发布记录 / 反馈 / 指标）</td><td>数据层</td></tr>
+  </table>
+</section>
+
+<div style="text-align:center;color:#9CA3AF;font-size:12px;padding:10px 0 30px;">AI 推广大师 · 产品需求文档 v1.3 · 更新于 2026-09-03</div>
+
+</div>
+</body>
+</html>

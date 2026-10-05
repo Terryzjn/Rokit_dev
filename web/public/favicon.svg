@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- 简化版火箭 favicon：青色系 -->
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#94D4D0"/>
+      <stop offset="100%" stop-color="#0E7C7B"/>
+    </linearGradient>
+    <linearGradient id="flame" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#E94B8C"/>
+      <stop offset="100%" stop-color="#8B5CF6"/>
+    </linearGradient>
+  </defs>
+  <path d="M32 4 C 40 14, 44 22, 44 36 L 44 50 L 20 50 L 20 36 C 20 22, 24 14, 32 4 Z" fill="url(#body)"/>
+  <circle cx="32" cy="26" r="6" fill="#0a0e14"/>
+  <circle cx="32" cy="26" r="3.5" fill="#4DD0E1"/>
+  <path d="M20 38 L 12 50 L 20 50 Z" fill="#1F9C9A"/>
+  <path d="M44 38 L 52 50 L 44 50 Z" fill="#1F9C9A"/>
+  <path d="M28 50 L 30 60 L 32 56 L 34 60 L 36 50 Z" fill="url(#flame)"/>
+</svg>

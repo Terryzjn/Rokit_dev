@@ -1,0 +1,122 @@
+---
+/**
+ * 应用截图区
+ * - v0.1.4 起：从 ai-launch-master 桌面应用实拍 PNG（wflow / dashboard 两张）
+ * - 真实数据：首发作品 20 · 总发布 0 · 被启用渠道 0 · 最近发布 空（v0.1.4 看板交付后）
+ * - 同步发布：v0.1.5 背景图与桌面端品牌资产（assets/logo.svg）调色板统一
+ */
+const screenshots = [
+  { file: '/screenshots/wflow.png', alt: 'Rokit 首秀向导（v0.1.4 实拍 · 首秀发射航道 + 火箭发射按钮 + AI 对话）', title: '首秀向导', desc: 'AI 一路引导你从登记到发射，13 个平台文案自动生成' },
+  { file: '/screenshots/dashboard.png', alt: 'Rokit 数据看板（v0.1.4 实拍 · 4 项本机会话 KPI + sparkline 趋势）', title: '数据看板', desc: '本机会话发布次数 / 渠道分布 / 里程碑报喜' },
+];
+---
+
+<section class="section shots" id="shots">
+  <div class="container">
+    <header class="section-head">
+      <span class="eyebrow">INTERFACE PREVIEW</span>
+      <h2>看一眼 <span class="highlight">Rokit</span> 在做什么</h2>
+      <p>所有操作都在一个工作台里完成——不用切来切去，专注做你最擅长的事。</p>
+    </header>
+
+    <div class="shots-grid">
+      {screenshots.map((s) => (
+        <figure class="shot-card">
+          <a href={s.file} target="_blank" rel="noopener">
+            <img src={s.file} alt={s.alt} loading="lazy" />
+          </a>
+          <figcaption>
+            <strong>{s.title}</strong>
+            <span>{s.desc}</span>
+          </figcaption>
+        </figure>
+      ))}
+    </div>
+
+    <p class="shot-note">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="12" y1="8" x2="12" y2="12"/>
+        <line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+      📸 v0.1.4 截图由 ai-launch-master v0.1.4 桌面应用实拍（GitHub Release 同款构建）
+    </p>
+  </div>
+</section>
+
+<style>
+  .shots-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+    gap: 24px;
+    max-width: 1080px;
+    margin: 0 auto;
+  }
+
+  .shot-card {
+    margin: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    background: var(--bg-card);
+    transition: all 0.25s var(--ease);
+  }
+
+  .shot-card:hover {
+    border-color: var(--primary-glow);
+    transform: translateY(-2px);
+    box-shadow: 0 12px 32px -12px rgba(14, 124, 123, 0.4);
+  }
+
+  .shot-card img {
+    display: block;
+    width: 100%;
+    height: 240px;
+    object-fit: cover;
+    object-position: top center;
+    background: #0a0e14;
+  }
+
+  .shot-card figcaption {
+    padding: 18px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .shot-card figcaption strong {
+    font-size: 1.05rem;
+    color: var(--text);
+  }
+
+  .shot-card figcaption span {
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    line-height: 1.55;
+  }
+
+  .shot-note {
+    text-align: center;
+    margin-top: 24px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.82rem;
+    color: var(--text-mute);
+    padding: 6px 14px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+  }
+
+  .shots-grid + .shot-note {
+    display: table;
+    margin: 24px auto 0;
+  }
+
+  @media (max-width: 640px) {
+    .shot-card img {
+      height: 180px;
+    }
+  }
+</style>

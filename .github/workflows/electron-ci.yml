@@ -1,0 +1,60 @@
+name: electron-ci
+
+on:
+  push:
+    branches: [main, feature/**]
+    paths:
+      - 'ai-launch-master/**'
+      - '.github/workflows/electron-ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ai-launch-master/**'
+      - '.github/workflows/electron-ci.yml'
+
+concurrency:
+  group: electron-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Lint + Test + Audit (Electron v0.1.3)
+    # 改为 ubuntu-latest + Node 22：避免 windows-latest Node 24 上 better-sqlite3@11.x 无 prebuilt 二进制
+    # （Windows 上的 native module 编译场景留给开发机本地验证；CI 保证跨平台 JS 逻辑一致）
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: ai-launch-master
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: ai-launch-master/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint (ESLint flat config)
+        # 已包含 no-alert 检查，AST 级别不会误判 fixture 字符串中的 alert(1)
+        run: npm run lint
+      
+      - name: Unit tests (vitest)
+        run: npm test
+
+      - name: Audit (consistency + UX)
+        run: npm run audit
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### CI Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- Node: 22" >> $GITHUB_STEP_SUMMARY
+          echo "- Lint: ESLint flat config" >> $GITHUB_STEP_SUMMARY
+          echo "- Tests: vitest" >> $GITHUB_STEP_SUMMARY
+          echo "- Audit: tests/audit.js + tests/audit-ux.js" >> $GITHUB_STEP_SUMMARY

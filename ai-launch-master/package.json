@@ -1,0 +1,98 @@
+{
+  "name": "rokit",
+  "productName": "Rokit",
+  "version": "0.1.5",
+  "description": "Rokit · 开源桌面端 AI 推广自动化（BYOK · 本地 SQLite · 作品首秀发射台）",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "node scripts/start.js",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write \"electron/**/*.js\" \"tests/**/*.js\" \"*.{js,json,md}\" \"*.html\"",
+    "format:check": "prettier --check \"electron/**/*.js\" \"tests/**/*.js\" \"*.{js,json,md}\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "audit": "node tests/audit.js && node tests/audit-ux.js",
+    "icon:build": "node scripts/prepare-icon.js",
+    "dist": "npm run icon:build && electron-builder",
+    "dist:win": "npm run icon:build && electron-builder --win",
+    "dist:portable": "npm run icon:build && electron-builder --win portable",
+    "bump": "node scripts/bump-version.js",
+    "pack": "npm run icon:build && node scripts/bump-version.js && electron-builder --win",
+    "pack:portable": "npm run icon:build && node scripts/bump-version.js && electron-builder --win portable"
+  },
+  "author": "ProClips+",
+  "license": "MIT",
+  "dependencies": {
+    "better-sqlite3": "^11.7.0",
+    "ffmpeg-static": "^5.2.0",
+    "keytar": "^7.9.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.13.0",
+    "electron": "^36.9.5",
+    "electron-builder": "^25.1.8",
+    "eslint": "^9.13.0",
+    "globals": "^15.11.0",
+    "png-to-ico": "^2.1.8",
+    "prettier": "^3.3.3",
+    "vitest": "^2.1.4"
+  },
+  "build": {
+    "appId": "com.proclips.rokit",
+    "productName": "Rokit",
+    "copyright": "Copyright © 2026 ProClips+",
+    "directories": {
+      "output": "../RELEASE",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**/*",
+      "index.html",
+      "assets/**/*",
+      "package.json",
+      "!**/_backup/**",
+      "!**/.preview/**",
+      "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
+      "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}",
+      "!**/node_modules/keytar/{build,src}",
+      "!**/node_modules/ffmpeg-static/{install.js,types}",
+      "!**/node_modules/.bin",
+      "!**/*.{md,markdown}",
+      "!**/*.{map,ts}"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/keytar/**/*",
+      "node_modules/ffmpeg-static/**/*"
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Rokit"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.${ext}"
+    }
+  }
+}

@@ -1,0 +1,203 @@
+---
+/**
+ * 13 个发布平台网格
+ * - chip 形式，hover 高亮
+ * - L1/L2/L3 分级标注
+ */
+const platforms = [
+  // v0.1.4 实际状态：GitHub L1 直发已上线（API 直创建 Release）；其余 12 个平台仍为 L2（AI 备料 + 一键跳转 / 浏览器自动填表）
+  // 其他平台的 L1 接入放在 MVP 2.0 路线图中
+  { name: 'GitHub', level: 'L1', desc: 'Release API 直发', icon: '🐙', size: 'lg' },
+  { name: 'V2EX', level: 'L2', desc: '创意工坊', icon: '💬', size: 'md' },
+  { name: '掘金', level: 'L2', desc: '沸点', icon: '⛏️', size: 'md' },
+  { name: 'X (Twitter)', level: 'L2', desc: '推文', icon: '🐦', size: 'sm' },
+  { name: 'Facebook', level: 'L2', desc: '主页', icon: '👤', size: 'sm' },
+  { name: 'YouTube', level: 'L2', desc: '社区帖', icon: '📺', size: 'md' },
+  { name: '抖音', level: 'L2', desc: '图文 / 视频', icon: '🎵', size: 'lg' },
+  { name: '小红书', level: 'L2', desc: '种草笔记', icon: '📕', size: 'lg' },
+  { name: 'B站', level: 'L2', desc: '动态', icon: '📺', size: 'md' },
+  { name: '即刻', level: 'L2', desc: '动态', icon: '⚡', size: 'sm' },
+  { name: '知乎', level: 'L2', desc: '想法 / 回答', icon: '💡', size: 'md' },
+  { name: '微信公众号', level: 'L2', desc: '图文', icon: '💚', size: 'lg' },
+  { name: 'Product Hunt', level: 'L2', desc: 'Launch 自动填表', icon: '🔺', size: 'md' },
+];
+---
+
+<section class="section platforms" id="platforms">
+  <div class="container">
+    <header class="section-head">
+      <span class="eyebrow">13 PLATFORMS</span>
+      <h2>一稿打<span class="highlight">13 个平台</span></h2>
+      <p>不用再一个个注册、一个个写、一个个发——你只管确认，AI 帮你覆盖全平台。</p>
+    </header>
+
+    <div class="plat-cloud">
+      {platforms.map((p) => (
+        <div class={`plat-chip plat-chip-${p.size} plat-${p.level.toLowerCase()}`}>
+          <span class="plat-chip-icon">{p.icon}</span>
+          <span class="plat-chip-name">{p.name}</span>
+          <span class="plat-chip-lvl">{p.level}</span>
+        </div>
+      ))}
+    </div>
+
+    <div class="plat-legend">
+      <div><span class="plat-level plat-l2">L2</span> AI 备料 + 自动填表（v0.1.4 当前主力 · 12 平台）</div>
+      <div><span class="plat-level plat-l1">L1</span> API 直发（GitHub 已上线 · 其他平台 MVP 2.0）</div>
+      <div><span class="plat-level plat-l3">L3</span> RPA 兜底 · 占位</div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .plat-cloud {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 14px;
+    padding: 24px 0;
+  }
+
+  .plat-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 18px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    transition: all 0.25s var(--ease);
+    cursor: default;
+    user-select: none;
+  }
+
+  .plat-chip:hover {
+    transform: translateY(-2px) scale(1.03);
+    border-color: var(--border-strong);
+    background: var(--bg-card-hover);
+  }
+
+  .plat-chip-sm {
+    padding: 8px 14px;
+    font-size: 0.85rem;
+  }
+
+  .plat-chip-md {
+    padding: 10px 18px;
+    font-size: 0.92rem;
+  }
+
+  .plat-chip-lg {
+    padding: 12px 22px;
+    font-size: 1rem;
+  }
+
+  .plat-chip-icon {
+    font-size: 1.1em;
+  }
+
+  .plat-chip-name {
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .plat-chip-lvl {
+    font-family: 'SF Mono', Monaco, monospace;
+    font-size: 0.65em;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 5px;
+    letter-spacing: 0.05em;
+  }
+
+  .plat-l1 .plat-chip-lvl {
+    background: linear-gradient(135deg, rgba(233, 75, 140, 0.2), rgba(139, 92, 246, 0.15));
+    color: #e94b8c;
+    border: 1px solid rgba(233, 75, 140, 0.35);
+  }
+
+  .plat-l1 {
+    border-color: rgba(233, 75, 140, 0.25);
+    box-shadow: 0 0 20px -8px rgba(233, 75, 140, 0.25);
+  }
+
+  .plat-l2 .plat-chip-lvl {
+    background: rgba(31, 156, 154, 0.15);
+    color: var(--primary-glow);
+    border: 1px solid rgba(31, 156, 154, 0.3);
+  }
+
+  .plat-legend {
+    margin-top: 36px;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 12px 28px;
+    padding: 18px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 0.85rem;
+    color: var(--text-dim);
+  }
+
+  .plat-legend > div {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .plat-level {
+    display: inline-block;
+    font-family: 'SF Mono', Monaco, monospace;
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 5px;
+    letter-spacing: 0.05em;
+  }
+
+  .plat-level.plat-l1 {
+    background: linear-gradient(135deg, rgba(233, 75, 140, 0.18), rgba(139, 92, 246, 0.12));
+    color: #e94b8c;
+    border: 1px solid rgba(233, 75, 140, 0.35);
+    box-shadow: none;
+  }
+
+  .plat-level.plat-l2 {
+    background: rgba(31, 156, 154, 0.18);
+    color: var(--primary-glow);
+    border: 1px solid rgba(31, 156, 154, 0.35);
+  }
+
+  .plat-level.plat-l3 {
+    background: rgba(148, 212, 208, 0.08);
+    color: var(--text-mute);
+    border: 1px solid var(--border);
+  }
+
+  @media (max-width: 768px) {
+    .plat-cloud {
+      gap: 10px;
+      padding: 16px 0;
+    }
+    .plat-chip-lg {
+      padding: 10px 16px;
+      font-size: 0.9rem;
+    }
+    .plat-chip-md {
+      padding: 8px 14px;
+      font-size: 0.85rem;
+    }
+    .plat-chip-sm {
+      padding: 7px 12px;
+      font-size: 0.8rem;
+    }
+    .plat-legend {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 10px;
+    }
+  }
+</style>

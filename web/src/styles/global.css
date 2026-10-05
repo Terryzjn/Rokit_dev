@@ -1,0 +1,332 @@
+/* ============================================================
+   Rokit 首站 · 全局样式
+   - 青色主导（#0E7C7B 系）+ 深空蓝黑背景
+   - 中文为主文案
+   ============================================================ */
+
+:root {
+  /* 深空背景 */
+  --bg-deep: #0a0e14;
+  --bg-mid: #0e141b;
+  --bg-soft: #131c25;
+  --bg-card: rgba(255, 255, 255, 0.03);
+  --bg-card-hover: rgba(255, 255, 255, 0.05);
+  --border: rgba(148, 212, 208, 0.18);
+  --border-strong: rgba(148, 212, 208, 0.35);
+
+  /* 品牌青色 */
+  --primary: #0e7c7b;
+  --primary-glow: #1f9c9a;
+  --primary-soft: #94d4d0;
+  --primary-bg: #e6f4f3;
+
+  /* 赛博朋克高光（克制使用） */
+  --accent-pink: #e94b8c;
+  --accent-violet: #8b5cf6;
+  --accent-cyan: #4dd0e1;
+
+  /* 文字 */
+  --text: #e8ecef;
+  --text-dim: #94a3b8;
+  --text-mute: #64748b;
+
+  /* 尺寸 */
+  --max-w: 1200px;
+  --radius: 14px;
+  --radius-sm: 10px;
+  --radius-lg: 20px;
+
+  /* 动画 */
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ===== Reset ===== */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* ===== 无障碍 ===== */
+.skip-link {
+  position: absolute;
+  top: -48px;
+  left: 16px;
+  z-index: 100;
+  padding: 10px 18px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 600;
+  border-radius: 0 0 8px 8px;
+  transition: top 0.2s ease;
+}
+
+.skip-link:focus {
+  top: 0;
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--primary-glow);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline-offset: 3px;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei',
+    'Segoe UI', system-ui, 'Helvetica Neue', Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.65;
+  color: var(--text);
+  background: var(--bg-deep);
+  overflow-x: hidden;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: 'kern' 1;
+}
+
+img,
+svg {
+  display: block;
+  max-width: 100%;
+  content-visibility: auto;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+/* ===== 字体 ===== */
+h1,
+h2,
+h3,
+h4 {
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+}
+
+h1 {
+  font-size: clamp(2.2rem, 5.5vw, 4rem);
+}
+h2 {
+  font-size: clamp(1.7rem, 3.5vw, 2.4rem);
+}
+h3 {
+  font-size: 1.15rem;
+}
+
+p {
+  color: var(--text-dim);
+}
+
+/* ===== 性能优化 ===== */
+.section {
+  content-visibility: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ===== 工具类 ===== */
+.container {
+  width: 100%;
+  max-width: var(--max-w);
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.section {
+  padding: 96px 0;
+  position: relative;
+}
+
+.section + .section {
+  border-top: 1px solid var(--border);
+}
+
+.section-head {
+  text-align: center;
+  max-width: 720px;
+  margin: 0 auto 56px;
+}
+
+.section-head .eyebrow {
+  display: inline-block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--primary-soft);
+  padding: 4px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  margin-bottom: 18px;
+}
+
+.section-head h2 {
+  margin-bottom: 14px;
+  color: var(--text);
+}
+
+.section-head h2 .highlight {
+  background: linear-gradient(135deg, #94d4d0 0%, #4dd0e1 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.section-head p {
+  font-size: 1.05rem;
+}
+
+/* ===== 按钮 ===== */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 22px;
+  border-radius: 10px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  transition: all 0.25s var(--ease);
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-glow) 100%);
+  color: #fff;
+  box-shadow:
+    0 4px 20px rgba(14, 124, 123, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 8px 28px rgba(14, 124, 123, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.btn-ghost {
+  background: var(--bg-card);
+  border-color: var(--border-strong);
+  color: var(--text);
+  backdrop-filter: blur(8px);
+}
+
+.btn-ghost:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--primary-soft);
+  transform: translateY(-2px);
+}
+
+.btn-lg {
+  padding: 15px 30px;
+  font-size: 1.02rem;
+  border-radius: 12px;
+}
+
+/* ===== 卡片 ===== */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 28px;
+  backdrop-filter: blur(10px);
+  transition: all 0.3s var(--ease);
+}
+
+.card:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-strong);
+  transform: translateY(-4px);
+}
+
+/* ===== 选择文本高亮 ===== */
+::selection {
+  background: var(--primary);
+  color: #fff;
+}
+
+/* ===== 滚动条 ===== */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-deep);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--bg-soft);
+  border-radius: 5px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--primary);
+}
+
+/* ===== 全站背景层（深空 + 星空 + 地球光晕） ===== */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(31, 156, 154, 0.12) 0%, transparent 60%),
+    radial-gradient(ellipse at 80% 100%, rgba(233, 75, 140, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 0% 80%, rgba(139, 92, 246, 0.06) 0%, transparent 50%),
+    linear-gradient(180deg, var(--bg-deep) 0%, #060a10 100%);
+  z-index: -2;
+  pointer-events: none;
+}
+
+/* ===== 响应式断点 ===== */
+@media (max-width: 768px) {
+  .section {
+    padding: 64px 0;
+  }
+  .section-head {
+    margin-bottom: 40px;
+  }
+  .container {
+    padding: 0 20px;
+  }
+  .card {
+    padding: 22px;
+  }
+}

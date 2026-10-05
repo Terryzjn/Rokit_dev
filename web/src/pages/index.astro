@@ -1,0 +1,34 @@
+---
+/**
+ * Rokit 首站首页
+ * - 单页纵向滚动：Nav / Hero / 痛点 / 功能 / 流程 / 平台 / 路线图 / 截图 / 下载 / Footer
+ */
+import Layout from '../layouts/Layout.astro';
+import Nav from '../components/Nav.astro';
+import Hero from '../components/Hero.astro';
+import PainPoints from '../components/PainPoints.astro';
+import Features from '../components/Features.astro';
+import Flow from '../components/Flow.astro';
+import Platforms from '../components/Platforms.astro';
+import Roadmap from '../components/Roadmap.astro';
+import Screenshots from '../components/Screenshots.astro';
+import Faq from '../components/Faq.astro';
+import Download from '../components/Download.astro';
+import Footer from '../components/Footer.astro';
+---
+
+<Layout>
+  <Nav />
+  <main id="main-content">
+    <Hero />
+    <PainPoints />
+    <Features />
+    <Flow />
+    <Platforms />
+    <Roadmap />
+    <Screenshots />
+    <Faq />
+    <Download />
+  </main>
+  <Footer />
+</Layout>

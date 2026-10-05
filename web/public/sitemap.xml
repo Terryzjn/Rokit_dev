@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  v0.1.5 发布于 2026-09-26：顶栏窗口控制 IPC 加固 + 桌面端品牌资产与营销站全量对齐
+  （版本号 / OG 图 / macOS ETA / Footer 年份 / sitemap lastmod 同步）。
+  本次 lastmod 与本版本同日（2026-09-26）。
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://rokit.vercel.app/</loc>
+    <lastmod>2026-09-26</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>

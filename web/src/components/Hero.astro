@@ -1,0 +1,367 @@
+---
+/**
+ * Hero 主视觉
+ * - 深空背景 + 居中火箭 SVG + 星空粒子
+ * - 大标题 + 副标题 + 双 CTA
+ */
+import rocketSvg from '../assets/rocket.svg?raw';
+
+const githubUrl = 'https://github.com/MatuX-ai/Rokit';
+const version = '0.1.5'; // 与 ai-launch-master/package.json 同步
+// 与 [Download.astro](Download.astro) 统一使用具体版本直链（而非 /releases/latest 重定向），
+// 以便版本锁定 + 直链 SEO；SHA256 源同处。
+const nsisName = `Rokit-${version}-x64.exe`;
+const releaseUrl = `https://github.com/MatuX-ai/Rokit/releases/download/v${version}/${nsisName}`;
+---
+
+<section class="hero" id="top">
+  <!-- 星空粒子背景 -->
+  <div class="stars" aria-hidden="true">
+    {Array.from({ length: 60 }).map((_, i) => (
+      <span class="star" style={`--i: ${i}`}></span>
+    ))}
+  </div>
+
+  <!-- 底部地球光晕 -->
+  <div class="earth-glow" aria-hidden="true"></div>
+
+  <div class="container hero-inner">
+    <div class="hero-copy">
+      <span class="badge">
+        <span class="badge-dot"></span>
+        v{version} 已发布 · 开源 · MIT
+      </span>
+
+      <h1 class="hero-title">
+        作品做完了，<br />
+        <span class="grad">别让它吃灰</span>
+      </h1>
+
+      <p class="hero-sub">
+        Rokit 用 AI 帮你把作品一键发到 13 个平台，<br />
+        从文案到发布，<b>一条龙搞定</b>。
+      </p>
+
+      <div class="hero-cta">
+        <a href={releaseUrl} class="btn btn-primary btn-lg" target="_blank" rel="noopener noreferrer">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          下载 Rokit v{version}
+        </a>
+        <a href={githubUrl} class="btn btn-ghost btn-lg" target="_blank" rel="noopener noreferrer">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+            <path d="M12 .5C5.7.5.5 5.7.5 12c0 5.1 3.3 9.4 7.9 10.9.6.1.8-.2.8-.6v-2.2c-3.2.7-3.9-1.4-3.9-1.4-.5-1.3-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.6-.3-5.3-1.3-5.3-5.8 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.2 1.2.9-.3 1.9-.4 2.9-.4s2 .1 2.9.4c2.2-1.5 3.2-1.2 3.2-1.2.6 1.6.2 2.8.1 3.1.8.8 1.2 1.9 1.2 3.1 0 4.5-2.7 5.5-5.3 5.8.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6 4.6-1.5 7.9-5.8 7.9-10.9C23.5 5.7 18.3.5 12 .5z"/>
+          </svg>
+          GitHub 仓库
+        </a>
+      </div>
+
+      <ul class="hero-meta">
+        <li><span class="dot"></span>Windows 10 / 11</li>
+        <li><span class="dot"></span>本地 SQLite</li>
+        <li><span class="dot"></span>BYOK 自带 Key</li>
+        <li><span class="dot"></span>零账号 · 零遥测</li>
+      </ul>
+    </div>
+
+    <div class="hero-visual" aria-hidden="false">
+      <div class="rocket-particles" aria-hidden="true">
+        {Array.from({ length: 18 }).map((_, i) => (
+          <span class="r-particle" style={`--i: ${i}`}></span>
+        ))}
+      </div>
+      <div class="rocket-wrap" set:html={rocketSvg}></div>
+      <div class="rocket-shadow"></div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .hero {
+    position: relative;
+    overflow: hidden;
+    padding: 80px 0 100px;
+    min-height: calc(100vh - 64px);
+    display: flex;
+    align-items: center;
+  }
+
+  /* ===== 星空 ===== */
+  .stars {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  .star {
+    position: absolute;
+    width: 2px;
+    height: 2px;
+    background: #fff;
+    border-radius: 50%;
+    top: calc((var(--i) * 137) % 100%);
+    left: calc((var(--i) * 91 + 13) % 100%);
+    opacity: calc(0.3 + (var(--i) % 7) * 0.1);
+    animation: twinkle calc(2s + (var(--i) % 5) * 0.8s) ease-in-out infinite;
+    animation-delay: calc(var(--i) * 0.1s);
+  }
+
+  .star:nth-child(3n) {
+    width: 3px;
+    height: 3px;
+    box-shadow: 0 0 6px rgba(148, 212, 208, 0.8);
+  }
+
+  @keyframes twinkle {
+    0%, 100% { opacity: 0.2; }
+    50% { opacity: 1; }
+  }
+
+  /* ===== 地球光晕 ===== */
+  .earth-glow {
+    position: absolute;
+    bottom: -10%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 180%;
+    height: 60%;
+    background:
+      radial-gradient(ellipse at 50% 100%, rgba(77, 208, 225, 0.18) 0%, transparent 50%),
+      radial-gradient(ellipse at 50% 100%, rgba(14, 124, 123, 0.12) 0%, transparent 65%);
+    pointer-events: none;
+  }
+
+  /* ===== Hero 容器 ===== */
+  .hero-inner {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: 1.05fr 0.95fr;
+    align-items: center;
+    gap: 60px;
+  }
+
+  .hero-copy {
+    text-align: left;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    color: var(--primary-soft);
+    padding: 6px 14px;
+    background: rgba(14, 124, 123, 0.15);
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    margin-bottom: 28px;
+  }
+
+  .badge-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--primary-glow);
+    box-shadow: 0 0 8px var(--primary-glow);
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  .hero-title {
+    line-height: 1.1;
+    margin-bottom: 24px;
+  }
+
+  .hero-title .grad {
+    background: linear-gradient(135deg, #94D4D0 0%, #4DD0E1 50%, #8B5CF6 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    position: relative;
+  }
+
+  .hero-sub {
+    font-size: 1.08rem;
+    line-height: 1.7;
+    color: var(--text-dim);
+    margin-bottom: 36px;
+    max-width: 540px;
+  }
+
+  .hero-sub b {
+    color: var(--primary-soft);
+    font-weight: 600;
+  }
+
+  .hero-cta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    margin-bottom: 36px;
+  }
+
+  .hero-meta {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px 24px;
+    font-size: 0.88rem;
+    color: var(--text-dim);
+  }
+
+  .hero-meta li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .hero-meta .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--primary-glow);
+    box-shadow: 0 0 6px var(--primary-glow);
+  }
+
+  /* 火箭上升粒子 */
+  .rocket-particles {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 1;
+  }
+
+  .r-particle {
+    position: absolute;
+    width: 3px;
+    height: 3px;
+    background: #fff;
+    border-radius: 50%;
+    bottom: -10px;
+    left: calc((var(--i) * 53) % 100%);
+    opacity: calc(0.3 + (var(--i) % 5) * 0.15);
+    animation:
+      rocketRise calc(3s + (var(--i) % 4) * 0.8s) linear infinite,
+      twinkle 2s ease-in-out infinite;
+    animation-delay: calc(var(--i) * 0.25s);
+    box-shadow: 0 0 4px rgba(148, 212, 208, 0.6);
+  }
+
+  .r-particle:nth-child(3n) {
+    width: 4px;
+    height: 4px;
+    box-shadow: 0 0 8px rgba(77, 208, 225, 0.7);
+  }
+
+  .r-particle:nth-child(5n) {
+    width: 2px;
+    height: 2px;
+  }
+
+  @keyframes rocketRise {
+    0% {
+      transform: translateY(0) scale(1);
+      opacity: 0;
+    }
+    10% {
+      opacity: 0.8;
+    }
+    90% {
+      opacity: 0.6;
+    }
+    100% {
+      transform: translateY(-520px) scale(0.4);
+      opacity: 0;
+    }
+  }
+
+  /* ===== 火箭视觉 ===== */
+  .hero-visual {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .rocket-wrap {
+    width: 100%;
+    max-width: 460px;
+    position: relative;
+    z-index: 2;
+    filter: drop-shadow(0 12px 32px rgba(14, 124, 123, 0.35))
+            drop-shadow(0 0 60px rgba(77, 208, 225, 0.15));
+  }
+
+  .rocket-wrap :global(svg) {
+    width: 100%;
+    height: auto;
+  }
+
+  .rocket-shadow {
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 70%;
+    height: 30px;
+    background: radial-gradient(ellipse at center, rgba(14, 124, 123, 0.4) 0%, transparent 70%);
+    filter: blur(8px);
+    z-index: 1;
+  }
+
+  /* ===== 响应式 ===== */
+  @media (max-width: 960px) {
+    .hero-inner {
+      grid-template-columns: 1fr;
+      gap: 40px;
+      text-align: center;
+    }
+    .hero-copy {
+      text-align: center;
+    }
+    .hero-sub {
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .hero-cta {
+      justify-content: center;
+    }
+    .hero-meta {
+      justify-content: center;
+    }
+    .hero-visual {
+      max-width: 360px;
+      margin: 0 auto;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .hero {
+      padding: 48px 0 64px;
+    }
+    .rocket-wrap {
+      max-width: 280px;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .r-particle {
+      animation: none;
+      opacity: 0;
+    }
+  }
+</style>

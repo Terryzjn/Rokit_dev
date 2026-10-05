@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>选择录屏来源</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+      color: #203134;
+      background: #f4f7f6;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 520px; min-height: 440px; display: flex; flex-direction: column; }
+    header { display: flex; align-items: center; gap: 12px; padding: 18px 20px 14px; }
+    .mark { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 9px; background: #0e7c7b; color: #fff; font-size: 18px; }
+    h1 { margin: 0; font-size: 16px; line-height: 1.4; font-weight: 700; }
+    .sub { margin-top: 2px; color: #687a7c; font-size: 12px; }
+    main { flex: 1; min-height: 0; overflow: auto; padding: 2px 20px 14px; }
+    .sources { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .source { min-width: 0; padding: 7px; border: 1px solid #d9e4e2; border-radius: 9px; background: #fff; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+    .source:hover, .source:focus-visible { border-color: #0e7c7b; background: #f0f8f7; outline: none; box-shadow: 0 0 0 2px rgba(14,124,123,.15); }
+    .preview { width: 100%; aspect-ratio: 16 / 9; display: block; object-fit: contain; border-radius: 5px; background: #e8efee; }
+    .meta { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 7px 2px 1px; }
+    .kind { flex: none; padding: 2px 5px; border-radius: 4px; background: #e8f3f2; color: #0e7372; font-size: 10px; }
+    .name { min-width: 0; overflow: hidden; color: #34494b; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+    .empty { padding: 32px 12px; color: #687a7c; text-align: center; font-size: 13px; }
+    footer { min-height: 58px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 20px; border-top: 1px solid #dce6e4; background: #fff; }
+    .hint { color: #687a7c; font-size: 11px; }
+    .cancel { padding: 8px 14px; border: 1px solid #d9e4e2; border-radius: 7px; background: #fff; color: #435557; font: inherit; font-size: 12px; cursor: pointer; }
+    .cancel:hover { border-color: #aebfbd; background: #f7faf9; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="mark" aria-hidden="true">▣</div>
+    <div>
+      <h1>选择录屏来源</h1>
+      <div class="sub">点击一个屏幕或应用窗口开始录制</div>
+    </div>
+  </header>
+  <main>
+    <div id="sources" class="sources" aria-label="可录制来源"></div>
+    <div id="empty" class="empty" hidden>没有找到可录制的屏幕或窗口。</div>
+  </main>
+  <footer>
+    <span class="hint">录屏仅在本机进行</span>
+    <button id="cancel" class="cancel" type="button">取消</button>
+  </footer>
+  <script>
+    const list = document.getElementById('sources');
+    const empty = document.getElementById('empty');
+    window.capturePicker.onSources((sources) => {
+      list.replaceChildren();
+      empty.hidden = sources.length > 0;
+      sources.forEach((source) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'source';
+        button.title = source.name;
+        button.setAttribute('aria-label', '录制' + source.kind + '：' + source.name);
+        const image = document.createElement('img');
+        image.className = 'preview';
+        image.src = source.thumbnail;
+        image.alt = '';
+        const meta = document.createElement('span');
+        meta.className = 'meta';
+        const kind = document.createElement('span');
+        kind.className = 'kind';
+        kind.textContent = source.kind;
+        const name = document.createElement('span');
+        name.className = 'name';
+        name.textContent = source.name;
+        meta.append(kind, name);
+        button.append(image, meta);
+        button.addEventListener('click', () => window.capturePicker.selectSource(source.id));
+        list.append(button);
+      });
+    });
+    document.getElementById('cancel').addEventListener('click', () => window.close());
+  </script>
+</body>
+</html>

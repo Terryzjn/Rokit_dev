@@ -1,0 +1,224 @@
+---
+/**
+ * 路线图：MVP 1.0（当前）✅ / 1.5 🚧 / 2.0 📋
+ * - 时间线，当前版本发光强调
+ */
+const milestones = [
+  {
+    ver: 'MVP 1.0',
+    status: 'on',
+    label: '当前',
+    title: '作品首秀核心闭环',
+    items: [
+      '桌面端应用壳（Electron 36）',
+      'BYOK 配置（DeepSeek / OpenAI / 通义 / Ollama）',
+      '对话式作品登记向导',
+      '多平台文案生成（接真实 LLM）',
+      '冷启动 72h 计划',
+      'L2 一键跳转发布',
+      '发布队列与结果回填',
+    ],
+  },
+  {
+    ver: 'MVP 1.5',
+    status: 'next',
+    label: '下一步',
+    title: '反馈闭环 + 录屏成片',
+    items: [
+      '落地页生成',
+      'L1 直发（GitHub v0.1.4 起已上线，其余平台 MVP 2.0 规划）',
+      '数据看板 v1',
+      '里程碑 AI 报喜',
+      '录屏引导 v1（录屏 + 竖屏成片）',
+      '多作品库 v1',
+      '数据导出 / 导入',
+    ],
+  },
+  {
+    ver: 'MVP 2.0',
+    status: 'later',
+    label: '后续',
+    title: '运营飞轮 + 短视频多平台',
+    items: [
+      '反馈采集 + AI 分析（周报 / 迭代清单）',
+      '多画幅多版本渲染（Remotion 本地）',
+      '开源发布与社区案例库',
+      'M6 工具推荐榜单',
+      '成长路径与成就激励',
+    ],
+  },
+];
+---
+
+<section class="section roadmap" id="roadmap">
+  <div class="container">
+    <header class="section-head">
+      <span class="eyebrow">ROADMAP</span>
+      <h2>三步走向<span class="highlight">完整运营飞轮</span></h2>
+      <p>从"发出去"到"持续成长"，一步一步帮你把作品做起来。</p>
+    </header>
+
+    <ol class="rm-track">
+      {milestones.map((m) => (
+        <li class={`card rm rm-${m.status}`}>
+          <header class="rm-head">
+            <div class="rm-ver">{m.ver}</div>
+            <div class={`rm-label rm-label-${m.status}`}>
+              {m.status === 'on' && (
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+              )}
+              {m.label}
+            </div>
+          </header>
+          <h3 class="rm-title">{m.title}</h3>
+          <ul class="rm-items">
+            {m.items.map((it) => (
+              <li>
+                <span class="rm-bullet" aria-hidden="true"></span>
+                {it}
+              </li>
+            ))}
+          </ul>
+        </li>
+      ))}
+    </ol>
+  </div>
+</section>
+
+<style>
+  .rm-track {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+    position: relative;
+  }
+
+  .rm {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .rm-on {
+    border-color: var(--primary-glow);
+    background: linear-gradient(180deg, rgba(31, 156, 154, 0.08) 0%, var(--bg-card) 60%);
+    box-shadow:
+      0 0 0 1px rgba(31, 156, 154, 0.3),
+      0 12px 40px -8px rgba(14, 124, 123, 0.4);
+    position: relative;
+  }
+
+  .rm-on::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: var(--radius);
+    padding: 1px;
+    background: linear-gradient(135deg, var(--primary-glow) 0%, transparent 50%);
+    -webkit-mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  .rm-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+  }
+
+  .rm-ver {
+    font-family: 'SF Mono', 'Monaco', monospace;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--primary-soft);
+    padding: 3px 8px;
+    background: rgba(14, 124, 123, 0.15);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+  }
+
+  .rm-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 999px;
+    letter-spacing: 0.05em;
+  }
+
+  .rm-label-on {
+    background: rgba(31, 156, 154, 0.22);
+    color: var(--primary-glow);
+    border: 1px solid var(--primary-glow);
+  }
+
+  .rm-label-next {
+    background: rgba(255, 200, 80, 0.12);
+    color: #f5b94d;
+    border: 1px solid rgba(255, 200, 80, 0.35);
+  }
+
+  .rm-label-later {
+    background: rgba(148, 212, 208, 0.08);
+    color: var(--text-mute);
+    border: 1px solid var(--border);
+  }
+
+  .rm-title {
+    margin-bottom: 18px;
+    color: var(--text);
+  }
+
+  .rm-items {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .rm-items li {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 0.9rem;
+    color: var(--text-dim);
+    padding: 7px 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .rm-items li:first-child {
+    border-top: none;
+  }
+
+  .rm-bullet {
+    flex-shrink: 0;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--primary-glow);
+    margin-top: 8px;
+    box-shadow: 0 0 6px var(--primary-glow);
+  }
+
+  .rm-next .rm-bullet,
+  .rm-later .rm-bullet {
+    background: var(--text-mute);
+    box-shadow: none;
+  }
+
+  @media (max-width: 960px) {
+    .rm-track {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

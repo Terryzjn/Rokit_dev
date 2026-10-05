@@ -1,0 +1,21 @@
+{
+  "name": "rokit-web",
+  "version": "0.1.5",
+  "private": true,
+  "type": "module",
+  "description": "Rokit v0.1.5 首发推广静态站（Astro）",
+  "scripts": {
+    "dev": "astro dev",
+    "start": "astro dev",
+    "build": "astro check && astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "astro": "^5.1.1"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.10",
+    "typescript": "^5.9.3"
+  }
+}

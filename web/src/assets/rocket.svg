@@ -1,0 +1,164 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 480" fill="none" role="img" aria-label="Rokit 火箭主视觉">
+  <defs>
+    <!-- 火箭主体青色渐变 -->
+    <linearGradient id="rocketBody" x1="200" y1="20" x2="200" y2="360" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#94D4D0"/>
+      <stop offset="40%" stop-color="#1F9C9A"/>
+      <stop offset="100%" stop-color="#0E7C7B"/>
+    </linearGradient>
+    <linearGradient id="rocketShade" x1="200" y1="20" x2="200" y2="360" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#000" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#000" stop-opacity="0.45"/>
+    </linearGradient>
+    <linearGradient id="rocketHighlight" x1="140" y1="80" x2="180" y2="280" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#fff" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <!-- 舷窗赛博朋克渐变 -->
+    <radialGradient id="window" cx="200" cy="135" r="36" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#4DD0E1"/>
+      <stop offset="55%" stop-color="#8B5CF6"/>
+      <stop offset="100%" stop-color="#E94B8C"/>
+    </radialGradient>
+    <radialGradient id="windowGlow" cx="200" cy="135" r="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#4DD0E1" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#4DD0E1" stop-opacity="0"/>
+    </radialGradient>
+    <!-- 尾焰 -->
+    <linearGradient id="flame" x1="200" y1="320" x2="200" y2="460" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#E94B8C"/>
+      <stop offset="40%" stop-color="#8B5CF6"/>
+      <stop offset="80%" stop-color="#4DD0E1"/>
+      <stop offset="100%" stop-color="#4DD0E1" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="flameCore" x1="200" y1="320" x2="200" y2="420" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#fff"/>
+      <stop offset="100%" stop-color="#E94B8C" stop-opacity="0"/>
+    </linearGradient>
+    <!-- 侧翼 -->
+    <linearGradient id="wing" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0E7C7B"/>
+      <stop offset="100%" stop-color="#1F9C9A"/>
+    </linearGradient>
+    <!-- 机身细节面板 -->
+    <linearGradient id="panel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#94D4D0"/>
+      <stop offset="100%" stop-color="#0E7C7B"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 整体悬浮动画 -->
+  <g class="rocket-float">
+    <!-- 舷窗外光晕 -->
+    <circle cx="200" cy="135" r="80" fill="url(#windowGlow)" class="rocket-pulse"/>
+
+    <!-- 尾焰外焰（脉动） -->
+    <g class="rocket-flame-outer">
+      <path d="M170 340 Q 180 410 200 460 Q 220 410 230 340 Z" fill="url(#flame)" opacity="0.85"/>
+      <path d="M180 340 Q 188 395 200 440 Q 212 395 220 340 Z" fill="url(#flameCore)" opacity="0.95"/>
+    </g>
+
+    <!-- 左翼 -->
+    <path d="M160 250 L 110 320 L 110 360 L 165 350 Z" fill="url(#wing)" stroke="#0E7C7B" stroke-width="1.5"/>
+    <path d="M115 322 L 162 332 L 162 348 L 115 355 Z" fill="#94D4D0" opacity="0.25"/>
+
+    <!-- 右翼 -->
+    <path d="M240 250 L 290 320 L 290 360 L 235 350 Z" fill="url(#wing)" stroke="#0E7C7B" stroke-width="1.5"/>
+    <path d="M285 322 L 238 332 L 238 348 L 285 355 Z" fill="#94D4D0" opacity="0.25"/>
+
+    <!-- 火箭主体 -->
+    <path d="M200 20 C 240 70, 260 130, 260 200 L 260 340 L 140 340 L 140 200 C 140 130, 160 70, 200 20 Z"
+          fill="url(#rocketBody)" stroke="#0E7C7B" stroke-width="1.5"/>
+
+    <!-- 机身左侧高光 -->
+    <path d="M165 80 Q 155 180 158 330 L 145 330 Q 142 180 152 80 Z" fill="url(#rocketHighlight)"/>
+
+    <!-- 机身右侧阴影 -->
+    <path d="M260 200 L 260 340 L 140 340 L 140 200 Q 200 220 260 200 Z" fill="url(#rocketShade)"/>
+
+    <!-- 头锥分线 -->
+    <path d="M200 20 Q 198 80 195 140" stroke="#0E7C7B" stroke-width="0.6" fill="none" opacity="0.4"/>
+
+    <!-- 上面板（青色面板） -->
+    <rect x="158" y="170" width="84" height="6" rx="2" fill="#94D4D0" opacity="0.45"/>
+    <rect x="158" y="200" width="84" height="6" rx="2" fill="#94D4D0" opacity="0.45"/>
+    <rect x="158" y="230" width="84" height="6" rx="2" fill="#94D4D0" opacity="0.45"/>
+    <rect x="158" y="260" width="84" height="6" rx="2" fill="#94D4D0" opacity="0.45"/>
+
+    <!-- 舷窗 -->
+    <circle cx="200" cy="135" r="32" fill="#0a0e14"/>
+    <circle cx="200" cy="135" r="28" fill="url(#window)"/>
+    <circle cx="192" cy="127" r="8" fill="#fff" opacity="0.7"/>
+
+    <!-- 舷窗装饰圈 -->
+    <circle cx="200" cy="135" r="34" stroke="#94D4D0" stroke-width="1" fill="none" opacity="0.5"/>
+
+    <!-- 底部推进环 -->
+    <rect x="148" y="305" width="104" height="10" rx="2" fill="#0a0e14"/>
+    <rect x="150" y="307" width="100" height="6" rx="1" fill="#1F9C9A"/>
+
+    <!-- Logo 文字 -->
+    <text x="200" y="290" text-anchor="middle" font-family="-apple-system, system-ui, sans-serif"
+          font-size="14" font-weight="800" fill="#94D4D0" letter-spacing="2">ROKIT</text>
+
+    <!-- 尾焰内焰（更亮） -->
+    <g class="rocket-flame-inner">
+      <path d="M185 340 Q 192 380 200 410 Q 208 380 215 340 Z" fill="#fff" opacity="0.9"/>
+    </g>
+  </g>
+</svg>
+
+<style>
+  /* 火箭整体浮动 */
+  .rocket-float {
+    animation: rocketFloat 4s ease-in-out infinite;
+    transform-origin: center;
+  }
+
+  @keyframes rocketFloat {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-12px); }
+  }
+
+  /* 舷窗光晕脉动 */
+  .rocket-pulse {
+    animation: windowPulse 3s ease-in-out infinite;
+    transform-origin: 200px 135px;
+  }
+
+  @keyframes windowPulse {
+    0%, 100% { opacity: 0.55; transform: scale(1); }
+    50% { opacity: 0.9; transform: scale(1.12); }
+  }
+
+  /* 外焰脉动 */
+  .rocket-flame-outer {
+    animation: flameOuter 1.2s ease-in-out infinite;
+    transform-origin: 200px 340px;
+  }
+
+  @keyframes flameOuter {
+    0%, 100% { opacity: 0.7; transform: scaleY(0.92); }
+    50% { opacity: 1; transform: scaleY(1.08); }
+  }
+
+  /* 内焰脉动（更快） */
+  .rocket-flame-inner {
+    animation: flameInner 0.6s ease-in-out infinite;
+    transform-origin: 200px 340px;
+  }
+
+  @keyframes flameInner {
+    0%, 100% { opacity: 0.6; transform: scaleY(0.85); }
+    50% { opacity: 1; transform: scaleY(1.05); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .rocket-float,
+    .rocket-pulse,
+    .rocket-flame-outer,
+    .rocket-flame-inner {
+      animation: none;
+    }
+  }
+</style>

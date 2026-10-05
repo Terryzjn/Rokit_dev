@@ -1,0 +1,56 @@
+# 依赖与构建产物
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# 运行时本地数据（SQLite / 缓存 / 日志）
+*.db
+*.db-wal
+*.db-shm
+ai-launch-master-data.json
+*.log
+
+# 构建产物
+dist/
+out/
+release/
+
+# 测试覆盖产物
+coverage/
+
+# 截屏验证产物（PowerShell + PrintWindow 调试脚本生成）
+scripts/shot-*.png
+
+# 历史快照与预览（不应进入主仓库）
+_backup/
+.preview/
+
+# 编辑器与系统文件
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 本地环境配置（API Key 等）
+.env
+.env.local
+
+# YouTube / Google OAuth 应用级凭据（开发者本地覆盖）
+#   - example.js 是占位模板，可以提交
+#   - local.js   是真实凭据，不应提交
+electron/config/youtube-oauth.local.js
+
+# Electron 运行时本地数据（每次启动都会重新生成）
+#   - Cache/         Chromium HTTP 缓存
+#   - Code Cache/    V8 字节码缓存
+#   - blob_storage/  本地大文件
+#   - IndexedDB/     本地 IndexedDB
+#   - Local Storage/, Session Storage/  本地存储
+#   - GPUCache/, DawnGraphiteCache/, DawnWebGPUCache/  GPU 缓存
+#   - Network/       Cookies 等（运行中可能被锁，导致 git add 失败）
+#   - shared_proto_db/, DIPS*  本地状态库
+.userdata/

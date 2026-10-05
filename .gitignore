@@ -1,0 +1,42 @@
+# 依赖与构建产物
+**/node_modules/
+**/build/
+**/dist/
+**/out/
+**/release/
+/RELEASE/         # 项目根下的本地安装包输出（electron-builder）
+
+# 调试日志
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# 运行时本地数据（SQLite / 缓存 / 日志）
+*.db
+*.db-wal
+*.db-shm
+*.log
+
+# 测试覆盖产物
+**/coverage/
+
+# 历史快照与预览（不应进入主仓库）
+**/_backup/
+.preview/
+
+# 编辑器与系统文件
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 本地环境配置（API Key 等）
+.env
+.env.local
+
+# Vercel 部署本地临时脚本与日志（不入仓；部署后可手刪）
+.vercel-tmp/
+.vercel
