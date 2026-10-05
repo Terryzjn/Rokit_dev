@@ -19,7 +19,10 @@ require('./v2ex/V2EXPublisher');
 // 第三个真实平台：掘金（v1.11）
 require('./juejin/JuejinPublisher');
 
-// 预留：未来真正接入 B站、小红书、即刻、Product Hunt 时
+// 第四个真实平台：即刻（v1.12）
+require('./jike/JikePublisher');
+
+// 预留：未来真正接入 B站、小红书、Product Hunt 时
 //       在这里 require 一次即可，例如：
 // require('./bilibili/BilibiliPublisher');
 
