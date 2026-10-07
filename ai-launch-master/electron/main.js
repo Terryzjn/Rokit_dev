@@ -539,9 +539,36 @@ function decodeHtml(v) {
     .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ')
     .replace(/&#(\d+);/g, function (_, n) { try { return String.fromCharCode(+n); } catch (_e) { return ''; } });
 }
-function ghRepoPart(url) {
-  var m = /^https?:\/\/(www\.)?github\.com\/([^/?#]+\/[^/?#]+)/i.exec(url);
-  return m ? m[2].replace(/\.git$/i, '') : null;
+// v1.9：GitHub URL → "owner/repo" 解析
+//   - 支持 https/http/无协议（自动补 https://）
+//   - 尾斜杠、?query、#fragment、.git 后缀都被剥离
+//   - /issues/123、/releases 等子路径仍能解析出 base repo
+//   - 拒绝非仓库路径（owner in 黑名单）：/settings, /login, /explore, /pricing 等
+//   - GitHub 用户名/仓库名做粗略合法性校验（避免把 `foo/bar/` 这种被错误拆分的脏数据放过去）
+//   - 返回 null 表示「不是 GitHub 仓库」
+var __GH_OWNER_BLACKLIST = /^(settings|login|logout|signup|join|explore|topics|trending|collections|events|sponsors|orgs|marketplace|pricing|features|enterprise|customer-stories|security|team|jobs|sitemap|mobile|contact|about|notifications|search|new|home|privacy|terms|pulls|issues|discussions|wiki|projects)$/i;
+function ghRepoPart(rawUrl) {
+  if (!rawUrl) return null;
+  var s = String(rawUrl).trim();
+  if (!s) return null;
+  // 补协议
+  if (!/^https?:\/\//i.test(s)) s = 'https://' + s;
+  var u;
+  try { u = new URL(s); } catch (_e) { return null; }
+  // 只接受 github.com 顶级域（允许 www.）
+  if (!/^(www\.)?github\.com$/i.test(u.hostname)) return null;
+  // 拆 path
+  var parts = u.pathname.replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
+  if (parts.length < 2) return null;
+  var owner = parts[0];
+  var repo  = (parts[1] || '').replace(/\.git$/i, '').replace(/[?#].*$/i, '');
+  if (!owner || !repo) return null;
+  // 黑名单：owner 是 GitHub 站点保留路径（不是用户/组织）
+  if (__GH_OWNER_BLACKLIST.test(owner)) return null;
+  // 用户名规则粗校验：字母数字 + . _ -，首尾不能是 . _ -
+  if (!/^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/.test(owner)) return null;
+  if (!/^[A-Za-z0-9._-]+$/.test(repo)) return null;
+  return owner + '/' + repo;
 }
 async function fetchWithTimeout(url, opt, ms) {
   var ctrl = new AbortController();

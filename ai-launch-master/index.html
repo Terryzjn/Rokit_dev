@@ -3496,6 +3496,8 @@
       var h='<form onsubmit="submitIntro(event)"><div style="display:flex;flex-direction:column;gap:8px">';
       h+='<div class="input-row"><input id="inIntro" placeholder="一句话介绍它是做什么的" autocomplete="off"/><button class="btn" type="submit">下一步</button></div>';
       h+='<div class="input-row" style="align-items:center"><input id="inUrl" placeholder="作品链接：GitHub / 个人网站（可选，不填也能继续）" autocomplete="off" style="flex:1"/><button type="button" class="btn ghost sm" onclick="grabWork()" title="从链接自动抓取标题 / 简介" style="white-space:nowrap">🔍 抓取</button></div>';
+      // v1.9：实时提示 - 输入后立刻告诉用户当前 URL 是否被识别为 GitHub 仓库
+      h+='<div id="inUrlHint" style="font-size:12px;color:var(--muted);min-height:14px;margin-top:2px"></div>';
       h+='</div></form>';
 
       h+='<div style="height:6px"></div><div id="grabHint" style="font-size:12px;color:var(--muted)"></div>';
@@ -3505,6 +3507,21 @@
 
       var b=document.getElementById('inIntro');if(b){if(state.project.intro)b.value=state.project.intro;b.focus();}
       var u=document.getElementById('inUrl');if(u){if(state.project.url)u.value=state.project.url;}
+      // v1.9：实时识别 GitHub 仓库 / 普通链接，提示给用户
+      var uh=document.getElementById('inUrlHint');
+      if(u && uh && typeof parseGithubRepo==='function'){
+        var _renderUrlHint=function(){
+          var v=(u.value||'').trim();
+          if(!v){ uh.innerHTML=''; return; }
+          var p=parseGithubRepo(v);
+          if(p){ uh.innerHTML='<span style="color:#0E7C7B">✓ GitHub 仓库：'+esc(p.owner+'/'+p.repo)+'</span>'; }
+          else if(/github\.com/i.test(v)){ uh.innerHTML='<span style="color:#C0392B">✗ 看起来是 GitHub，但未识别为仓库（请检查链接）</span>'; }
+          else { uh.innerHTML='<span style="color:var(--muted)">✓ 普通作品链接</span>'; }
+        };
+        u.addEventListener('input',_renderUrlHint);
+        u.addEventListener('change',_renderUrlHint);
+        _renderUrlHint();
+      }
 
     }
 
@@ -4324,6 +4341,19 @@
 
       renderFlow();
 
+      // v1.9：抓取成功后立即把 url + stars 回写到当前真实作品，
+      //   不依赖用户走完整向导到 step 3 触发 persistCurrentWork。
+      //   这样用户在 step 2 抓完即可在「我的作品」看到最新 Star。
+      if(state.curWork && typeof isSampleWork==='function' && !isSampleWork(state.curWork)){
+        var _w9=findWork(state.curWork);
+        if(_w9 && state.project.meta){
+          if(state.project.meta.url) _w9.url=state.project.meta.url;
+          if(typeof state.project.meta.stars==='number') _w9.star=state.project.meta.stars;
+          if(state.project.meta.title && (!_w9.name || _w9.name==='新作品')) _w9.name=state.project.meta.title;
+          if(window.api) window.api.saveWork({id:_w9.id,url:_w9.url,star:_w9.star,name:_w9.name}).catch(function(){});
+        }
+      }
+
     }).catch(function(e){
 
       if(hint)hint.innerHTML='<span style="color:#C0392B">抓取失败：'+esc(e&&e.message?e.message:String(e))+'，可直接手填介绍继续。</span>';
@@ -4643,13 +4673,24 @@
   }
 
   // ---- GitHub L1 直发（GitHub Releases API） ----
+  // v1.9：与主进程 ghRepoPart 对齐 —— 接受 https/http/无协议，剥离尾斜杠/.git/?query，
+  //   /issues、/releases 等子路径仍能解析出 base repo；拒绝 /settings、/login、/explore 等
+  //   非仓库路径；返回 { owner, repo, isRepo:true, url:normalizedUrl }（向后兼容：旧调用
+  //   只读 .owner/.repo 字段，新增 isRepo/url 字段不影响）。
+  var __GH_OWNER_BLACKLIST_FRONT = /^(settings|login|logout|signup|join|explore|topics|trending|collections|events|sponsors|orgs|marketplace|pricing|features|enterprise|customer-stories|security|team|jobs|sitemap|mobile|contact|about|notifications|search|new|home|privacy|terms|pulls|issues|discussions|wiki|projects)$/i;
   function parseGithubRepo(url){
     if(!url)return null;
-    var m=String(url).match(/github\.com[/:]+([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+)/);
+    var s=String(url).trim();
+    if(!s)return null;
+    if(!/^https?:\/\//i.test(s)) s='https://'+s;
+    // subpath 段允许"已知功能路径 + 可选多层数字/字母子路径"，例如 /issues/123、/blob/main/README.md
+    var m=s.match(/^https?:\/\/(?:www\.)?github\.com\/([^/?#]+)\/([^/?#]+?)(?:\.git)?(?:\/(?:issues|releases|pulls|blob|tree|wiki|actions|settings|commits|branches|tags|compare|network|pulse|graphs|security|discussions|projects)(?:\/[^/?#]+)*)?\/?(?:[?#].*)?$/i);
     if(!m)return null;
-    var repo=m[2].replace(/\.git$/,'').replace(/[?#].*$/,'');
-    if(!repo)return null;
-    return { owner:m[1], repo:repo };
+    var owner=m[1], repo=m[2];
+    if(__GH_OWNER_BLACKLIST_FRONT.test(owner))return null;
+    if(!/^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/.test(owner))return null;
+    if(!/^[A-Za-z0-9._-]+$/.test(repo))return null;
+    return { owner:owner, repo:repo, isRepo:true, url:'https://github.com/'+owner+'/'+repo };
   }
   function blobToBase64(blob){
     return new Promise(function(resolve,reject){
@@ -6866,6 +6907,14 @@
     if(state.project.intro)w.intro=state.project.intro;
 
     if(state.project.url)w.url=state.project.url;
+
+    // v1.9：保存时二次校验 — 如果用户填的 url 含 github.com 但格式不是仓库，
+    //   给出 console.warn 提示（避免用户误以为填了 GitHub 就能拉 Stats）。
+    if(state.project.url && /github\.com/i.test(state.project.url) && typeof parseGithubRepo==='function'){
+      if(!parseGithubRepo(state.project.url)){
+        try{ console.warn('[Works] GitHub URL detected but not a valid repo:', state.project.url); }catch(_e){}
+      }
+    }
 
     // v1.8 fix：上一轮 grabWork() 抓到的 GitHub stars 只写到 state.project.meta（悬挂数据），
     //   从未回写到 w.star，导致「我的作品」卡片上 Star 永远是 0。
