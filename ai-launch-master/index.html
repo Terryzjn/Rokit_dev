@@ -858,6 +858,11 @@
   .wcard .wdot.open{opacity:1;background:var(--primary);color:#fff;border-color:var(--primary)}
   .wmenu{position:absolute;top:38px;right:8px;background:var(--card);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(20,30,34,.12);padding:4px;z-index:30;display:none;min-width:160px}
   .wmenu.open{display:block}
+
+  /* v1.8：GitHub 数据刷新中 - 卡片淡灰 + 不响应点击，数字不清空 */
+  .wcard.ghs-loading{opacity:.55;pointer-events:none;cursor:wait}
+  .wcard.ghs-loading .wm .wv b{color:var(--muted);font-style:italic}
+  #refreshWorksBtn[disabled]{opacity:.6;cursor:wait}
   .wmenu button{display:block;width:100%;text-align:left;border:none;background:transparent;padding:7px 10px;font-size:12.5px;font-family:inherit;color:var(--ink);border-radius:6px;cursor:pointer}
   .wmenu button:hover{background:var(--primary-soft);color:var(--primary-dark)}
   .wmenu button:disabled{color:var(--muted);cursor:not-allowed;opacity:.55}
@@ -1447,7 +1452,10 @@
 
         <div class="panel">
 
-          <h3>我的作品</h3>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+            <h3 style="margin-bottom:0">我的作品</h3>
+            <button class="btn ghost" id="refreshWorksBtn" onclick="refreshWorksGithubStats()" type="button" title="从 GitHub 拉取所有真实作品的最新 Star；失败保留旧数据">↻ 刷新</button>
+          </div>
 
           <div class="sub">点击卡片进入该作品的首秀向导 · 数据为演示示意</div>
 
@@ -3234,7 +3242,16 @@
 
     if(r==='dashboard'){renderDash();}
 
-    if(r==='works'){renderWorks();}
+    if(r==='works'){
+      renderWorks();
+      // v1.8：首次进入「我的作品」自动拉一次 GitHub 数据（仅一次）
+      if(window.__ghs && !window.__ghs.worksFirstLoaded){
+        window.__ghs.worksFirstLoaded = true;
+        setTimeout(function(){
+          if(typeof window.refreshWorksGithubStats==='function') window.refreshWorksGithubStats();
+        }, 600);  // 延后 600ms 让 UI 先渲染
+      }
+    }
 
     if(r==='channels'){renderChannels();}
 
@@ -6551,6 +6568,79 @@
 
   }
 
+  // v1.8：「我的作品」→ GitHub 数据刷新机制
+  //   - 单点失败保留旧数据（前端只更新 ok=true 的作品）
+  //   - 防重复点击（isRefreshing flag + 按钮 disabled）
+  //   - 首次进入 tab 自动 refresh（worksFirstLoaded flag 避免 render 重复触发）
+  //   - 局部更新 DOM（不重渲整页，避免 state.route 之外的状态被覆盖）
+  var __ghs = { isRefreshing:false, worksFirstLoaded:false, lastRefreshAt:0 };
+  window.__ghs = __ghs;
+
+  window.refreshWorksGithubStats = async function(){
+    if(__ghs.isRefreshing){
+      try{ console.log('[GitHubStats] refresh already in progress, skip'); }catch(_e){}
+      return;
+    }
+    var real = (state.works||[]).filter(function(w){return w && !w.isSample;});
+    if(!real.length){
+      try{ toast('还没有真实作品，先点「+ 登记新作品」', 'warn'); }catch(_e){}
+      return;
+    }
+    __ghs.isRefreshing = true;
+    var btn = document.getElementById('refreshWorksBtn');
+    if(btn){ btn.disabled = true; btn.textContent = '↻ 刷新中...'; }
+    // 卡片 loading 视觉（淡灰 + 不响应点击）；数字不清空
+    document.querySelectorAll('.wcard:not(.wsample)').forEach(function(c){ c.classList.add('ghs-loading'); });
+    try{
+      var payload = real.map(function(w){ return { id:w.id, url:w.url||'' }; });
+      var res = await window.api.refreshGithubStats(payload);
+      if(!res || !res.ok){
+        var em = (res && res.error) || 'IPC 调用失败';
+        try{ console.warn('[GitHubStats] IPC failed:', em); }catch(_e){}
+        try{ toast('GitHub 刷新失败：'+em, 'warn', 3000); }catch(_e){}
+        return;
+      }
+      var updates = res.updates || [];
+      var updated = 0, failed = 0;
+      updates.forEach(function(u){
+        var w = findWork(u.id);
+        if(!w) return;
+        if(u.ok){
+          // 成功：回写 star + 时间戳
+          w.star = u.stars;
+          w.githubFullName = u.full_name || w.githubFullName;
+          w.githubUpdatedAt = Date.now();
+          updated++;
+          // 前端再 saveWork 一次（主进程已持久化，这里双保险；失败也无所谓）
+          try{ window.api.saveWork({id:w.id, star:w.star}).catch(function(){}); }catch(_e){}
+        } else {
+          // 失败：保留旧数据；按需求六输出 warn
+          failed++;
+          try{ console.warn('[GitHubStats]', w.name||w.id, 'refresh failed:', u.error); }catch(_e){}
+        }
+      });
+      __ghs.lastRefreshAt = Date.now();
+      // 局部刷新每个真实作品卡片上的 Star 数字（其它字段保留）
+      real.forEach(function(w){
+        var card = document.querySelector('[data-work-id="'+w.id+'"]');
+        if(!card) return;
+        var starB = card.querySelector('.wm .wv:nth-child(1) b');
+        if(starB) starB.textContent = (w.star||0).toLocaleString();
+      });
+      if(updated && !failed)      try{ toast('GitHub 数据刷新完成', 'ok', 1800); }catch(_e){}
+      else if(updated && failed)  try{ toast('部分 GitHub 数据刷新失败（'+failed+' 个保留旧数据）', 'warn', 2600); }catch(_e){}
+      else                        try{ toast('GitHub 刷新失败，已保留旧数据', 'warn', 2600); }catch(_e){}
+    }catch(e){
+      var msg = String((e && e.message) || e);
+      try{ console.warn('[GitHubStats] unexpected error:', msg); }catch(_e){}
+      try{ toast('GitHub 刷新异常：'+msg, 'warn', 3000); }catch(_e){}
+    }finally{
+      __ghs.isRefreshing = false;
+      if(btn){ btn.disabled = false; btn.textContent = '↻ 刷新'; }
+      document.querySelectorAll('.wcard.ghs-loading').forEach(function(c){ c.classList.remove('ghs-loading'); });
+    }
+  };
+
   // v1.5 UX：3-dot menu 交互（任务 7 之三）
   function toggleWMenu(btn, id){
     closeAllWMenu();
@@ -6776,6 +6866,13 @@
     if(state.project.intro)w.intro=state.project.intro;
 
     if(state.project.url)w.url=state.project.url;
+
+    // v1.8 fix：上一轮 grabWork() 抓到的 GitHub stars 只写到 state.project.meta（悬挂数据），
+    //   从未回写到 w.star，导致「我的作品」卡片上 Star 永远是 0。
+    //   现在 persistCurrentWork 时同步回写；refreshWorksGithubStats() 也走同样的回写路径。
+    if(state.project.meta && state.project.meta.kind==='github' && typeof state.project.meta.stars==='number'){
+      w.star = state.project.meta.stars;
+    }
 
     if(w.name&&w.name!=='新作品'&&(w.status==='待启动'||w.status==='排队')){w.status='首秀中';w.color=STATUS_COLOR[w.status]||w.color;}
 

@@ -157,6 +157,50 @@ ipcMain.handle('works:list', () => store.listWorks());
 ipcMain.handle('works:save', (_e, w) => store.saveWork(w));
 ipcMain.handle('works:delete', (_e, id) => store.deleteWork(id));
 
+// v1.8：「我的作品」GitHub 数据刷新。
+//   - 只刷新"url 是 GitHub"的真实作品（示例作品 isSample 跳过）
+//   - Promise.allSettled：单 repo 失败不影响其他
+//   - 403/429/rate-limit 时保留旧数据（前端不做清空，由后端只回传 ok=false，前端判断）
+//   - 失败控制台输出 [GitHubStats] xxx refresh failed: <msg>，不打印 token
+async function refreshGithubStats(works) {
+  var targets = (works || []).filter(function(w){
+    return w && w.id && typeof w.url === 'string' && /github\.com/i.test(w.url);
+  });
+  if (!targets.length) return [];
+  var results = await Promise.allSettled(targets.map(async function(w){
+    var repo = ghRepoPart(w.url);
+    if (!repo) throw new Error('invalid github url: ' + w.url);
+    var meta = await fetchGithubMeta(repo);
+    if (!meta || typeof meta.stars !== 'number') throw new Error('no stars field in response');
+    return { id: w.id, stars: meta.stars, full_name: meta.title || repo };
+  }));
+  var updates = [];
+  results.forEach(function(r, i){
+    var w = targets[i];
+    if (r.status === 'fulfilled'){
+      updates.push({ id: w.id, ok: true, stars: r.value.stars, full_name: r.value.full_name });
+      // 主进程侧持久化（即使 IPC 后续前端 saveWork 失败也不丢数据）
+      try { store.saveWork({ id: w.id, star: r.value.stars }); } catch(_e){}
+    } else {
+      var msg = String((r.reason && r.reason.message) || r.reason || 'unknown error');
+      // 不打印 token / Authorization header
+      try { console.warn('[GitHubStats]', (w.id || w.url || ''), 'refresh failed:', msg); } catch(_e){}
+      updates.push({ id: w.id, ok: false, error: msg });
+    }
+  });
+  return updates;
+}
+ipcMain.handle('works:refresh-github-stats', async (_e, works) => {
+  try {
+    var updates = await refreshGithubStats(works || []);
+    return { ok: true, updates: updates };
+  } catch (e) {
+    var em = String((e && e.message) || e);
+    try { console.warn('[GitHubStats] IPC handler error:', em); } catch(_e){}
+    return { ok: false, error: em };
+  }
+});
+
 ipcMain.handle('pubs:list', () => store.listPubs());
 ipcMain.handle('pubs:add', (_e, r) => store.addPub(r));
 

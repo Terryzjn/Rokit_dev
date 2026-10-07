@@ -58,6 +58,8 @@ contextBridge.exposeInMainWorld('api', {
   listWorks: () => ipcRenderer.invoke('works:list'),
   saveWork: (w) => ipcRenderer.invoke('works:save', w),
   deleteWork: (id) => ipcRenderer.invoke('works:delete', id),
+  // v1.8：我的作品 → GitHub 数据刷新（仅更新 star，全量并发 + 单点失败保留旧数据）
+  refreshGithubStats: (works) => ipcRenderer.invoke('works:refresh-github-stats', works),
   // 发布记录
   listPubs: () => ipcRenderer.invoke('pubs:list'),
   addPub: (r) => ipcRenderer.invoke('pubs:add', r),
@@ -114,6 +116,9 @@ contextBridge.exposeInMainWorld('api', {
   douyinGetUserInfo: () => ipcRenderer.invoke('douyin:get-user-info'),
   // 打开外部链接（平台发布页）
   openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
+  // v3 Product Hunt：系统浏览器辅助发布（剪贴板 + 打开文件夹）
+  writeClipboard: (text) => ipcRenderer.invoke('clipboard:write', text),
+  revealInFolder: (p) => ipcRenderer.invoke('shell:reveal', p),
   // v1.7：通用浏览器框架（内置 Session 持久化 + Publisher 适配器）
   // 每个 platformId 对应独立 Electron Session partition（persist:platform-{id}）。
   // 注意：这些方法**不**接受 Node API / BrowserWindow 句柄；只能传 platformId / URL / 简单 JSON。
