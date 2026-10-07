@@ -1063,6 +1063,26 @@
 
   .modal-overlay.show{display:flex}
 
+    /* ===== Product Hunt 发布助手（v3 系统浏览器模式） ===== */
+    .ph-modal-card{max-width:640px}
+    .ph-head{display:flex;align-items:center;justify-content:space-between;padding-bottom:12px;border-bottom:1px solid var(--border);margin-bottom:14px}
+    .ph-title{font-size:16px;font-weight:600;color:var(--text)}
+    .ph-close{background:transparent;border:0;color:var(--muted);font-size:22px;cursor:pointer;line-height:1;padding:2px 8px}
+    .ph-close:hover{color:var(--text)}
+    .ph-body{display:flex;flex-direction:column;gap:16px}
+    .ph-banner{padding:10px 12px;border-radius:8px;font-size:13.5px;line-height:1.55}
+    .ph-banner.ok{background:rgba(46,160,67,.08);color:#1f7d34;border:1px solid rgba(46,160,67,.25)}
+    .ph-banner.warn{background:rgba(255,184,28,.08);color:#7a5b08;border:1px solid rgba(255,184,28,.25)}
+    .ph-section{border:1px solid var(--border);border-radius:10px;padding:12px;background:var(--surface-2,transparent)}
+    .ph-section-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;font-weight:600;color:var(--text);font-size:13.5px}
+    .ph-field{display:flex;flex-direction:column;gap:6px;margin-bottom:8px}
+    .ph-field label{font-size:12px;color:var(--muted);font-weight:500}
+    .ph-field textarea{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-1);color:var(--text);font-size:13px;font-family:var(--font-mono,ui-monospace,monospace);resize:vertical;min-height:54px;box-sizing:border-box}
+    .ph-field-foot{display:flex;justify-content:flex-end}
+    .ph-manual ol{margin:6px 0 0;padding-left:20px;color:var(--text);font-size:13px;line-height:1.7}
+    .ph-manual ol li::marker{color:var(--muted)}
+    .ph-helper-panel table{font-size:13px;color:var(--text)}
+
   /* v1.5 UX：统一 modal 标准 — 焦点陷阱 + 遮罩关闭（任务 1） */
   .modal .modal-body{font-size:13.5px;color:var(--ink);line-height:1.7;margin:6px 0 14px}
   .modal .modal-body.help{color:var(--muted);font-size:12.5px}
@@ -1944,18 +1964,19 @@
   var PLATFORMS=[
     // 与 electron/publishers.js 保持一致：auto 反映「点一键后是否需要人工最终确认」
     {id:'github',name:'GitHub',lv:'L2 跳转',color:'#24292F',region:'global',auto:true},
-    {id:'ph',name:'Product Hunt',lv:'L2 跳转',color:'#DA552F',region:'global',auto:false},
+    {id:'producthunt',name:'Product Hunt',lv:'L2 跳转',color:'#DA552F',region:'global',auto:false},
     {id:'v2ex',name:'V2EX',lv:'L2 跳转',color:'#5779C8',region:'cn',auto:true},
     {id:'juejin',name:'掘金',lv:'L2 跳转',color:'#1E80FF',region:'cn',auto:false},
     {id:'jike',name:'即刻',lv:'L2 跳转',color:'#B7A600',region:'cn',auto:false},
     {id:'bili',name:'B站',lv:'L2 跳转',color:'#00A1D6',region:'cn',auto:false},
     {id:'xhs',name:'小红书',lv:'L2 跳转',color:'#FF2442',region:'cn',auto:false},
+    {id:'xiaohongshu',name:'小红书（新）',lv:'L2 跳转',color:'#FF2442',region:'cn',auto:false},
     {id:'douyin',name:'抖音',lv:'L2 跳转',color:'#161823',region:'cn',auto:false},
     {id:'zhihu',name:'知乎',lv:'L2 跳转',color:'#0084FF',region:'cn',auto:false},
     {id:'wechat',name:'微信公众号',lv:'L2 跳转',color:'#07C160',region:'cn',auto:false},
     {id:'facebook',name:'Facebook',lv:'L2 跳转',color:'#1877F2',region:'global',auto:false},
     {id:'youtube',name:'YouTube',lv:'L2 跳转',color:'#FF0000',region:'global',auto:false},
-    {id:'x',name:'X (Twitter)',lv:'L2 跳转',color:'#000000',region:'global',auto:true}
+    {id:'x',name:'X (Twitter)',lv:'L2 跳转',color:'#000000',region:'global',auto:false}
   ];
 
   PLATFORMS.forEach(function(p){state.platforms[p.id]=false;state.sel[p.id]=false;});
@@ -2034,6 +2055,8 @@
     bili:'B站，视频简介，带标签，配合成片发布',
 
     xhs:'小红书，种草体，emoji + 话题，竖屏封面',
+
+    xiaohongshu:'小红书（自动填表 + 图文/视频上传），竖屏封面 + emoji + 话题',
 
     douyin:'抖音，短平快口播体，带话题',
 
@@ -2421,6 +2444,8 @@
 
     xhs:'https://creator.xiaohongshu.com/',
 
+    xiaohongshu:'https://www.xiaohongshu.com/',
+
     douyin:'https://creator.douyin.com/',
 
     zhihu:'https://zhuanlan.zhihu.com/',
@@ -2457,7 +2482,7 @@
 
       case 'github':return {title:'Release v0.1.0 — '+name,body:'## '+name+' 已发布 🎉\n\n'+intro+'。\n\n### 特点\n- '+tl+'\n- 完全免费，即开即用\n- 欢迎 Star / Issue，我会持续迭代\n\n立即体验 → '+link,tags:[],rule:'L1 直发：复制文案，打开 GitHub 新建 Release 粘贴发布'};
 
-      case 'ph':return {title:name+' — '+intro.slice(0,36),body:'**'+name+'**：'+intro+'。\n\n'+tl+'，面向学生与上班族。\n\n• 完全免费\n• 无需注册\n• 欢迎留言反馈，评论区见 👋',tags:[],rule:'L1 直发：复制文案，打开 Product Hunt 粘贴发布（今日上新名额有限，尽早）'};
+      case 'producthunt':return {title:name,body:'**'+name+'** — '+intro+'。\n\n'+tl+'，完全免费，无账号注册即可体验。\n\n欢迎 Upvote 与留言反馈，评论区见 👋\n\n🔗 '+(pj.url||'（链接）'),tags:[],rule:'L2 跳转：Rokit 自动填 Product name / Tagline / Description / Website URL；图片或视频可一并附加；Topics / Maker / Submit 由用户手动完成。'};
 
       case 'v2ex':return {title:'分享创造：'+name+' — '+intro.slice(0,22),body:'大家好，我做了个'+ (pj.type||'小工具') +'：**'+name+'**\n\n'+intro+'。\n\n'+tl+'。目前完全免费，欢迎体验并反馈任何意见，谢谢！\n\n'+link,tags:[],rule:'L2 跳转手动发布，标题加「分享创造」前缀'};
 
@@ -2468,6 +2493,8 @@
       case 'bili':return {title:'【'+pj.type+'】'+name+' 30 秒快速上手',body:'30 秒看完 '+name+' 的核心功能。\n\n'+intro+'。\n\n'+tl+'，详细版见置顶评论。',tags:['#效率工具','#软件分享','#'+(pj.type||'教程')],rule:'L2 跳转手动发布，同步上传成片 + 本简介'};
 
       case 'xhs':return {title:'终于找到！这个 '+pj.type+' 也太好用了 ✨',body:'挖到一个宝藏 '+pj.type+'：**'+name+'** 🌟\n\n'+intro+'。\n\n'+(pj.type==='小游戏'?'解压神器，玩一下午不腻！':'日常刚需，用了就回不去！')+'\n\n完全免费，冲就完了👇\n\n'+link,tags:['#'+(pj.type||'效率工具'),'#宝藏分享','#亲测好用','#学生党'],rule:'L2 跳转手动发布，竖屏封面 + emoji + 话题'};
+
+      case 'xiaohongshu':return {title:'终于找到！这个 '+pj.type+' 也太好用了 ✨',body:'挖到一个宝藏 '+pj.type+'：**'+name+'** 🌟\n\n'+intro+'。\n\n'+(pj.type==='小游戏'?'解压神器，玩一下午不腻！':'日常刚需，用了就回不去！')+'\n\n完全免费，冲就完了👇\n\n'+link,tags:['#'+(pj.type||'效率工具'),'#宝藏分享','#亲测好用','#学生党'],rule:'L2 跳转：Rokit 自动填标题 / 正文 + 上传图片或视频；最终点击「发布笔记」由用户在小红书发布页手动完成。'};
 
       case 'douyin':return {title:name+'｜30 秒教会你',body:op+'，那这个 '+pj.type+' 一定要看！\n\n'+intro+'。\n\n'+tl+'，链接在简介，现在就能用。',tags:['#'+(pj.type||'效率工具'),'#干货分享','#免费软件'],rule:'L2 跳转手动发布，配竖屏成片，口播稿已就绪'};
 
@@ -4351,7 +4378,7 @@
 
   function selCount(){var n=0;for(var k in state.sel){if(state.sel[k])n++;}return n;}
 
-  var DIR_NEED={douyin:'竖屏',xhs:'竖屏',jike:'竖屏',bili:'任意',github:'横屏',ph:'横屏',v2ex:'横屏',juejin:'横屏',zhihu:'横屏',wechat:'横屏',facebook:'任意',youtube:'横屏',x:'任意'};
+  var DIR_NEED={douyin:'竖屏',xhs:'竖屏',xiaohongshu:'竖屏',jike:'竖屏',bili:'任意',github:'横屏',ph:'横屏',v2ex:'横屏',juejin:'横屏',zhihu:'横屏',wechat:'横屏',facebook:'任意',youtube:'横屏',x:'任意'};
 
   function autoPubStatus(pid){
 
@@ -4711,6 +4738,254 @@
     }).join('')+'</div>';
   }
 
+  // ============================================================
+  // Product Hunt（v3）系统默认浏览器辅助发布 + 应用内「Product Hunt 发布助手」面板
+  // ============================================================
+  //
+  // 关键不变量：
+  //   - 不创建 BrowserWindow
+  //   - 不调用 loadURL / reload
+  //   - 不发送 executeJavaScript / CDP / 远程调试
+  //   - 不尝试绕过 Cloudflare / reCAPTCHA / hCaptcha / Turnstile
+  //   - 最终 Submit 永远由用户在自己的 Edge / Chrome 里手动点击
+  //
+  // 流程：
+  //   1) main.js 收到 pub:launch platformId='producthunt' 走 producthunt 分支
+  //      → shell.openExternal('https://www.producthunt.com/')
+  //   2) main 返回 { status:'system-browser-helper', handedOff:true, url, ... }
+  //   3) renderer 收到成功 → 弹出「Product Hunt 发布助手」面板
+  //   4) 面板内：Product Name / Tagline / Description / Website 各有「复制」按钮
+  //   5) 「复制全部」按钮一次复制所有字段
+  //   6) 媒体文件列表 + 「打开文件夹」「复制文件路径」
+  //   7) 用户切回浏览器，手动完成发布
+  window.autoPubProductHunt = async function () {
+    var id = 'producthunt';
+    var pObj = pf(id);
+    if (!window.api) { copyPub(id); openPlat(id); return; }
+
+    // 取当前 PublishTask / draftCopy
+    var draftCopy = state.copies[id] || {};
+    var baseCopy = (function () {
+      try { return (typeof genCopy === 'function') ? genCopy(id, 0) : null; } catch (_e) { return null; }
+    })() || {};
+    var title = draftCopy.title || baseCopy.title || (state.project && state.project.name) || '';
+    var body  = draftCopy.body  || baseCopy.body  || (state.project && state.project.intro) || '';
+    var link  = state.project && state.project.url || '';
+
+    var payload = {
+      title: title,
+      body:  body,
+      intro: body,
+      link:  link,
+      url:   link,
+      website: link,
+      images: (state.videoAsset && Array.isArray(state.videoAsset.images)) ? state.videoAsset.images : []
+    };
+    if (state.videoAsset && state.videoAsset.id) {
+      payload.videoAssetId = state.videoAsset.id;
+      payload.videoName    = state.videoAsset.fileName || 'video.mp4';
+      payload.videoMime    = state.videoAsset.mimeType || 'video/mp4';
+      payload.video        = {
+        fileName:  state.videoAsset.fileName || '',
+        filePath:  state.videoAsset.filePath || '',
+        mimeType:  state.videoAsset.mimeType || 'video/mp4',
+        id:        state.videoAsset.id
+      };
+    }
+
+    // 主进程会调 shell.openExternal('https://www.producthunt.com/')
+    var r;
+    try { r = await window.api.pubLaunch(id, payload); }
+    catch (e) {
+      r = { status: 'system-browser-helper', handedOff: false, error: String((e && e.message) || e) };
+    }
+
+    // 不出现「发布失败」类负面提示；
+    // 系统浏览器未自动打开时也只提示用户手动打开。
+    if (r && r.handedOff) {
+      toast('✓ Product Hunt 已在系统浏览器中打开', 'success', 3500);
+    } else {
+      toast('系统浏览器未能自动打开，请手动访问 https://www.producthunt.com/', null, 4000);
+    }
+
+    // 弹出「Product Hunt 发布助手」面板
+    showProductHuntHelperPanel(pObj, payload, r);
+  };
+
+  // 把字段数据塞进面板并展示。
+  function showProductHuntHelperPanel(pObj, payload, r) {
+    var title = String(payload.title || '');
+    var body  = String(payload.body  || '');
+    var tagline = body.replace(/\s+/g, ' ').trim().slice(0, 60);
+    var description = body || title;
+    var website = String(payload.link || payload.url || payload.website || '');
+    var images = Array.isArray(payload.images) ? payload.images : [];
+    var video  = payload.video || null;
+
+    var mediaRows = '';
+    if (images && images.length) {
+      images.forEach(function (it, idx) {
+        var name = (typeof it === 'string') ? it.split(/[\\/]/).pop() : (it.name || (it.path || '').split(/[\\/]/).pop());
+        var path = (typeof it === 'string') ? it : (it.path || it.filePath || '');
+        mediaRows += '<tr>' +
+          '<td style="padding:4px 6px;color:var(--muted)">图片 ' + (idx + 1) + '</td>' +
+          '<td style="padding:4px 6px">' + esc(name) + '</td>' +
+          '<td style="padding:4px 6px;text-align:right"><button class="btn xs" data-ph-action="copy" data-ph-target="' + esc(path) + '">复制路径</button> <button class="btn xs ghost" data-ph-action="reveal" data-ph-target="' + esc(path) + '">打开文件夹</button></td>' +
+          '</tr>';
+      });
+    }
+    if (video && (video.filePath || video.path)) {
+      var vname = video.fileName || video.name || (video.filePath || video.path).split(/[\\/]/).pop();
+      var vpath = video.filePath || video.path || '';
+      mediaRows += '<tr>' +
+        '<td style="padding:4px 6px;color:var(--muted)">视频</td>' +
+        '<td style="padding:4px 6px">' + esc(vname) + '</td>' +
+        '<td style="padding:4px 6px;text-align:right"><button class="btn xs" data-ph-action="copy" data-ph-target="' + esc(vpath) + '">复制路径</button> <button class="btn xs ghost" data-ph-action="reveal" data-ph-target="' + esc(vpath) + '">打开文件夹</button></td>' +
+        '</tr>';
+    }
+    var mediaTable = mediaRows
+      ? '<table style="width:100%;border-collapse:collapse;margin-top:8px">' + mediaRows + '</table>'
+      : '<div style="color:var(--muted);font-size:13px;margin-top:6px">无媒体文件</div>';
+
+    var allText =
+      'Product Name:\n' + title + '\n\n' +
+      'Tagline:\n' + tagline + '\n\n' +
+      'Description:\n' + description + '\n\n' +
+      'Website:\n' + (website || '（未提供）') + '\n';
+
+    var statusLine = (r && r.handedOff)
+      ? '<div class="ph-banner ok">✓ Product Hunt 已在系统浏览器中打开。请完成安全验证 → 登录 → Submit → New Product → 粘贴下方字段 → 手动点击 Submit。</div>'
+      : '<div class="ph-banner warn">系统浏览器未能自动打开。请手动打开 https://www.producthunt.com/ 完成发布。</div>';
+
+    function fieldRow(key, label, value, missing) {
+      var display = value || (missing || '');
+      var safe = esc(display);
+      return '<div class="ph-field">' +
+        '<label>' + esc(label) + '</label>' +
+        '<textarea readonly rows="3" data-ph-field="' + key + '">' + esc(display) + '</textarea>' +
+        '<div class="ph-field-foot"><button class="btn xs" data-ph-action="copy-field" data-ph-target="' + key + '">复制</button></div>' +
+        '</div>';
+    }
+
+    var html =
+      '<div class="modal-overlay ph-modal" id="phHelperOverlay">' +
+        '<div class="modal ph-modal-card">' +
+          '<div class="ph-head">' +
+            '<div class="ph-title">Product Hunt 发布助手</div>' +
+            '<button class="ph-close" data-ph-action="close" aria-label="close">×</button>' +
+          '</div>' +
+          '<div class="ph-body">' +
+            statusLine +
+            '<div class="ph-section">' +
+              '<div class="ph-section-head">' +
+                '<span>Product Hunt 内容</span>' +
+                '<button class="btn sm primary" data-ph-action="copy-all">复制全部 Product Hunt 内容</button>' +
+              '</div>' +
+              fieldRow('productName', 'Product Name', title) +
+              fieldRow('tagline',     'Tagline',      tagline) +
+              fieldRow('description', 'Description',  description) +
+              fieldRow('website',     'Website',      website, 'Website：未提供') +
+            '</div>' +
+            '<div class="ph-section">' +
+              '<div class="ph-section-head"><span>媒体文件</span></div>' +
+              mediaTable +
+            '</div>' +
+            '<div class="ph-section ph-manual">' +
+              '<div class="ph-section-head"><span>手动操作步骤</span></div>' +
+              '<ol>' +
+                '<li>在 Edge / Chrome 中完成安全验证</li>' +
+                '<li>登录 Product Hunt</li>' +
+                '<li>点击 Submit → New Product</li>' +
+                '<li>复制上方字段到对应输入框</li>' +
+                '<li>从媒体文件列表复制路径 / 打开文件夹，把图片 / 视频拖入</li>' +
+                '<li>手动点击 Submit 完成发布</li>' +
+              '</ol>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+
+    var wrap = document.createElement('div');
+    wrap.innerHTML = html;
+    document.body.appendChild(wrap.firstChild);
+
+    var overlay = document.getElementById('phHelperOverlay');
+    // 显示
+    if (typeof openModal === 'function') {
+      try { openModal('phHelperOverlay'); } catch (_e) { overlay.classList.add('show'); }
+    } else {
+      overlay.classList.add('show');
+    }
+
+    // 关闭
+    function closePanel() {
+      if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      document.removeEventListener('keydown', onKey);
+    }
+    function onKey(e) { if (e && e.key === 'Escape') closePanel(); }
+    document.addEventListener('keydown', onKey);
+
+    // 事件代理
+    overlay.addEventListener('click', function (ev) {
+      var t = ev.target.closest('[data-ph-action]');
+      if (!t) {
+        // 点击遮罩关闭
+        if (ev.target === overlay) closePanel();
+        return;
+      }
+      var action = t.getAttribute('data-ph-action');
+      var target = t.getAttribute('data-ph-target');
+      if (action === 'close')      { closePanel(); }
+      else if (action === 'copy-all') {
+        if (writeClipboard(allText)) toast('✓ 已复制全部 Product Hunt 内容', 'success', 2000);
+        else toast('复制失败：浏览器不支持剪贴板', null, 3000);
+      }
+      else if (action === 'copy-field') {
+        var ta = overlay.querySelector('textarea[data-ph-field="' + target + '"]');
+        if (ta && writeClipboard(ta.value)) toast('✓ 已复制 ' + target, 'success', 1800);
+      }
+      else if (action === 'copy') {
+        if (target && writeClipboard(target)) toast('✓ 已复制文件路径', 'success', 1800);
+      }
+      else if (action === 'reveal') {
+        if (window.api && typeof window.api.revealInFolder === 'function' && target) {
+          window.api.revealInFolder(target).then(function (rr) {
+            if (!rr || !rr.ok) toast('打开文件夹失败：' + (rr && rr.error || ''), null, 3000);
+          }).catch(function () { toast('打开文件夹失败', null, 3000); });
+        } else {
+          toast('当前版本不支持打开文件夹；已复制文件路径', null, 3000);
+        }
+      }
+    });
+  }
+
+  // 复制到剪贴板：Electron 走 native clipboard，浏览器走 fallback。
+  function writeClipboard(text) {
+    try {
+      if (window.api && typeof window.api.writeClipboard === 'function') {
+        // fire-and-forget；同步返回 true，错误由 toast 显示。
+        window.api.writeClipboard(String(text == null ? '' : text)).catch(function () {});
+        return true;
+      }
+    } catch (_e) {}
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(String(text == null ? '' : text));
+        return true;
+      }
+    } catch (_e) {}
+    // legacy fallback
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = String(text == null ? '' : text);
+      ta.style.position = 'fixed'; ta.style.left = '-9999px';
+      document.body.appendChild(ta); ta.select();
+      var ok = document.execCommand && document.execCommand('copy');
+      document.body.removeChild(ta);
+      return !!ok;
+    } catch (_e) { return false; }
+  }
+
   window.openRocket=function(){
 
     if(!window.api){toast('火箭发送仅桌面端（Electron）可用，浏览器演示模式请用复制+打开');return;}
@@ -4741,6 +5016,38 @@
 
     var payload=pubPayload();
 
+    // 即刻 + Product Hunt 批量发射：把 state.copies.<id>.body 喂进 payload，附上视频 assetId
+    // （非这两个平台忽略 videoAssetId，所以放在共享 payload 上对其它平台无副作用）
+    try{
+      // 即刻（v1.14）
+      var _jkCopy=(state.copies && state.copies.jike)||{};
+      if(_jkCopy.body){ payload.body=_jkCopy.body; payload.intro=_jkCopy.body; }
+      // Product Hunt（v1）：把 PH 定制文案喂进 payload；body 作为 tagline/description 拆分依据
+      var _phCopy=(state.copies && state.copies.producthunt)||{};
+      if(_phCopy.title){ payload.title=_phCopy.title; }
+      if(_phCopy.body){ payload.body=_phCopy.body; payload.intro=_phCopy.body; }
+      // X (Twitter)（v1.0 phase 2）：把 X 定制文案喂进 payload；body 即为推文正文
+      //   X 没有独立标题，因此不写 payload.title，避免污染其他平台
+      var _xCopy=(state.copies && state.copies.x)||{};
+      if(_xCopy.body){ payload.body=_xCopy.body; payload.intro=_xCopy.body; }
+      // 小红书（v1.7）：把 XHS 定制标题 / 正文喂进 payload
+      //   标题来自 state.copies.xiaohongshu.title；正文来自 state.copies.xiaohongshu.body
+      //   缺省回退到 baseCopy（genCopy('xiaohongshu', 0)）以保证 publish 时一定有内容
+      var _xhsCopy=(state.copies && state.copies.xiaohongshu)||{};
+      var _xhsBaseCopy=null;
+      try{ _xhsBaseCopy=(typeof genCopy==='function')?genCopy('xiaohongshu',0):null; }catch(_xhsE){ _xhsBaseCopy=null; }
+      var _xhsTitle=_xhsCopy.title||(_xhsBaseCopy&&_xhsBaseCopy.title)||(state.project&&state.project.name)||'';
+      var _xhsBody =_xhsCopy.body ||(_xhsBaseCopy&&_xhsBaseCopy.body) ||(state.project&&state.project.intro)||'';
+      if(_xhsTitle){ payload.title=_xhsTitle; }
+      if(_xhsBody){  payload.body=_xhsBody;  payload.intro=_xhsBody; }
+      // 视频：jike + producthunt + xiaohongshu + x 共享同一份视频
+      if(state.videoAsset && state.videoAsset.id){
+        payload.videoAssetId=state.videoAsset.id;
+        payload.videoName=state.videoAsset.fileName||'video.mp4';
+        payload.videoMime=state.videoAsset.mimeType||'video/mp4';
+      }
+    }catch(_e){}
+
     box.innerHTML='';
 
     var okCount=0;
@@ -4748,6 +5055,21 @@
     for(var i=0;i<checks.length;i++){
 
       var pid=checks[i].getAttribute('data-pid');
+
+      // Product Hunt（v3）：系统默认浏览器辅助发布 + 应用内「Product Hunt 发布助手」面板
+      // 不创建 BrowserWindow、不调 loadURL、不发 executeJavaScript。
+      // 调起用户的 Edge / Chrome；最终 Submit 由用户在自己浏览器里手动点击。
+      if(pid==='producthunt'){
+        box.innerHTML+='<div class="rs">▶ Product Hunt 改用系统浏览器辅助发布…</div>';
+        try {
+          await window.autoPubProductHunt();
+          box.innerHTML+='<div class="rs ok">✓ Product Hunt 已在系统浏览器中打开</div>';
+          okCount++; markPub('producthunt');
+        } catch(e) {
+          box.innerHTML+='<div class="rs warn">系统浏览器未能自动打开，请手动访问 https://www.producthunt.com/ 完成发布</div>';
+        }
+        continue;
+      }
 
       // GitHub：走 Contents API（PUT /contents/{path}）把文章保存为 .md 文件
       // 不弹浏览器、不走填表脚本
@@ -4958,6 +5280,11 @@
     // GitHub：走 L1 直发（GitHub Releases API + 视频 asset 上传）
     if(id==='github'){ return autoPubGithub(); }
 
+    // Product Hunt（v3）：系统默认浏览器辅助发布模式
+    // 不创建 BrowserWindow、不调 loadURL、不发 executeJavaScript。
+    // 调起用户的 Edge / Chrome，并在应用内打开「Product Hunt 发布助手」面板。
+    if(id==='producthunt'){ return autoPubProductHunt(); }
+
     // YouTube（v1.6）：走 Data API v3 Resumable Upload
     if(id==='youtube'){
       var ytP=youtubePublishPayload();
@@ -4998,11 +5325,32 @@
 
     var pObj=pf(id),payload=pubPayload();
 
-    if(id==='wechat'){
+    // 即刻（v1.14）+ Product Hunt（v1）：必须把用户在「发布文案」里编辑过的 body 喂给 main，
+    // 否则默认会回退到 state.project.intro（旧版本的实际 bug）。
+    if(id==='wechat' || id==='jike' || id==='producthunt'){
       var draftCopy=state.copies[id]||{};
       payload.title=draftCopy.title||payload.title;
       payload.body=draftCopy.body||payload.body;
       payload.intro=payload.body;
+    }
+    // 即刻 + Product Hunt：把用户在「视频成片」步骤选好的视频（state.videoAsset）一并送给 main
+    // main 用 videoAssetId 反查 filePath 并转成 data URL 注入 fill 脚本。
+    if((id==='jike' || id==='producthunt') && state.videoAsset && state.videoAsset.id){
+      payload.videoAssetId = state.videoAsset.id;
+      payload.videoName = state.videoAsset.fileName || 'video.mp4';
+      payload.videoMime = state.videoAsset.mimeType || 'video/mp4';
+    }
+    // 小红书（v1.0）：自动填表 + 自动上传视频 / 图片。复用同一份 videoAsset。
+    if(id==='xiaohongshu' && state.videoAsset && state.videoAsset.id){
+      payload.videoAssetId = state.videoAsset.id;
+      payload.videoName = state.videoAsset.fileName || 'video.mp4';
+      payload.videoMime = state.videoAsset.mimeType || 'video/mp4';
+    }
+    // X (Twitter)（v1.0 phase 2）：同 main 的 videoAssetId → dataURL 链路。
+    if(id==='x' && state.videoAsset && state.videoAsset.id){
+      payload.videoAssetId = state.videoAsset.id;
+      payload.videoName = state.videoAsset.fileName || 'video.mp4';
+      payload.videoMime = state.videoAsset.mimeType || 'video/mp4';
     }
 
     var launch=id==='wechat'?window.api.wechatDraftCreate(payload):window.api.pubLaunch(id,payload);
@@ -5034,21 +5382,39 @@
 
         }else{
 
-          confirmModal({
-            title: '发布到 '+pObj.name,
-            body: pObj.name+' 内容已自动填好。',
-            detail: '点「确认」在发布窗口完成发布；若页面还有需手动选择的项（分类/标签/节点等），请先选好再确认。',
-            okLabel: '确认发布'
-          }).then(function(ok){
-            if(!ok)return;
-            window.api.pubSubmit(id,payload).then(function(s2){
+          // 半自动平台（jike / 知乎 / 掘金 / V2EX 等）弹出确认框，按用户最终拍板再调 pubSubmit。
+          // 小红书（auto=false）走特殊路径：r.status='confirm' 表示已自动填好，
+          // 但 publish 永远由用户在小红书页面手动点击，所以不弹「确认发布」弹窗。
+          if(id==='xiaohongshu' && r.status==='confirm'){
+            var xhsNote=r.note||'小红书内容已自动填好（标题/正文/媒体）。请在小红书发布窗口中手动点击「发布笔记」完成发布。';
+            toast(xhsNote, null, 8000);
+            if(typeof logLine==='function')logLine('xiaohongshu confirm: '+xhsNote);
+            markPub(id);
+          }else if(id==='x'){
+            // X (Twitter)（v1.0 phase 2）：同样永远不自动 Post。
+            // phase 2 返回后 phase1 已开 /compose/post 并找到编辑器；
+            // 内容已自动填充（正文 + 视频/图片如有）；用户在小红书同类路径手动点击 Post。
+            var xNote=r.note||'X 内容已自动填好（正文 + 视频/图片如有）。请在 X 发送动态窗口中手动点击「Post」完成发布。';
+            toast(xNote, null, 8000);
+            if(typeof logLine==='function')logLine('x confirm: '+xNote);
+            markPub(id);
+          }else{
+            confirmModal({
+              title: '发布到 '+pObj.name,
+              body: pObj.name+' 内容已自动填好。',
+              detail: '点「确认」在发布窗口完成发布；若页面还有需手动选择的项（分类/标签/节点等），请先选好再确认。',
+              okLabel: '确认发布'
+            }).then(function(ok){
+              if(!ok)return;
+              window.api.pubSubmit(id,payload).then(function(s2){
 
-              if(s2.status==='ok'){toast('已发布到 '+pObj.name);markPub(id);}
+                if(s2.status==='ok'){toast('已发布到 '+pObj.name);markPub(id);}
 
-              else{toast(pObj.name+' 发布未完成，请在发布窗口手动完成');}
+                else{toast(pObj.name+' 发布未完成，请在发布窗口手动完成');}
 
+              });
             });
-          });
+          }
 
         }
 
