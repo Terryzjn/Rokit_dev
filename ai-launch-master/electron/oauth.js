@@ -624,7 +624,9 @@ async function status(providerId) {
     expiresAt: token.expires_at || null,
     tokenType: token.token_type || 'bearer',
     connectedAt: token.connected_at || null,
-    needsReconnect: !!token.needs_reconnect
+    needsReconnect: !!token.needs_reconnect,
+    // v1.10：发布仓库配置（仅 GitHub 有意义；其它 provider 返回 null 即可）
+    publishRepo: token.publishRepo || null
   };
 }
 
@@ -773,8 +775,75 @@ async function list() {
   return out;
 }
 
+// v1.10：GitHub URL → owner/repo
+//   与 main.js 的 ghRepoPart 同源逻辑，复制到这里避免 main.js ↔ oauth.js 互相 require。
+//   - 支持 https/http/无协议（自动补 https://）
+//   - 尾斜杠、?query、#fragment、.git 后缀都被剥离
+//   - /issues/123、/releases 等子路径仍能解析出 base repo
+//   - 拒绝非仓库路径（owner in 黑名单）
+//   - 返回 null 表示「不是 GitHub 仓库」
+const GH_OWNER_BLACKLIST = /^(settings|login|logout|signup|join|explore|topics|trending|collections|events|sponsors|orgs|marketplace|pricing|features|enterprise|customer-stories|security|team|jobs|sitemap|mobile|contact|about|notifications|search|new|home|privacy|terms|pulls|issues|discussions|wiki|projects)$/i;
+function parseGithubRepo(rawUrl) {
+  if (!rawUrl) return null;
+  let s = String(rawUrl).trim();
+  if (!s) return null;
+  if (!/^https?:\/\//i.test(s)) s = 'https://' + s;
+  let u;
+  try { u = new URL(s); } catch (_e) { return null; }
+  if (!/^(www\.)?github\.com$/i.test(u.hostname)) return null;
+  const parts = u.pathname.replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
+  if (parts.length < 2) return null;
+  const owner = parts[0];
+  const repo = (parts[1] || '').replace(/\.git$/i, '').replace(/[?#].*$/i, '');
+  if (!owner || !repo) return null;
+  if (GH_OWNER_BLACKLIST.test(owner)) return null;
+  if (!/^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/.test(owner)) return null;
+  if (!/^[A-Za-z0-9._-]+$/.test(repo)) return null;
+  return { owner: owner, repo: repo, url: 'https://github.com/' + owner + '/' + repo };
+}
+
+// v1.10：验证 token 对 publishRepo 是否具有 push 权限
+//   返回 { ok, status, push, error? }
+//     ok=true, push=true  → 仓库存在且有 push 权限
+//     ok=true, push=false → 仓库存在但 Token 无 push 权限
+//     ok=false            → 404 / 403(其它) / 网络异常
+async function verifyPublishRepoPush(token, repo) {
+  const url = 'https://api.github.com/repos/' + encodeURIComponent(repo.owner) + '/' + encodeURIComponent(repo.repo);
+  try {
+    const res = await fetch(url, {
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'Accept': 'application/vnd.github+json',
+        'User-Agent': 'Rokit-OAuth/1.0'
+      }
+    });
+    if (res.status === 200) {
+      const j = await res.json().catch(function () { return null; });
+      const push = !!(j && j.permissions && j.permissions.push === true);
+      return { ok: true, status: 200, push: push, full_name: j && j.full_name || (repo.owner + '/' + repo.repo) };
+    }
+    if (res.status === 404) {
+      let msg = '';
+      try { const j = await res.json().catch(function () { return null; }); msg = j && j.message ? String(j.message) : ''; } catch (_e) {}
+      return { ok: false, status: 404, error: 'repo_not_found', detail: msg || '仓库不存在或 Token 无权访问' };
+    }
+    if (res.status === 401) {
+      return { ok: false, status: 401, error: 'invalid_token', detail: 'Token 无效或已过期' };
+    }
+    if (res.status === 403) {
+      let msg = '';
+      try { const j = await res.json().catch(function () { return null; }); msg = j && j.message ? String(j.message) : ''; } catch (_e) {}
+      return { ok: false, status: 403, error: 'forbidden', detail: msg || 'Token 没有访问该仓库的权限' };
+    }
+    return { ok: false, status: res.status, error: 'http_' + res.status, detail: 'HTTP ' + res.status };
+  } catch (e) {
+    return { ok: false, error: 'network', detail: String(e && e.message || e) };
+  }
+}
+
 // 直接保存用户输入的凭据（BYOK Token 模式：跳过 OAuth 跳转）
 // 流程：调用 provider /user 验证 token → 拿账号信息 → 写 keytar
+// v1.10：可选 publishRepo 入参（仅 GitHub 生效）。保存前必须验证 permissions.push===true。
 // 错误分类（reason）：
 //   'invalid_input'         空值或格式不合法
 //   'invalid_token'         401 / token 已撤销
@@ -783,6 +852,9 @@ async function list() {
 //   'rate_limited'          GitHub API 速率限制
 //   'network'               网络异常
 //   'not_persisted'         keytar 加载失败且未走内存兜底
+//   'invalid_repo_url'      publishRepo 解析失败（非 github.com 仓库 URL）
+//   'repo_not_found'        仓库 404
+//   'no_push_permission'    仓库存在但 Token 无 push 权限（permissions.push !== true）
 async function saveCredential(providerId, payload) {
   if (!providerId) return { ok: false, reason: 'invalid_input', detail: 'missing providerId' };
   const provider = providers.getProvider(providerId);
@@ -832,6 +904,41 @@ async function saveCredential(providerId, payload) {
 
   const account = parseAccount(provider, data) || { id: null, login: null, name: null, avatar_url: null };
 
+  // v1.10：解析并验证发布仓库
+  //   规则：
+  //     - payload.publishRepo 为空/null/undefined → 不绑定发布仓库（保持兼容旧 Token；用户后续可补）
+  //     - 解析失败 → invalid_repo_url
+  //     - 解析成功但 /repos 返回 404 → repo_not_found
+  //     - 解析成功但 permissions.push !== true → no_push_permission（不保存 publishRepo）
+  let publishRepo = null;
+  if (providerId === 'github' && payload && payload.publishRepo != null && String(payload.publishRepo).trim() !== '') {
+    const repoUrl = String(payload.publishRepo).trim();
+    const parsed = parseGithubRepo(repoUrl);
+    if (!parsed) {
+      return { ok: false, reason: 'invalid_repo_url', detail: '无法解析为 GitHub 仓库地址：' + repoUrl };
+    }
+    const v = await verifyPublishRepoPush(accessToken, parsed);
+    if (!v.ok) {
+      // 仓库无法访问或权限不足：拒绝保存 publishRepo；其它错误也直接拒绝整次保存
+      // （用户必须先解决 repo/token 配对问题才能继续，避免"半完成"的绑定）
+      if (v.error === 'repo_not_found') return { ok: false, reason: 'repo_not_found', detail: v.detail, owner: parsed.owner, repo: parsed.repo };
+      if (v.error === 'invalid_token') return { ok: false, reason: 'invalid_token', status: v.status, detail: v.detail };
+      if (v.error === 'forbidden') return { ok: false, reason: 'forbidden', status: v.status, detail: v.detail };
+      return { ok: false, reason: v.error || 'invalid_repo_url', detail: v.detail };
+    }
+    if (!v.push) {
+      return {
+        ok: false,
+        reason: 'no_push_permission',
+        detail: '当前 Token 没有此仓库的写入权限，请检查仓库地址或 GitHub Token 权限（Fine-grained PAT 需勾选 Contents: Read and write，目标仓库需在 Repository access 列表中）',
+        owner: parsed.owner,
+        repo: parsed.repo,
+        full_name: v.full_name
+      };
+    }
+    publishRepo = { owner: parsed.owner, repo: parsed.repo, url: parsed.url, full_name: v.full_name };
+  }
+
   // 持久化：token_type = pat 表示 Personal Access Token（区分 OAuth flow 产生的 token）
   const record = {
     access_token: accessToken,
@@ -841,11 +948,18 @@ async function saveCredential(providerId, payload) {
     expires_at: null,
     account
   };
+  // v1.10：仅当 publishRepo 校验通过才写入；旧 token 无此字段时视为未设置（向后兼容）
+  if (publishRepo) record.publishRepo = publishRepo;
+
   const persisted = await secrets.setOauthToken(providerId, record);
   if (!persisted) return { ok: false, reason: 'not_persisted' };
 
-  logger.info('[oauth] credential saved (BYOK)', { providerId, login: account.login });
-  return { ok: true, account };
+  logger.info('[oauth] credential saved (BYOK)', {
+    providerId,
+    login: account.login,
+    hasPublishRepo: !!publishRepo
+  });
+  return { ok: true, account, publishRepo: publishRepo };
 }
 
 // publish 流程内部使用：Main 进程读 token，绝不暴露 Renderer

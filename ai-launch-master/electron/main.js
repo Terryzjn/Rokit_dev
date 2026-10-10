@@ -157,39 +157,459 @@ ipcMain.handle('works:list', () => store.listWorks());
 ipcMain.handle('works:save', (_e, w) => store.saveWork(w));
 ipcMain.handle('works:delete', (_e, id) => store.deleteWork(id));
 
-// v1.8：「我的作品」GitHub 数据刷新。
+// v1.8：「我的作品」GitHub 数据刷新（v1.10：仅 Star）
 //   - 只刷新"url 是 GitHub"的真实作品（示例作品 isSample 跳过）
 //   - Promise.allSettled：单 repo 失败不影响其他
-//   - 403/429/rate-limit 时保留旧数据（前端不做清空，由后端只回传 ok=false，前端判断）
-//   - 失败控制台输出 [GitHubStats] xxx refresh failed: <msg>，不打印 token
+//   - 404 / 403 / 网络异常 → 保留旧数据（前端不做清空）
+//   - 失败时输出 [GitHub Stats][Stars] 结构化日志，**绝不打印完整 Token**
+//
+// Star 数据来源（按需求清单）：
+//   - GET https://api.github.com/repos/{owner}/{repo} → stargazers_count
+//   - 公开仓库无 token 也可访问；优先复用当前 Token 提升 rate limit（5000/h vs 60/h）
+//   - owner / repo 来自作品链接 URL 解析（ghRepoPart），与 GitHub Publisher 的
+//     publishRepo 完全独立——发布仓库用哪个账号 / 哪个仓库，Star 永远看作品链接
+//
+// 隔离原则：
+//   - 这里只读 `secrets.getGithubPat()` 用于 Star 限流提升；Token 仅作 Authorization 头
+//   - 不写回 publisher / 不修改 Token 存储 / 不要求用户重新绑定
+//   - 复用既有 fetchGithubMeta：它已支持可选 Authorization header
 async function refreshGithubStats(works) {
+  // v1.10：先全量记录每个作品的预处理路径（按需求六/十），再过滤 targets
+  //   这样作品链接为空 / 不是 GitHub URL 的情况也能在日志里看到
+  try {
+    console.warn('[GitHub Stats][Stars] === refresh start === workCount=' + ((works||[]).length));
+    (works || []).forEach(function(w) {
+      if (!w || !w.id) return;
+      var looksLikeGh = typeof w.url === 'string' && /github\.com/i.test(w.url || '');
+      var parsed = looksLikeGh ? ghRepoPart(w.url) : null;
+      console.warn('  [pre-check] workId=' + w.id + ' workName="' + (w.name || '') + '" workLink="' + (w.url || '') + '" looksLikeGitHub=' + looksLikeGh + ' parsedOwner=' + (parsed ? parsed.split('/')[0] : '<n/a>') + ' parsedRepo=' + (parsed ? parsed.split('/')[1] : '<n/a>'));
+    });
+  } catch(_e) {}
+
   var targets = (works || []).filter(function(w){
     return w && w.id && typeof w.url === 'string' && /github\.com/i.test(w.url);
   });
-  if (!targets.length) return [];
+  if (!targets.length) {
+    try { console.warn('[GitHub Stats][Stars] === no targets to refresh ==='); } catch(_e) {}
+    return [];
+  }
+
+  // 有 token 就带上 Authorization（公开仓库访问 + 提升 rate limit：60/h → 5000/h）
+  // 不打印 token 任何字符
+  var optToken = '';
+  try { optToken = (await secrets.getGithubPat()) || ''; } catch (_e) {}
+  var hasToken = !!optToken;
+  try { console.warn('[GitHub Stats][Stars] tokenStatus=' + (hasToken ? 'configured (auth header will be sent)' : 'empty (公开仓库仍可访问)')); } catch(_e) {}
+
   var results = await Promise.allSettled(targets.map(async function(w){
     var repo = ghRepoPart(w.url);
     if (!repo) throw new Error('invalid github url: ' + w.url);
-    var meta = await fetchGithubMeta(repo);
-    if (!meta || typeof meta.stars !== 'number') throw new Error('no stars field in response');
-    return { id: w.id, stars: meta.stars, full_name: meta.title || repo };
+
+    // ---------- Stars ----------
+    var stars = null;
+    var starsError = null;
+    var starsHttpStatus = null;
+    var starsGhMessage = null;
+    var starsErrorKind = null; // 'http' | 'network' | 'parse' | 'no-field'
+    var starsErrorCode = null; // e.g. 'ECONNRESET' / 'ENOTFOUND'
+    var starsErrorName = null; // e.g. 'TypeError' / 'AbortError'
+    var fullName = repo;
+    try {
+      var meta = await fetchGithubMeta(repo, optToken || null);
+      if (!meta || typeof meta.stars !== 'number') {
+        starsErrorKind = 'no-field';
+        throw new Error('no stars field in response');
+      }
+      stars = meta.stars;
+      fullName = meta.title || repo;
+      starsHttpStatus = 200;
+    } catch (e1) {
+      starsError = String((e1 && e1.message) || e1);
+      starsErrorName = (e1 && e1.name) || null;
+      // fetch failed（Node 22+）会把底层 cause 暴露在 error.cause
+      if (e1 && e1.cause) {
+        var cause = e1.cause;
+        if (cause.code) starsErrorCode = String(cause.code);
+        if (!starsErrorCode && cause.message) {
+          // 例如 "fetch failed" 的 cause 可能是 AggregateError 或一个 errno-like 对象
+          starsErrorCode = cause.message.split(/[\n:]/)[0] || null;
+        }
+      }
+      // v1.10：fetchGithubMeta 把 HTTP status / GitHub message 挂在 err.* 属性上（避免重复拼接）
+      if (e1 && typeof e1.httpStatus === 'number') starsHttpStatus = e1.httpStatus;
+      if (e1 && typeof e1.ghMessage === 'string' && e1.ghMessage) starsGhMessage = e1.ghMessage;
+      // 推断错误类型
+      if (starsHttpStatus != null) {
+        starsErrorKind = 'http';
+      } else if (starsErrorName === 'AbortError') {
+        starsErrorKind = 'timeout';
+      } else if (starsErrorCode || /fetch failed|Failed to fetch|ECONNRESET|ENOTFOUND|ETIMEDOUT|ERR_NETWORK|net::ERR_/i.test(starsError || '')) {
+        starsErrorKind = 'network';
+      } else {
+        starsErrorKind = 'parse';
+      }
+    }
+
+    // ---------- Downloads (releases assets download_count 累加；带分页) ----------
+    var downloads = null;
+    var downloadsError = null;
+    var downloadsHttpStatus = null;
+    var downloadsErrorKind = null;
+    var downloadsErrorCode = null;
+    var downloadsErrorName = null;
+    var downloadsGhMessage = null;
+    var downloadsReleaseCount = 0;
+    var downloadsAssetCount = 0;
+    var downloadsPages = 0;
+    var downloadsSkippedSourceCode = 0;
+    var downloadsSkippedNonInstaller = 0;
+    try {
+      var dl = await fetchGithubReleaseDownloads(repo, optToken || null);
+      downloads = dl.sum;
+      downloadsReleaseCount = dl.releaseCount;
+      downloadsAssetCount = dl.assetCount;
+      downloadsPages = dl.pages;
+      downloadsSkippedSourceCode = dl.skippedSourceCodeCount || 0;
+      downloadsSkippedNonInstaller = dl.skippedNonInstallerCount || 0;
+    } catch (e2) {
+      downloadsError = String((e2 && e2.message) || e2);
+      downloadsErrorName = (e2 && e2.name) || null;
+      if (e2 && e2.cause) {
+        var cause2 = e2.cause;
+        if (cause2.code) downloadsErrorCode = String(cause2.code);
+        if (!downloadsErrorCode && cause2.message) {
+          downloadsErrorCode = cause2.message.split(/[\n:]/)[0] || null;
+        }
+      }
+      if (e2 && typeof e2.httpStatus === 'number') downloadsHttpStatus = e2.httpStatus;
+      if (e2 && typeof e2.ghMessage === 'string' && e2.ghMessage) downloadsGhMessage = e2.ghMessage;
+      if (downloadsHttpStatus != null) downloadsErrorKind = 'http';
+      else if (downloadsErrorName === 'AbortError') downloadsErrorKind = 'timeout';
+      else if (downloadsErrorCode || /fetch failed|Failed to fetch|ECONNRESET|ENOTFOUND|ETIMEDOUT|ERR_NETWORK|net::ERR_/i.test(downloadsError || '')) downloadsErrorKind = 'network';
+      else downloadsErrorKind = 'parse';
+    }
+
+    return {
+      id: w.id,
+      workName: w.name || '',
+      workLink: w.url,
+      owner: repo.split('/')[0],
+      repo: repo.split('/')[1],
+      full_name: fullName,
+      hasToken: hasToken,
+      stars: stars,
+      stars_error: starsError,
+      stars_http_status: starsHttpStatus,
+      stars_gh_message: starsGhMessage,
+      stars_error_kind: starsErrorKind,
+      stars_error_code: starsErrorCode,
+      stars_error_name: starsErrorName,
+      downloads: downloads,
+      downloads_error: downloadsError,
+      downloads_http_status: downloadsHttpStatus,
+      downloads_gh_message: downloadsGhMessage,
+      downloads_error_kind: downloadsErrorKind,
+      downloads_error_code: downloadsErrorCode,
+      downloads_error_name: downloadsErrorName,
+      downloads_release_count: downloadsReleaseCount,
+      downloads_asset_count: downloadsAssetCount,
+      downloads_pages: downloadsPages,
+      downloads_skipped_source_code_count: downloadsSkippedSourceCode,
+      downloads_skipped_non_installer_count: downloadsSkippedNonInstaller,
+      visitors: null,
+      visitors_error: 'disabled-by-v1.10-only-stars'
+    };
   }));
+
   var updates = [];
   results.forEach(function(r, i){
     var w = targets[i];
     if (r.status === 'fulfilled'){
-      updates.push({ id: w.id, ok: true, stars: r.value.stars, full_name: r.value.full_name });
-      // 主进程侧持久化（即使 IPC 后续前端 saveWork 失败也不丢数据）
-      try { store.saveWork({ id: w.id, star: r.value.stars }); } catch(_e){}
+      var v = r.value;
+      // 统一日志：[GitHub Stats][Stars] 格式（按需求六）
+      try {
+        console.warn('[GitHub Stats][Stars]');
+        console.warn('  workId: ' + (w.id || ''));
+        console.warn('  workName: ' + (v.workName || w.name || ''));
+        console.warn('  workLink: ' + (v.workLink || ''));
+        console.warn('  parsedOwner: ' + (v.owner || ''));
+        console.warn('  parsedRepo: ' + (v.repo || ''));
+        console.warn('  request: GET /repos/' + (v.owner || '') + '/' + (v.repo || ''));
+        console.warn('  hasToken: ' + (v.hasToken ? 'true' : 'false'));
+        console.warn('  HTTP status: ' + (v.stars_http_status == null ? 'n/a' : v.stars_http_status));
+        if (typeof v.stars === 'number') {
+          console.warn('  stargazers_count: ' + v.stars);
+        } else {
+          console.warn('  stargazers_count: <failed>');
+          console.warn('  error: ' + (v.stars_error || 'unknown'));
+          if (v.stars_gh_message) console.warn('  gh_message: ' + v.stars_gh_message);
+        }
+      } catch(_e) {}
+
+      // v1.10 整体更新结果：stars 或 downloads 任何一个成功就算 ok:true
+      //   （前端按字段 saveWork，PATCH 语义不会覆盖 name/type/url 等基础字段）
+      //   - 单独看 stars：null 表示这次拉取失败 → 前端保留旧值
+      //   - 单独看 downloads：null 表示这次拉取失败 → 前端保留旧值
+      var starsOk = v.stars != null;
+      var downloadsOk = v.downloads != null;
+      var anyOk = starsOk || downloadsOk;
+
+      if (anyOk) {
+        // 构造更新 payload（仅包含真正成功的字段 + 状态文本）
+        var u = {
+          id: w.id,
+          ok: true,
+          full_name: v.full_name
+        };
+        if (starsOk) {
+          u.stars = v.stars;
+          u.stars_error = null;
+        } else {
+          u.stars_error = v.stars_error;
+        }
+        if (downloadsOk) {
+          u.downloads = v.downloads;
+          u.downloads_release_count = v.downloads_release_count;
+          u.downloads_asset_count = v.downloads_asset_count;
+          u.downloads_pages = v.downloads_pages;
+          u.downloads_error = null;
+        } else {
+          u.downloads_error = v.downloads_error;
+        }
+        u.visitors = null;
+        u.visitors_error = 'disabled-by-v1.10-only-stars';
+        updates.push(u);
+        // 持久化成功的字段（PATCH 语义：只传 id+star+dl，不会覆盖 name/type/url）
+        var persist = { id: w.id };
+        if (starsOk) persist.star = v.stars;
+        if (downloadsOk) persist.dl = v.downloads;
+        if (starsOk || downloadsOk) {
+          try { store.saveWork(persist); } catch(_e){}
+        }
+        // 单字段失败在 console 留痕
+        if (!starsOk) {
+          try {
+            console.warn('[GitHubStats]', (w.id || w.url || ''), 'stars failed:',
+              'kind=' + (v.stars_error_kind || '?'),
+              'code=' + (v.stars_error_code || '-'),
+              'name=' + (v.stars_error_name || '-'),
+              'http=' + (v.stars_http_status == null ? '-' : v.stars_http_status),
+              'msg=' + (v.stars_error || 'unknown')
+            );
+          } catch(_e) {}
+        }
+        if (!downloadsOk) {
+          try {
+            console.warn('[GitHubStats]', (w.id || w.url || ''), 'downloads failed:',
+              'kind=' + (v.downloads_error_kind || '?'),
+              'code=' + (v.downloads_error_code || '-'),
+              'name=' + (v.downloads_error_name || '-'),
+              'http=' + (v.downloads_http_status == null ? '-' : v.downloads_http_status),
+              'msg=' + (v.downloads_error || 'unknown')
+            );
+          } catch(_e) {}
+        }
+      } else {
+        // stars + downloads 都失败 → ok:false
+        var failParts = [];
+        if (v.stars_error) failParts.push('Star: ' + v.stars_error);
+        if (v.downloads_error) failParts.push('Downloads: ' + v.downloads_error);
+        var failMsg = failParts.length ? failParts.join(' / ') : 'unknown';
+        if (v.stars_gh_message) failMsg += '（GitHub stars: ' + v.stars_gh_message + '）';
+        if (v.downloads_gh_message) failMsg += '（GitHub downloads: ' + v.downloads_gh_message + '）';
+        try { console.warn('[GitHubStats]', (w.id || w.url || ''), 'all failed:', failMsg); } catch(_e){}
+        updates.push({
+          id: w.id,
+          ok: false,
+          error: failMsg,
+          status: v.stars_http_status != null ? v.stars_http_status : v.downloads_http_status,
+          kind: v.stars_error_kind || v.downloads_error_kind,
+          code: v.stars_error_code || v.downloads_error_code,
+          errorName: v.stars_error_name || v.downloads_error_name,
+          gh_message: v.stars_gh_message || v.downloads_gh_message
+        });
+      }
     } else {
       var msg = String((r.reason && r.reason.message) || r.reason || 'unknown error');
-      // 不打印 token / Authorization header
       try { console.warn('[GitHubStats]', (w.id || w.url || ''), 'refresh failed:', msg); } catch(_e){}
       updates.push({ id: w.id, ok: false, error: msg });
     }
   });
+  try { console.warn('[GitHub Stats][Stars] === refresh done === ok=' + updates.filter(function(u){return u.ok;}).length + ' failed=' + updates.filter(function(u){return !u.ok;}).length); } catch(_e) {}
   return updates;
 }
+
+// v1.10：fetchGithubReleaseDownloads
+//   - 累加所有 Release 的 assets[].download_count（按需求一）
+//   - 必须带分页（GitHub 每页最多 100 条；很多项目 > 100 个 release）
+//   - 公开仓库无 token 也能访问
+//   - 错误响应把 status / ghMessage / requestUrl 挂在 err 属性上（与 fetchGithubMeta 一致）
+//   - 401/403/404 → err.httpStatus；不重试、不 fallback
+//   - 至少给每个 release / asset 输出可定位的日志
+async function fetchGithubReleaseDownloads(ownerRepo, token) {
+  var slash = String(ownerRepo || '').indexOf('/');
+  var owner = slash >= 0 ? String(ownerRepo).slice(0, slash) : String(ownerRepo);
+  var repo  = slash >= 0 ? String(ownerRepo).slice(slash + 1) : '';
+  var baseHeaders = { 'User-Agent': 'tuiguang-huojian/1.0', 'Accept': 'application/vnd.github+json' };
+  var authedHeaders = token ? Object.assign({}, baseHeaders, { 'Authorization': 'Bearer ' + token }) : baseHeaders;
+  var perPage = 100;
+  var maxPages = 20; // 防御性上限：避免分页循环失控（100 × 20 = 2000 releases）
+
+  // 识别 GitHub 自动生成的 "Source code"——这是 GitHub UI 上不算用户下载的内部产物
+  // 用户也可能手动上传名字相近的 .zip/.tar.gz（例如便携包），白名单扩展名优先
+  function isGithubAutoSourceCode(name) {
+    if (!name) return false;
+    var n = String(name);
+    return /source[\s_.-]*code/i.test(n);
+  }
+  // 安装包扩展名白名单（大小写不敏感；不含 "Source code" 才算）
+  function isInstallerAsset(name) {
+    if (!name) return false;
+    if (isGithubAutoSourceCode(name)) return false;
+    return /\.(exe|msi|dmg|appimage|pkg|deb|rpm|apk|zip|tar\.gz|tar\.bz2|tar\.xz|7z|rar)$/i.test(String(name));
+  }
+
+  var sum = 0;
+  var releaseCount = 0;
+  var installerAssetCount = 0;
+  var skippedSourceCodeCount = 0;
+  var skippedNonInstallerCount = 0;
+  var pages = 0;
+  var lastUrl = '';
+
+  for (var page = 1; page <= maxPages; page++) {
+    var api = 'https://api.github.com/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo) + '/releases?per_page=' + perPage + '&page=' + page;
+    lastUrl = api;
+    var res;
+    try {
+      res = await fetchWithTimeout(api, { headers: authedHeaders }, 15000);
+    } catch (netErr) {
+      var name = (netErr && netErr.name) || '';
+      var msg = String((netErr && netErr.message) || netErr);
+      var code = '';
+      if (netErr && netErr.cause && netErr.cause.code) code = String(netErr.cause.code);
+      try {
+        console.warn('[GitHub Stats][Downloads] NETWORK ERROR');
+        console.warn('  requestUrl: ' + api);
+        console.warn('  name: ' + name);
+        console.warn('  message: ' + msg);
+        console.warn('  code: ' + (code || '-'));
+      } catch(_e) {}
+      var tail = code ? (' · code=' + code) : '';
+      var errN = new Error('GitHub 网络错误（' + name + '）：' + msg + tail);
+      errN.requestUrl = api;
+      throw errN;
+    }
+    pages = page;
+    if (res.status === 404) {
+      // 仓库没有 release / 私有仓库匿名 → 视为 0（不是错误）
+      try {
+        console.warn('[GitHub Stats][Downloads] 404 - treating as 0 downloads');
+        console.warn('  requestUrl: ' + api);
+      } catch(_e) {}
+      return { sum: 0, releaseCount: 0, assetCount: 0, pages: page };
+    }
+    if (!res.ok) {
+      var ghMsg = '';
+      var ghDocUrl = '';
+      try {
+        var errBody = await res.text();
+        try {
+          var errJson = JSON.parse(errBody);
+          if (errJson && typeof errJson.message === 'string') ghMsg = errJson.message;
+          if (errJson && typeof errJson.documentation_url === 'string') ghDocUrl = errJson.documentation_url;
+        } catch (_e) {
+          ghMsg = String(errBody || '').slice(0, 200);
+        }
+      } catch (_e) {}
+      try {
+        console.warn('[GitHub Stats][Downloads] ERROR BODY');
+        console.warn('  status: ' + res.status);
+        console.warn('  message: ' + (ghMsg || '(none)'));
+        console.warn('  documentation_url: ' + (ghDocUrl || '(none)'));
+      } catch(_e) {}
+      var errH = new Error('GitHub API HTTP ' + res.status);
+      errH.httpStatus = res.status;
+      errH.ghMessage = ghMsg || '';
+      errH.ghDocUrl = ghDocUrl || '';
+      errH.requestUrl = api;
+      throw errH;
+    }
+    var arr = await res.json().catch(function () { return null; });
+    if (!Array.isArray(arr) || arr.length === 0) {
+      // 第一页就是空 → 没有更多 release，停止
+      break;
+    }
+    // 累加本页（仅 installer 资产；排除自动 source code 和非安装包扩展名）
+    for (var i = 0; i < arr.length; i++) {
+      releaseCount++;
+      var relAssets = (arr[i] && arr[i].assets) || [];
+      for (var j = 0; j < relAssets.length; j++) {
+        var asset = relAssets[j];
+        if (!asset || !asset.name) continue;
+        if (isGithubAutoSourceCode(asset.name)) {
+          skippedSourceCodeCount++;
+          continue;
+        }
+        if (!isInstallerAsset(asset.name)) {
+          skippedNonInstallerCount++;
+          continue;
+        }
+        var c = Number(asset.download_count) || 0;
+        if (c > 0) sum += c;
+        installerAssetCount++;
+      }
+    }
+    // 第一页日志详细输出（按需求二）
+    if (page === 1) {
+      try {
+        console.warn('[GitHub Stats][Downloads]');
+        console.warn('  owner: ' + owner);
+        console.warn('  repo: ' + repo);
+        console.warn('  requestUrl: ' + api);
+        console.warn('  HTTP status: ' + res.status);
+        console.warn('  releaseCount (page 1): ' + arr.length);
+        arr.forEach(function (r, idx) {
+          var a = (r.assets || []);
+          var inst = a.filter(function (x) { return isInstallerAsset(x && x.name); });
+          var sub = inst.reduce(function (s, x) { return s + (Number(x && x.download_count) || 0); }, 0);
+          console.warn('  release#' + idx + ' tag=' + (r.tag_name || '(no tag)') + ' name="' + (r.name || '') + '" assets=' + a.length + ' (installer=' + inst.length + ' sum=' + sub + ')');
+          a.forEach(function (x) {
+            var tag = isGithubAutoSourceCode(x.name) ? ' [SKIP: source code]' : (isInstallerAsset(x.name) ? ' [INSTALLER]' : ' [skip: not installer]');
+            console.warn('    - ' + (x.name || '(no name)') + ' download_count=' + (Number(x.download_count) || 0) + tag);
+          });
+        });
+        var page1Sum = arr.reduce(function (s, r) {
+          return s + ((r.assets || []).reduce(function (ss, x) {
+            if (!isInstallerAsset(x && x.name)) return ss;
+            return ss + (Number(x && x.download_count) || 0);
+          }, 0));
+        }, 0);
+        console.warn('  sum (page 1, installer only): ' + page1Sum);
+      } catch(_e) {}
+    }
+    // 不足一页说明没有更多 release 了，停止
+    if (arr.length < perPage) break;
+  }
+  if (pages >= maxPages) {
+    try { console.warn('[GitHub Stats][Downloads] reached maxPages=' + maxPages + ' safety cap'); } catch(_e) {}
+  }
+  try {
+    console.warn('[GitHub Stats][Downloads] done: sum=' + sum + ' releaseCount=' + releaseCount + ' installerAssetCount=' + installerAssetCount + ' skippedSourceCode=' + skippedSourceCodeCount + ' skippedNonInstaller=' + skippedNonInstallerCount + ' pages=' + pages + ' lastUrl=' + lastUrl);
+  } catch(_e) {}
+  return {
+    sum: sum,
+    releaseCount: releaseCount,
+    assetCount: installerAssetCount,
+    skippedSourceCodeCount: skippedSourceCodeCount,
+    skippedNonInstallerCount: skippedNonInstallerCount,
+    pages: pages
+  };
+}
+
+// v1.10：fetchGithubTrafficVisitors 已废弃（"我的作品" 不再计算访客指标）。
+//   保留注释以备未来回滚。
+//   它们本身的功能正确性，便于未来回滚时不需要重写。
 ipcMain.handle('works:refresh-github-stats', async (_e, works) => {
   try {
     var updates = await refreshGithubStats(works || []);
@@ -480,6 +900,21 @@ ipcMain.handle('github:pick-repo', async () => {
   return { ok: true, owner: r.owner, repo: r.repo };
 });
 
+// v1.10：从已保存的 token record 读取 publishRepo（强约束发布目标）
+//   - OAuth 优先（推广渠道 → GitHub BYOK） → PAT 兜底（设置里的 GitHub PAT）
+//   - 返回 null 表示「未配置发布仓库」
+async function readPublishRepo() {
+  try {
+    const oauthRec = await oauth.getTokenForInternal('github');
+    if (oauthRec && oauthRec.publishRepo && oauthRec.publishRepo.owner && oauthRec.publishRepo.repo) {
+      return oauthRec.publishRepo;
+    }
+  } catch (_e) {}
+  // PAT 模式下，发布仓库也直接存在同一个 token record 里（secrets.setOauthToken 兼容 oauth/github）
+  // secrets.js 目前把 PAT 也存为 oauth-github（由 saveCredential 写入），这里保持同样读取路径
+  return null;
+}
+
 ipcMain.handle('github:put-file', async (_e, opts) => {
   if (!opts) return { ok: false, error: 'no-opts' };
   // Token 来源优先级：OAuth (推广渠道 → GitHub BYOK) > PAT (设置里的 GitHub PAT)
@@ -503,9 +938,107 @@ ipcMain.handle('github:put-file', async (_e, opts) => {
       detail: '未配置 GitHub Token。请先到「推广渠道 → GitHub → 添加 Personal Access Token」（推荐，需勾选 Contents: Read and write），或在设置里配置 GitHub PAT。'
     };
   }
+
+  // v1.10：强制使用绑定时保存的 publishRepo 作为发布目标
+  //   - 绝不根据作品链接 / 电脑 Git / 最近推送仓库猜测
+  //   - 若未在绑定界面指定发布仓库，直接拒绝并提示用户去设置
+  const publishRepo = await readPublishRepo();
+  if (!publishRepo || !publishRepo.owner || !publishRepo.repo) {
+    return {
+      ok: false,
+      error: 'no-publish-repo',
+      detail: '请先在「推广渠道 → GitHub → 添加 Personal Access Token」时填写「发布仓库」并保存。Rokit 必须用你指定的仓库发布文章，不会根据其它线索猜测。'
+    };
+  }
+  // 强制覆盖 opts.owner/repo：忽略前端传的 / 作品链接的解析结果
+  const safeOpts = Object.assign({}, opts, {
+    owner: publishRepo.owner,
+    repo: publishRepo.repo
+  });
+
+  // v1.10：发布前安全诊断日志（绝不打印 token / Authorization）
+  //   - 让你能直接看到：当前 token 属于哪个 GitHub 用户、本次实际目标 owner/repo
+  //   - 这能确认"作品链接"和"发布目标"是否一致；不会改写 publisher 数据流
   try {
-    const r = await pubex.githubPutFile(token, opts);
+    const tokenKind = tokenSource === 'oauth' ? 'OAuth' : 'PAT';
+    const tokenPrefix = String(token).slice(0, 4) + '***';
+    let authedUser = '<probe-failed>';
+    try {
+      const probe = await fetchWithTimeout('https://api.github.com/user', {
+        headers: {
+          'Authorization': tokenSource === 'oauth' ? ('Bearer ' + token) : ('token ' + token),
+          'Accept': 'application/vnd.github+json',
+          'User-Agent': 'Rokit-L1/1.5'
+        }
+      }, 6000);
+      if (probe.ok) {
+        const j = await probe.json().catch(function () { return null; });
+        authedUser = j && j.login ? String(j.login) : ('<HTTP ' + probe.status + '>');
+      } else {
+        authedUser = '<HTTP ' + probe.status + '>';
+      }
+    } catch (_e) { /* keep authedUser = '<probe-failed>' */ }
+    const targetOwner = publishRepo.owner || '<missing>';
+    const targetRepo = publishRepo.repo || '<missing>';
+    let targetFullName = '<probe-failed>';
+    try {
+      const repoRes = await fetchWithTimeout(
+        'https://api.github.com/repos/' + encodeURIComponent(targetOwner) + '/' + encodeURIComponent(targetRepo),
+        {
+          headers: {
+            'Authorization': tokenSource === 'oauth' ? ('Bearer ' + token) : ('token ' + token),
+            'Accept': 'application/vnd.github+json',
+            'User-Agent': 'Rokit-L1/1.5'
+          }
+        },
+        6000
+      );
+      if (repoRes.ok) {
+        const j = await repoRes.json().catch(function () { return null; });
+        if (j && j.full_name) targetFullName = String(j.full_name);
+        else targetFullName = '<no full_name>';
+      } else {
+        targetFullName = '<HTTP ' + repoRes.status + '>';
+      }
+    } catch (_e) { /* keep targetFullName = '<probe-failed>' */ }
+    try {
+      logger.info('[GitHub Publisher] pre-flight', {
+        tokenSource: tokenSource,
+        tokenKind: tokenKind,
+        tokenPrefix: tokenPrefix,
+        authenticatedUser: authedUser,
+        targetOwner: targetOwner,
+        targetRepo: targetRepo,
+        targetFullName: targetFullName,
+        path: safeOpts.path || '',
+        branch: safeOpts.branch || 'main'
+      });
+    } catch (_e) { /* logger 不可用也不影响发布 */ }
+    // v1.10 兼容：受限环境（日志写不到 userData）也保证用户能看到诊断段
+    try {
+      console.error('[GitHub Publisher] pre-flight ' + JSON.stringify({
+        tokenSource: tokenSource,
+        tokenKind: tokenKind,
+        tokenPrefix: tokenPrefix,
+        authenticatedUser: authedUser,
+        targetOwner: targetOwner,
+        targetRepo: targetRepo,
+        targetFullName: targetFullName,
+        path: safeOpts.path || '',
+        branch: safeOpts.branch || 'main'
+      }));
+    } catch (_e) { /* console 也不可用就放弃 */ }
+  } catch (_e) { /* 诊断段绝不能影响发布主路径 */ }
+
+  try {
+    const r = await pubex.githubPutFile(token, safeOpts);
     if (r && r.ok) r.tokenSource = tokenSource;
+    if (r && typeof r === 'object') {
+      // 把实际发布的目标回传给 renderer（即使后端覆盖了 owner/repo，也告知前端真实去向）
+      r.targetOwner = publishRepo.owner;
+      r.targetRepo = publishRepo.repo;
+      r.targetFullName = publishRepo.full_name || (publishRepo.owner + '/' + publishRepo.repo);
+    }
     return r;
   } catch (e) {
     return { ok: false, error: String((e && e.message) || e) };
@@ -576,14 +1109,87 @@ async function fetchWithTimeout(url, opt, ms) {
   try { return await fetch(url, Object.assign({ signal: ctrl.signal }, opt || {})); }
   finally { clearTimeout(t); }
 }
-async function fetchGithubMeta(ownerRepo) {
-  var api = 'https://api.github.com/repos/' + encodeURIComponent(ownerRepo);
-  var res = await fetchWithTimeout(api, { headers: { 'User-Agent': 'tuiguang-huojian/1.0', 'Accept': 'application/vnd.github+json' } });
-  if (!res.ok) throw new Error('GitHub 仓库不存在或不可访问（HTTP ' + res.status + '）');
+// v1.10：fetchGithubMeta 接受可选 token；为 null 时不附加 Authorization header
+//   - Star 统计 / 作品元数据抓取复用本函数
+//   - 公开仓库无 token 也能访问；带 token 提升 rate limit（60/h → 5000/h）
+//   - v1.10：错误响应会把 GitHub 的 JSON `message` 字段拼进 Error.message，便于前端/日志看到真实原因
+async function fetchGithubMeta(ownerRepo, token) {
+  // v1.10 fix：必须分别 encode owner / repo，**不能**对整个 "owner/repo" 字符串 encode，
+  //   否则 owner 和 repo 之间的 '/' 会被编码成 %2F，GitHub 收到的是字面
+  //   `repos/Terryzjn%2FRokit_dev`（单段路径含 %2F），不展开 → 永远 404。
+  var slash = String(ownerRepo || '').indexOf('/');
+  var owner = slash >= 0 ? String(ownerRepo).slice(0, slash) : String(ownerRepo);
+  var repo  = slash >= 0 ? String(ownerRepo).slice(slash + 1) : '';
+  var api = 'https://api.github.com/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo);
+  var baseHeaders = { 'User-Agent': 'tuiguang-huojian/1.0', 'Accept': 'application/vnd.github+json' };
+  var authedHeaders = token ? Object.assign({}, baseHeaders, { 'Authorization': 'Bearer ' + token }) : baseHeaders;
+  var hasAuth = !!token;
+  // v1.10：精确请求日志（按需求二/三/七）—— 绝不打 token，仅显示 "hasToken"
+  try {
+    console.warn('[GitHub Stars] request');
+    console.warn('  requestUrl: ' + api);
+    console.warn('  hasToken: ' + hasAuth);
+  } catch(_e) {}
+  var res;
+  try {
+    res = await fetchWithTimeout(api, { headers: authedHeaders });
+  } catch (netErr) {
+    // 网络层异常（fetch failed / AbortError / DNS 等），**绝不吞**
+    var name = (netErr && netErr.name) || '';
+    var msg = String((netErr && netErr.message) || netErr);
+    var code = '';
+    if (netErr && netErr.cause && netErr.cause.code) code = String(netErr.cause.code);
+    try {
+      console.warn('[GitHub Stars] NETWORK ERROR');
+      console.warn('  requestUrl: ' + api);
+      console.warn('  name: ' + name);
+      console.warn('  message: ' + msg);
+      console.warn('  code: ' + (code || '-'));
+    } catch(_e) {}
+    var tail = code ? (' · code=' + code) : '';
+    throw new Error('GitHub 网络错误（' + name + '）：' + msg + tail);
+  }
+  // 成功拿到响应（不论 2xx 还是 4xx/5xx）
+  try {
+    console.warn('[GitHub Stars] response');
+    console.warn('  requestUrl: ' + api);
+    console.warn('  status: ' + res.status);
+    console.warn('  statusText: ' + (res.statusText || ''));
+    console.warn('  ok: ' + (res.ok ? 'true' : 'false'));
+  } catch(_e) {}
+  if (!res.ok) {
+    // 提取 GitHub JSON `message` + documentation_url（按需求三）
+    var ghMsg = '';
+    var ghDocUrl = '';
+    try {
+      var errBody = await res.text();
+      try {
+        var errJson = JSON.parse(errBody);
+        if (errJson && typeof errJson.message === 'string') ghMsg = errJson.message;
+        if (errJson && typeof errJson.documentation_url === 'string') ghDocUrl = errJson.documentation_url;
+      } catch (_e) {
+        // 非 JSON 响应（如 5xx HTML）保留 raw 文本前 200 字
+        ghMsg = String(errBody || '').slice(0, 200);
+      }
+    } catch (_e) {}
+    try {
+      console.warn('[GitHub Stars] ERROR BODY');
+      console.warn('  message: ' + (ghMsg || '(none)'));
+      console.warn('  documentation_url: ' + (ghDocUrl || '(none)'));
+    } catch(_e) {}
+    // 抛出一个"干净"的 Error，message 只含 HTTP 状态；GitHub message 放在 .ghMessage
+    // 属性里，refreshGithubStats 据此组装前端 toast（避免重复拼接）
+    var err = new Error('GitHub API HTTP ' + res.status);
+    err.httpStatus = res.status;
+    err.ghMessage = ghMsg || '';
+    err.ghDocUrl = ghDocUrl || '';
+    err.requestUrl = api;
+    throw err;
+  }
   var j = await res.json();
   var readme = '';
   try {
-    var rr = await fetchWithTimeout(api + '/readme', { headers: { 'User-Agent': 'tuiguang-huojian/1.0', 'Accept': 'application/vnd.github.raw+json' } });
+    var rr = await fetchWithTimeout(api + '/readme', { headers: authedHeaders });
     if (rr.ok) readme = String(await rr.text()).slice(0, 1500);
   } catch (_e) {}
   return {

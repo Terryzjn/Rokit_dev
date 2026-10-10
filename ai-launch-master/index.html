@@ -1737,6 +1737,13 @@
               <button type="button" class="btn sm" id="chOAuthSave" onclick="saveOAuthCredential()">保存</button>
               <button type="button" class="btn ghost sm" onclick="cancelOAuthInput()">取消</button>
             </div>
+            <!-- v1.10：发布仓库（仅 GitHub 显示）。文章将发布到此仓库，与「我的作品」中的「作品链接」完全分离。 -->
+            <div id="chOAuthPublishRepoRow" style="display:none;margin-top:8px">
+              <div style="display:flex;gap:6px;align-items:center">
+                <input id="chOAuthPublishRepo" type="text" placeholder="https://github.com/username/repository" autocomplete="off" style="flex:1;padding:9px 11px;border:1px solid var(--line);border-radius:9px;font-size:13.5px"/>
+              </div>
+              <div class="msub" style="margin:4px 0 0;color:var(--muted)">文章将发布到此 GitHub 仓库，请填写你有写入权限的仓库。<b>与「我的作品」中的「作品链接」完全分离</b>，不会用它统计 Star / 下载 / 访客。</div>
+            </div>
             <div class="msub" style="margin:4px 0 0;color:var(--muted)">Rokit 不会保存你的账号密码。请到 GitHub → Settings → Developer settings → Personal access tokens 创建一个 <b>repo</b> 权限的 Token，粘贴到这里。Rokit 会立刻用它访问 <code>/user</code> 验证有效性，Token 仅存本机 OS 凭据管理器（Windows DPAPI / macOS Keychain / Linux libsecret）。</div>
             <div id="chOAuthInputStatus" style="margin-top:6px;font-size:12.5px;color:var(--muted)"></div>
           </div>
@@ -4727,20 +4734,9 @@
   }
 
   window.autoPubGithub=async function(){
-    var url=state.project.url||'';
-    var repo=parseGithubRepo(url);
-    if(!repo){
-      // 链接是可选的——未填时自动从 GitHub 拿最近推送的仓库作为兜底目标
-      toast('未填仓库地址，尝试从 GitHub 找一个最近推送的仓库...');
-      var picked=null;
-      try{ picked = await window.api.githubPickRepo(); }catch(_e){}
-      if(!picked || !picked.ok){
-        toast('✗ 未填仓库地址，且无法从 GitHub 获取仓库列表——请到 step 2 填入 https://github.com/owner/repo', true);
-        return;
-      }
-      repo = { owner: picked.owner, repo: picked.repo };
-      toast('已自动选择仓库 ' + repo.owner + '/' + repo.repo + '（最近推送）');
-    }
+    // v1.10：发布目标**不再**来自 state.project.url（那是「作品链接 → Star/下载/访客」）。
+    //   发布仓库必须在 GitHub 设置里绑定的 publishRepo，由 main.js 强制使用。
+    //   前端只负责传 path / branch / message / content（作品级数据），不传 owner / repo。
     var copy = state.copies['github'] || {};
     var baseCopy = (function(){
       try{ return (typeof genCopy==='function') ? genCopy('github', 0) : null; }catch(_e){return null;}
@@ -4750,15 +4746,14 @@
     var path  = buildArticlePath(state.project.name || title);
 
     var opts = {
-      owner: repo.owner,
-      repo:  repo.repo,
+      // 注意：这里**故意不传 owner / repo**——由 main.js 从绑定配置读取 publishRepo 并强制使用
       path:  path,
       branch: 'main',
       message: 'Publish ' + (state.project.name || title) + ' via Rokit',
       content: body
     };
 
-    toast('正在发布到 GitHub（' + repo.owner + '/' + repo.repo + ' → ' + path + '）...');
+    toast('正在发布到 GitHub（使用绑定时设置的发布仓库 → ' + path + '）...');
 
     var r;
     try{ r = await window.api.githubPutFile(opts); }
@@ -4768,19 +4763,25 @@
       var html = r.content && r.content.html_url;
       var via = r.tokenSource === 'oauth' ? '（BYOK Token）' : (r.tokenSource === 'pat' ? '（PAT）' : '');
       var action = r.action === 'updated' ? '已更新' : '已创建';
-      toast('✓ GitHub 文件' + action + via + (html ? ('\n' + html) : ''));
+      var target = r.targetFullName || (r.targetOwner && r.targetRepo ? (r.targetOwner + '/' + r.targetRepo) : '');
+      toast('✓ GitHub 文件' + action + (target ? '（' + target + '）' : '') + via + (html ? ('\n' + html) : ''));
       markPub('github');
     } else {
       var reason = r && r.error;
       var msg = {
         'no-token':'未配置 GitHub Token。请先到「推广渠道 → GitHub → 添加 Personal Access Token」（需勾选 Contents: Read and write + 目标仓库在 Repository access 中）。',
+        'no-publish-repo':'未设置发布仓库。请先到「推广渠道 → GitHub」编辑 Token，补填「发布仓库」并保存。',
         'no-target-repo':'未填仓库地址，且无法从 GitHub 自动获取仓库。请到 step 2 填入仓库地址，或在「推广渠道 → GitHub」添加 PAT。',
         'no-repos':'GitHub Token 有效但账号下还没有仓库，请先去 https://github.com/new 创建一个。',
         'missing-params':'参数缺失（owner/repo/path）',
         'network':'网络异常：' + (r.detail || ''),
         'invalid_input':'参数不合法：' + (r.detail || ''),
         'exception':'流程异常：' + (r.detail || ''),
-        '409':'文件冲突：' + (r.detail || 'sha 不匹配，请稍后重试')
+        '409':'文件冲突：' + (r.detail || 'sha 不匹配，请稍后重试'),
+        '401':'GitHub Token 无效或已过期（HTTP 401）' + (r.detail ? ('（GitHub: ' + r.detail + '）') : ''),
+        '403':'GitHub Token 没有权限发布到此仓库（HTTP 403）' + (r.detail ? ('（GitHub: ' + r.detail + '）') : ''),
+        '404':'指定的 GitHub 仓库不存在，或当前 Token 无权访问（HTTP 404）' + (r.detail ? ('（GitHub: ' + r.detail + '）') : ''),
+        '422':'GitHub API 参数错误（HTTP 422）' + (r.detail ? ('（GitHub: ' + r.detail + '）') : '')
       }[reason] || ('GitHub 发布失败：' + (reason || 'unknown') + (r.detail ? ('（' + r.detail + '）') : ''));
       toast('✗ ' + msg, true);
     }
@@ -5131,46 +5132,40 @@
 
       // GitHub：走 Contents API（PUT /contents/{path}）把文章保存为 .md 文件
       // 不弹浏览器、不走填表脚本
+      // v1.10：发布目标不再来自 state.project.url 或最近推送仓库；由 main.js 强制使用绑定时
+      //   保存的 publishRepo。前端只传 path/branch/message/content。
       if(pid==='github'){
-        box.innerHTML+='<div class="rs">▶ GitHub L1 直发中…</div>';
+        box.innerHTML+='<div class="rs">▶ GitHub L1 直发中（使用绑定时设置的发布仓库）…</div>';
         var gr=null;
         try{
           var copy=state.copies['github']||{};
           var baseCopy=(function(){try{return(typeof genCopy==='function')?genCopy('github',0):null;}catch(_e){return null;}})()||{};
           var title=copy.title||baseCopy.title||(state.project.name||'Project');
           var body=copy.body||baseCopy.body||(state.project.intro||'');
-          var url=state.project.url||'';
-          var repo=parseGithubRepo(url);
-          if(!repo){
-            var picked=null;
-            try{picked=await window.api.githubPickRepo();}catch(_e){}
-            if(picked&&picked.ok){repo={owner:picked.owner,repo:picked.repo};}
-          }
-          if(repo){
-            var path=buildArticlePath(state.project.name||title);
-            var opts={
-              owner:repo.owner,
-              repo:repo.repo,
-              path:path,
-              branch:'main',
-              message:'Publish '+(state.project.name||title)+' via Rokit',
-              content:body
-            };
-            gr=await window.api.githubPutFile(opts);
-          }else{
-            gr={ok:false,error:'no-target-repo'};
-          }
+          var path=buildArticlePath(state.project.name||title);
+          var opts={
+            // 注意：故意不传 owner / repo ——由 main.js 从 token record 读取 publishRepo 并强制覆盖
+            path:path,
+            branch:'main',
+            message:'Publish '+(state.project.name||title)+' via Rokit',
+            content:body
+          };
+          gr=await window.api.githubPutFile(opts);
         }catch(e){gr={ok:false,error:'exception',detail:String(e&&e.message||e)};}
         if(gr&&gr.ok){
           var url2=gr.content&&gr.content.html_url;
           var action=gr.action==='updated'?'更新':'创建';
-          box.innerHTML+='<div class="rs ok">✓ GitHub 文件已'+action+(url2?(' · <a href="'+esc(url2)+'" target="_blank">查看</a>'):'')+'</div>';
+          var tgt=gr.targetFullName || (gr.targetOwner && gr.targetRepo ? (gr.targetOwner + '/' + gr.targetRepo) : '');
+          box.innerHTML+='<div class="rs ok">✓ GitHub 文件已'+action+(tgt ? '（'+esc(tgt)+'）' : '')+(url2?(' · <a href="'+esc(url2)+'" target="_blank">查看</a>'):'')+'</div>';
           okCount++;markPub('github');
         }else{
           var reason=gr&&(gr.error||gr.reason);
+          var detail=gr&&gr.detail?('：'+gr.detail):'';
           var hint='';
           if(reason==='no-token'){
             hint='<br><span style="font-size:11.5px;color:var(--muted)">→ 推广渠道 → 编辑 GitHub → 添加 PAT（需勾选 Contents: Read and write）</span>';
+          }else if(reason==='no-publish-repo'){
+            hint='<br><span style="font-size:11.5px;color:var(--muted)">→ 推广渠道 → 编辑 GitHub → 补填「发布仓库」并保存</span>';
           }else if(reason==='no-repos'){
             hint='<br><span style="font-size:11.5px;color:var(--muted)">→ 你的 GitHub 账号下还没有仓库，请先去 <a href="https://github.com/new" target="_blank">github.com/new</a> 创建一个</span>';
           }else if(reason==='no-target-repo'){
@@ -5179,8 +5174,14 @@
             hint='<br><span style="font-size:11.5px;color:var(--muted)">→ 网络异常，请稍后重试</span>';
           }else if(reason==='403'){
             hint='<br><span style="font-size:11.5px;color:var(--muted)">→ Token 权限不足（Fine-grained PAT 需勾选 Contents: Read and write + 目标仓库在 Repository access 中）</span>';
+          }else if(reason==='401'){
+            hint='<br><span style="font-size:11.5px;color:var(--muted)">→ GitHub Token 无效或已过期，请重新生成并替换</span>';
+          }else if(reason==='404'){
+            hint='<br><span style="font-size:11.5px;color:var(--muted)">→ 仓库不存在或 Token 无权访问，请检查仓库地址</span>';
+          }else if(reason==='422'){
+            hint='<br><span style="font-size:11.5px;color:var(--muted)">→ GitHub API 参数错误（通常是文件路径或内容）</span>';
           }
-          box.innerHTML+='<div class="rs fail">✗ GitHub 失败：'+esc(reason||'unknown')+hint+'</div>';
+          box.innerHTML+='<div class="rs fail">✗ GitHub 失败：'+esc((reason||'unknown')+detail)+hint+'</div>';
         }
         continue;
       }
@@ -6163,11 +6164,29 @@
     var box=document.getElementById('chOAuthInput');
     var btn=document.getElementById('chOAuthBtn');
     var input=document.getElementById('chOAuthToken');
+    var pubRow=document.getElementById('chOAuthPublishRepoRow');
+    var pubInput=document.getElementById('chOAuthPublishRepo');
     if(!box||!btn)return;
     var open = box.style.display!=='none';
     if(open){ cancelOAuthInput(); return; }
     box.style.display='';
     btn.textContent='收起';
+    // v1.10：仅 GitHub 显示"发布仓库"行。预填已保存的 publishRepo
+    if(pubRow){
+      pubRow.style.display = (info.providerId === 'github') ? '' : 'none';
+    }
+    if(pubInput){
+      pubInput.value = '';
+    }
+    // 拉一次已连接状态，把 publishRepo 预填到输入框（编辑流程）
+    try {
+      window.api.oauthStatus(info.providerId).then(function(s){
+        if(s && s.connected && s.publishRepo && s.publishRepo.url && pubInput){
+          pubInput.value = s.publishRepo.url;
+          pubInput.placeholder = s.publishRepo.full_name ? ('已保存：' + s.publishRepo.full_name) : ('https://github.com/' + s.publishRepo.owner + '/' + s.publishRepo.repo);
+        }
+      }).catch(function(){});
+    } catch(_e) {}
     if(input){ input.value=''; setTimeout(function(){input.focus();},30); }
   };
 
@@ -6175,9 +6194,11 @@
     var box=document.getElementById('chOAuthInput');
     var btn=document.getElementById('chOAuthBtn');
     var input=document.getElementById('chOAuthToken');
+    var pubInput=document.getElementById('chOAuthPublishRepo');
     var st=document.getElementById('chOAuthInputStatus');
     if(box) box.style.display='none';
     if(input) input.value='';
+    if(pubInput) pubInput.value='';
     if(st) st.textContent='';
     // 按钮文字由 refreshOAuthStatus 决定（已配置 / 未配置）
     refreshOAuthStatus();
@@ -6214,10 +6235,20 @@
         var displayLabel = (info.providerId==='github' && label) ? ('@' + label) : label;
         var reconnect = s.needsReconnect
           ? ' <span style="color:var(--danger);font-weight:600">（授权已失效，请重新连接）</span>' : '';
+        // v1.10：GitHub 已连接时显示「发布仓库」状态（已设置 / 未设置）
+        var pubRepoLine = '';
+        if (info.providerId === 'github') {
+          if (s.publishRepo && s.publishRepo.owner && s.publishRepo.repo) {
+            pubRepoLine = ' · 发布仓库：<span style="color:var(--primary-dark);font-weight:600">' + esc(s.publishRepo.full_name || (s.publishRepo.owner + '/' + s.publishRepo.repo)) + '</span>';
+          } else {
+            pubRepoLine = ' · <span style="color:var(--danger)">未设置发布仓库（点击「更换 Token」补填）</span>';
+          }
+        }
         stEl.innerHTML =
           '<span style="color:var(--success);font-weight:600">✓ 已连接</span>' +
           (displayLabel ? (' <span style="color:var(--ink)">' + esc(displayLabel) + '</span>') : '') +
           reconnect +
+          pubRepoLine +
           ' · <a href="javascript:void(0)" onclick="disconnectOAuth()" style="color:var(--danger)">解除绑定</a>';
       } else {
         btn.textContent=addLabel;
@@ -6301,20 +6332,39 @@
     var input=document.getElementById('chOAuthToken');
     var btn=document.getElementById('chOAuthSave');
     var st=document.getElementById('chOAuthInputStatus');
+    var pubInput=document.getElementById('chOAuthPublishRepo');
     if(!input||!btn)return;
     var token=String(input.value||'').trim();
+    var publishRepo=pubInput ? String(pubInput.value||'').trim() : '';
     if(!token){ st.innerHTML='<span style="color:var(--danger)">请输入 Token</span>'; return; }
-    btn.disabled=true; st.innerHTML='<span style="color:var(--primary-dark)">验证中...</span>';
+    btn.disabled=true;
+    if (info.providerId === 'github' && publishRepo) {
+      st.innerHTML='<span style="color:var(--primary-dark)">验证 Token + 检查发布仓库 push 权限...</span>';
+    } else {
+      st.innerHTML='<span style="color:var(--primary-dark)">验证中...</span>';
+    }
     var r;
-    try{ r = await window.api.oauthSaveCredential(info.providerId, { access_token: token }); }
+    try{ r = await window.api.oauthSaveCredential(info.providerId, {
+      access_token: token,
+      publishRepo: publishRepo || null
+    }); }
     catch(e){ r = { ok:false, reason:'exception', detail: String(e && e.message || e) }; }
     btn.disabled=false;
     if(r && r.ok){
       input.value='';
+      if (pubInput) pubInput.value='';
       cancelOAuthInput();
       refreshOAuthStatus();
       var who = (r.account && r.account.login) ? ('@' + r.account.login) : (r.account && r.account.name) || info.providerId;
-      toast('✓ 已保存 Token（' + who + '）');
+      var pubNote = '';
+      if (info.providerId === 'github') {
+        if (r.publishRepo && r.publishRepo.full_name) {
+          pubNote = '，发布仓库：' + r.publishRepo.full_name;
+        } else {
+          pubNote = '，未设置发布仓库';
+        }
+      }
+      toast('✓ 已保存 Token（' + who + pubNote + '）');
     } else {
       var reason = r && r.reason;
       var msg = {
@@ -6325,7 +6375,10 @@
         'network':'网络异常：' + (r.detail || ''),
         'not_persisted':'OS 凭据管理器不可用（keytar 未加载），重启应用或安装系统组件后重试',
         'exception':'流程异常：' + (r.detail || ''),
-        'invalid_input':'Token 格式不合法'
+        'invalid_input':'Token 格式不合法',
+        'invalid_repo_url':'发布仓库地址无效：' + (r.detail || '请输入 https://github.com/owner/repo 形式的 URL'),
+        'repo_not_found':'指定的 GitHub 仓库不存在或 Token 无权访问' + (r.owner && r.repo ? '（' + r.owner + '/' + r.repo + '）' : ''),
+        'no_push_permission':'当前 Token 没有此仓库的写入权限' + (r.owner && r.repo ? '（' + r.owner + '/' + r.repo + '）' : '') + '。请检查：(1) Fine-grained PAT 是否勾选 Contents: Read and write；(2) 目标仓库是否在 PAT 的 Repository access 列表中。'
       }[reason] || ('保存失败：' + (reason || 'unknown'));
       st.innerHTML='<span style="color:var(--danger)">' + esc(msg) + '</span>';
       toast('✗ ' + msg, true);
@@ -6578,7 +6631,7 @@
                   return '<span class="wstatus '+_chipClass+'" title="'+esc(_s)+'">'+esc(_chipLabel)+'</span>';
                 })()+
         '<span class="wq" style="background:'+(w.queue==='主推'?'#0E7C7B':'#E4ECEB')+';color:'+(w.queue==='主推'?'#fff':'#5A6B72')+'">'+w.queue+'</span>'+
-        '<div class="wm" onclick="openWork(\''+w.id+'\')"><div class="wv">Star<b>'+(w.star||0).toLocaleString()+'</b></div><div class="wv">下载<b>'+(w.dl||0).toLocaleString()+'</b></div><div class="wv">播放<b>'+(w.play||0)+'</b></div></div>'+
+        '<div class="wm" onclick="openWork(\''+w.id+'\')"><div class="wv">Star<b>'+(w.star||0).toLocaleString()+'</b></div><div class="wv">下载<b>'+(w.dl||0).toLocaleString()+'</b></div><div class="wv">访客<b>'+(w.visitors==null?'--':(w.visitors||0).toLocaleString())+'</b></div></div>'+
         '<div class="wnx" onclick="openWork(\''+w.id+'\')">下一步：'+esc(w.next||'登记推广')+'</div></div>';
 
     });
@@ -6643,33 +6696,82 @@
       }
       var updates = res.updates || [];
       var updated = 0, failed = 0;
+      // 收集首个真实错误（用于 toast 显示，避免统一"刷新失败"）
+      var firstFailDetail = null;
       updates.forEach(function(u){
         var w = findWork(u.id);
         if(!w) return;
         if(u.ok){
-          // 成功：回写 star + 时间戳
-          w.star = u.stars;
-          w.githubFullName = u.full_name || w.githubFullName;
+          // 成功：按字段回写（null 表示该指标本次失败 → 保留旧值，不清零）
+          var changed = false;
+          if (typeof u.stars === 'number') { w.star = u.stars; changed = true; }
+          if (typeof u.downloads === 'number') { w.dl = u.downloads; changed = true; }
+          if (typeof u.visitors === 'number') { w.visitors = u.visitors; changed = true; }
+          if (u.full_name) w.githubFullName = u.full_name;
           w.githubUpdatedAt = Date.now();
-          updated++;
-          // 前端再 saveWork 一次（主进程已持久化，这里双保险；失败也无所谓）
-          try{ window.api.saveWork({id:w.id, star:w.star}).catch(function(){}); }catch(_e){}
+          // 三列至少一列成功就算"更新"，前端按字段 saveWork 双保险
+          var persist = { id: w.id };
+          if (typeof u.stars === 'number') persist.star = u.stars;
+          if (typeof u.downloads === 'number') persist.dl = u.downloads;
+          if (typeof u.visitors === 'number') persist.visitors = u.visitors;
+          try{ window.api.saveWork(persist).catch(function(){}); }catch(_e){}
+          if (changed) updated++; else failed++;
+          // 单字段失败提示（不刷 toast；只在 console 留痕）
+          if (u.stars_error)    try{ console.warn('[GitHubStats]', w.name||w.id, 'stars failed:', u.stars_error); }catch(_e){}
+          if (u.downloads_error) try{ console.warn('[GitHubStats]', w.name||w.id, 'downloads failed:', u.downloads_error); }catch(_e){}
+          if (u.visitors_error)  try{ console.warn('[GitHubStats]', w.name||w.id, 'visitors failed:', u.visitors_error); }catch(_e){}
         } else {
-          // 失败：保留旧数据；按需求六输出 warn
+          // 全部失败：保留旧数据；按需求七不显示 0，仅 console 留痕
           failed++;
-          try{ console.warn('[GitHubStats]', w.name||w.id, 'refresh failed:', u.error); }catch(_e){}
+          try{ console.warn('[GitHubStats]', w.name||w.id, 'Star 拉取失败：', u.error, 'kind=' + (u.kind||'?'), 'code=' + (u.code||'-'), 'http=' + (u.status==null?'-':u.status)); }catch(_e){}
+          if (!firstFailDetail) {
+            // 把细分错误组装成人话，方便 toast 显示
+            var kindLabel = {
+              'http': 'HTTP 状态异常',
+              'network': '网络/连接错误',
+              'timeout': '请求超时（9s）',
+              'parse': '响应解析失败',
+              'no-field': 'GitHub 响应缺字段'
+            }[u.kind] || ('未知 (' + (u.kind || '?') + ')');
+            firstFailDetail = {
+              workName: w.name || w.id || '',
+              kind: kindLabel,
+              http: u.status,
+              code: u.code,
+              gh_message: u.gh_message,
+              errorName: u.errorName,
+              raw: u.error
+            };
+          }
         }
       });
       __ghs.lastRefreshAt = Date.now();
-      // 局部刷新每个真实作品卡片上的 Star 数字（其它字段保留）
+      // 局部刷新每个真实作品卡片上的 Star / 下载 / 访客 三栏（其它字段保留）
       real.forEach(function(w){
         var card = document.querySelector('[data-work-id="'+w.id+'"]');
         if(!card) return;
-        var starB = card.querySelector('.wm .wv:nth-child(1) b');
-        if(starB) starB.textContent = (w.star||0).toLocaleString();
+        var boxes = card.querySelectorAll('.wm .wv b');
+        if (boxes[0]) boxes[0].textContent = (w.star || 0).toLocaleString();
+        if (boxes[1]) boxes[1].textContent = (w.dl   || 0).toLocaleString();
+        if (boxes[2]) boxes[2].textContent = (w.visitors == null ? '--' : (w.visitors || 0).toLocaleString());
       });
       if(updated && !failed)      try{ toast('GitHub 数据刷新完成', 'ok', 1800); }catch(_e){}
       else if(updated && failed)  try{ toast('部分 GitHub 数据刷新失败（'+failed+' 个保留旧数据）', 'warn', 2600); }catch(_e){}
+      else if(firstFailDetail){
+        // v1.10：显示真实错误原因，而不是统一"刷新失败"
+        try{
+          var parts = [];
+          parts.push('GitHub Star 失败');
+          if (firstFailDetail.workName) parts.push('（' + firstFailDetail.workName + '）');
+          parts.push('：');
+          parts.push(firstFailDetail.kind || '未知原因');
+          if (firstFailDetail.http != null) parts.push('· HTTP ' + firstFailDetail.http);
+          if (firstFailDetail.code) parts.push('· ' + firstFailDetail.code);
+          if (firstFailDetail.gh_message) parts.push('· GitHub: ' + firstFailDetail.gh_message);
+          else if (firstFailDetail.raw) parts.push('· ' + firstFailDetail.raw);
+          toast(parts.join(' '), true, 4500);
+        }catch(_e){}
+      }
       else                        try{ toast('GitHub 刷新失败，已保留旧数据', 'warn', 2600); }catch(_e){}
     }catch(e){
       var msg = String((e && e.message) || e);

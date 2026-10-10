@@ -9,7 +9,11 @@ const path = require('path');
 //   v1：初始表结构
 //   v2：新增 channels 表
 //   v3：PRD 第七节「作品库 + 主推队列」与第十节「反馈闭环」
-const CURRENT_VERSION = 3;
+//   v4：作品新增 visitors 字段（GitHub Traffic API uniques 持久化）
+//       说明：复用既有 `dl` 列保存"下载量"（语义对齐 GitHub Releases assets
+//       下载总数），不引入第二个"下载"字段；新增独立 `visitors` 列保存
+//       traffic/views uniques，避免与 `play`（抖音/B站等视频播放数）混淆。
+const CURRENT_VERSION = 4;
 
 let Database = null;
 let driver = null;
@@ -157,6 +161,16 @@ const migrations = [
           updated_at TEXT
         );
       `);
+    }
+  },
+  {
+    // v4：作品统计扩展
+    //   新增 visitors INTEGER：保存 GitHub Traffic API 拉到的 uniques。
+    //   复用 dl 列保存"下载数"（语义 = GitHub Releases assets.download_count 之和）。
+    //   迁移幂等：ALTER TABLE ADD COLUMN 重复执行会抛 duplicate column name，用 try/catch 吞掉。
+    version: 4,
+    up: function (db) {
+      try { db.exec("ALTER TABLE works ADD COLUMN visitors INTEGER DEFAULT 0"); } catch (_e) { /* 列已存在 */ }
     }
   }
 ];
@@ -323,43 +337,115 @@ class Store {
     }
     return this.data.works;
   }
+  // v1.10 PATCH 语义：只更新传入的字段，未传入的字段不重置
+  //   之前 saveWork({ id, star }) 会把 name/type/url 重置为空字符串（因为未传入走默认 ''）
+  //   改为：检查传入对象是否含某字段，只 UPDATE 提供的字段。
+  //   注意：`undefined`（属性不存在）→ 不更新；`null` 或空字符串 → 显式更新为该值
+  //   （调用方应避免传 undefined；当前所有调用方都是显式传值）
   saveWork(w) {
     if (!w || !w.id) return w;
-    const row = {
-      id: w.id, name: w.name || '', type: w.type || '', intro: w.intro || '',
-      url: w.url || '', status: w.status || 'draft', queue: w.queue || '0',
-      queue_state: w.queue_state || 'queued',
-      priority: Number(w.priority) || 0,
-      launched_at: w.launched_at || null,
-      last_active_at: w.last_active_at || null,
-      star: Number(w.star) || 0, dl: Number(w.dl) || 0,
-      play: String(w.play || '0'), next: w.next || '',
-      created_at: w.created_at || new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    };
+    const id = w.id;
+
     if (this.mode === 'sqlite') {
-      this.run(`
-        INSERT INTO works (id, name, type, intro, url, status, queue, queue_state, priority, launched_at, last_active_at, star, dl, play, next, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          name=excluded.name, type=excluded.type, intro=excluded.intro, url=excluded.url,
-          status=excluded.status, queue=excluded.queue, queue_state=excluded.queue_state, priority=excluded.priority,
-          launched_at=COALESCE(excluded.launched_at, works.launched_at),
-          last_active_at=excluded.last_active_at,
-          star=excluded.star, dl=excluded.dl,
-          play=excluded.play, next=excluded.next, updated_at=excluded.updated_at
-      `, [row.id, row.name, row.type, row.intro, row.url, row.status, row.queue, row.queue_state, row.priority, row.launched_at, row.last_active_at, row.star, row.dl, row.play, row.next, row.created_at, row.updated_at]);
+      // 先看这条记录是否存在（决定走 INSERT 还是 UPDATE-only）
+      const existing = this.get('SELECT * FROM works WHERE id = ?', [id]);
+      const isUpdate = !!existing;
+      const now = new Date().toISOString();
+
+      if (isUpdate) {
+        // UPDATE-only：只更新传入对象里**显式出现**的字段
+        const fields = [];
+        const args = [];
+        function addCol(col, val) {
+          fields.push(col + ' = ?');
+          args.push(val);
+        }
+        if ('name' in w) addCol('name', String(w.name || ''));
+        if ('type' in w) addCol('type', String(w.type || ''));
+        if ('intro' in w) addCol('intro', String(w.intro || ''));
+        if ('url' in w) addCol('url', String(w.url || ''));
+        if ('status' in w) addCol('status', String(w.status || 'draft'));
+        if ('queue' in w) addCol('queue', String(w.queue || '0'));
+        if ('queue_state' in w) addCol('queue_state', String(w.queue_state || 'queued'));
+        if ('priority' in w) addCol('priority', Number(w.priority) || 0);
+        if ('launched_at' in w) addCol('launched_at', w.launched_at || null);
+        if ('last_active_at' in w) addCol('last_active_at', w.last_active_at || null);
+        if ('star' in w) addCol('star', Number(w.star) || 0);
+        if ('dl' in w) addCol('dl', Number(w.dl) || 0);
+        if ('visitors' in w) addCol('visitors', Number(w.visitors) || 0);
+        if ('play' in w) addCol('play', String(w.play || '0'));
+        if ('next' in w) addCol('next', String(w.next || ''));
+        // updated_at 永远刷新
+        fields.push('updated_at = ?'); args.push(now);
+        args.push(id);
+        if (fields.length > 1) {
+          this.run('UPDATE works SET ' + fields.join(', ') + ' WHERE id = ?', args);
+        }
+        // 返回最新的完整记录（前端希望 saveWork 返回 row）
+        return this.get('SELECT * FROM works WHERE id = ?', [id]);
+      } else {
+        // INSERT：新记录用默认值兜底（与旧行为一致）
+        const row = {
+          id: id, name: String(w.name || ''), type: String(w.type || ''), intro: String(w.intro || ''),
+          url: String(w.url || ''), status: String(w.status || 'draft'), queue: String(w.queue || '0'),
+          queue_state: String(w.queue_state || 'queued'),
+          priority: Number(w.priority) || 0,
+          launched_at: w.launched_at || null,
+          last_active_at: w.last_active_at || null,
+          star: Number(w.star) || 0, dl: Number(w.dl) || 0,
+          visitors: Number(w.visitors) || 0,
+          play: String(w.play || '0'), next: String(w.next || ''),
+          created_at: w.created_at || now,
+          updated_at: now
+        };
+        this.run(`
+          INSERT INTO works (id, name, type, intro, url, status, queue, queue_state, priority, launched_at, last_active_at, star, dl, visitors, play, next, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [row.id, row.name, row.type, row.intro, row.url, row.status, row.queue, row.queue_state, row.priority, row.launched_at, row.last_active_at, row.star, row.dl, row.visitors, row.play, row.next, row.created_at, row.updated_at]);
+        return row;
+      }
     } else {
-      const i = this.data.works.findIndex(x => x.id === row.id);
+      // JSON 兜底模式：合并保留旧字段（PATCH 语义）
+      const i = this.data.works.findIndex(x => x.id === id);
       if (i >= 0) {
-        // JSON 兜底：合并保留旧字段（不覆盖 launched_at 为空时）
         const old = this.data.works[i];
-        this.data.works[i] = Object.assign({}, old, row);
-        if (!row.launched_at) this.data.works[i].launched_at = old.launched_at || null;
-      } else this.data.works.push(row);
+        // 仅合并**传入对象里显式出现**的字段；保留旧字段不变
+        const merged = Object.assign({}, old);
+        for (const k of Object.keys(w)) {
+          if (k === 'id') continue;
+          merged[k] = w[k];
+        }
+        // updated_at 永远刷新
+        merged.updated_at = new Date().toISOString();
+        // launched_at 为空时保留旧值
+        if ('launched_at' in w && !w.launched_at) merged.launched_at = old.launched_at || null;
+        this.data.works[i] = merged;
+      } else {
+        // 新记录用默认值兜底
+        this.data.works.push({
+          id: id,
+          name: String(w.name || ''),
+          type: String(w.type || ''),
+          intro: String(w.intro || ''),
+          url: String(w.url || ''),
+          status: String(w.status || 'draft'),
+          queue: String(w.queue || '0'),
+          queue_state: String(w.queue_state || 'queued'),
+          priority: Number(w.priority) || 0,
+          launched_at: w.launched_at || null,
+          last_active_at: w.last_active_at || null,
+          star: Number(w.star) || 0,
+          dl: Number(w.dl) || 0,
+          visitors: Number(w.visitors) || 0,
+          play: String(w.play || '0'),
+          next: String(w.next || ''),
+          created_at: w.created_at || new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+      }
       this.saveJson();
+      return this.data.works.find(x => x.id === id);
     }
-    return row;
   }
   deleteWork(id) {
     if (this.mode === 'sqlite') {
