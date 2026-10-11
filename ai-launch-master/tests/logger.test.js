@@ -76,6 +76,9 @@ describe('logger.write · 输出格式', () => {
   });
 
   it('debug / info 走 stdout，warn / error 走 stderr', () => {
+    // v0.1.5+：info/debug 默认只写文件，ROKIT_DEBUG=1 时同步到 stdout
+    const prevDebug = process.env.ROKIT_DEBUG;
+    process.env.ROKIT_DEBUG = '1';
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
@@ -97,6 +100,8 @@ describe('logger.write · 输出格式', () => {
     } finally {
       logSpy.mockRestore();
       errSpy.mockRestore();
+      if (prevDebug === undefined) delete process.env.ROKIT_DEBUG;
+      else process.env.ROKIT_DEBUG = prevDebug;
     }
   });
 
@@ -104,6 +109,64 @@ describe('logger.write · 输出格式', () => {
     logger.info('format-check');
     const line = fs.readFileSync(logFile, 'utf8').trim().split('\n').pop();
     expect(line).toMatch(/^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]/);
+  });
+
+  it('v0.1.5+：未设 ROKIT_DEBUG 时 info/debug 不打 stdout，仅写文件', () => {
+    const prevDebug = process.env.ROKIT_DEBUG;
+    delete process.env.ROKIT_DEBUG;
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      logger.debug('quiet-d');
+      logger.info('quiet-i');
+      logger.warn('quiet-w');
+      logger.error('quiet-e');
+
+      const logCalls = logSpy.mock.calls.map((c) => String(c[0])).join('\n');
+      const errCalls = errSpy.mock.calls.map((c) => String(c[0])).join('\n');
+
+      // info / debug 默认不打到 stdout（避免普通用户看到刷屏）
+      expect(logCalls).not.toMatch(/quiet-d/);
+      expect(logCalls).not.toMatch(/quiet-i/);
+      // warn / error 永远可见
+      expect(errCalls).toMatch(/quiet-w/);
+      expect(errCalls).toMatch(/quiet-e/);
+
+      // 但文件里应该有完整 4 行（诊断能力保留）
+      const content = fs.readFileSync(logFile, 'utf8');
+      expect(content).toMatch(/quiet-d/);
+      expect(content).toMatch(/quiet-i/);
+      expect(content).toMatch(/quiet-w/);
+      expect(content).toMatch(/quiet-e/);
+    } finally {
+      logSpy.mockRestore();
+      errSpy.mockRestore();
+      if (prevDebug !== undefined) process.env.ROKIT_DEBUG = prevDebug;
+    }
+  });
+
+  it('v0.1.5+：设 ROKIT_DEBUG=1 时 info/debug 也打到 stdout', () => {
+    const prevDebug = process.env.ROKIT_DEBUG;
+    process.env.ROKIT_DEBUG = '1';
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      logger.debug('verbose-d');
+      logger.info('verbose-i');
+
+      const logCalls = logSpy.mock.calls.map((c) => String(c[0])).join('\n');
+      const errCalls = errSpy.mock.calls.map((c) => String(c[0])).join('\n');
+      expect(logCalls).toMatch(/verbose-d/);
+      expect(logCalls).toMatch(/verbose-i/);
+      // 调试模式下 warn/error 仍走 stderr（保证告警位置稳定）
+      expect(errCalls).not.toMatch(/verbose-d/);
+      expect(errCalls).not.toMatch(/verbose-i/);
+    } finally {
+      logSpy.mockRestore();
+      errSpy.mockRestore();
+      if (prevDebug === undefined) delete process.env.ROKIT_DEBUG;
+      else process.env.ROKIT_DEBUG = prevDebug;
+    }
   });
 
   it('extra 为对象时应序列化为 JSON', () => {

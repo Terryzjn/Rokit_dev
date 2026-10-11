@@ -1,332 +1,406 @@
-// Rokit · 即刻 Publisher (v1.12 即刻网支持)
-// ---------------------------------------------------------------
-// 重要约束（与需求文档第十一条、二十条对应）：
-//   - 绝对不自动点击 发送 / 发布 / 提交 / 确认发布 按钮。
-//   - 不读取 / 保存 / 导出 用户 Cookie / 密码 / 验证码 / token。
-//   - 登录态通过 persist:platform-jike 的 Electron Session 自动落盘，
-//     与 知乎 (persist:platform-zhihu) / V2EX (persist:platform-v2ex) /
-//     掘金 (persist:platform-juejin) 完全隔离。
-//   - 复用 PublisherBase / BrowserManager / fillScripts，不重复造轮子。
-//   - 即刻 web.okjike.com 是 React SPA，发布输入框是 [contenteditable]，
-//     fillce 走 execCommand('insertText') + InputEvent，天然保留换行与 Emoji。
-//   - 即刻没有独立 publishUrl —— 登录页与发布页都是首页 https://web.okjike.com/。
-//   - 不自动选择圈子 —— 即刻圈子是发布语义的核心，由用户手动选。
-//   - 不上传媒体 —— 第一版只支持文字动态。
+// Rokit · 即刻 Publisher（v3 状态机精简版）
+// ----------------------------------------------------------------
+// 唯一职责：把用户传入的 content 写到即刻的动态发布框里。
+// 不自动点最终发布按钮 —— 用户在窗口里自己点。
 //
-// 流程（由 browser-ipc.runPublish 调度，基类实现）：
-//   1. openPlatform('jike')             —— 打开独立 BrowserWindow
-//   2. navigate(loginUrl)
-//   3. checkLoginStatus()               —— 用 JIKE_SELECTORS 检测
-//   4. if logged_out: waitForLogin()    —— 用户自己登录（不输密码、不存密码）
-//   5. openPublishPage()                —— 同一首页，跳转再 await
-//   6. prepareContent({content})        —— fillce → 内容验证 → banner
-//   7. 返回 readyForManual=true，由用户自己点「发送」
+// 8 状态机（按用户规范）：
+//   INIT ──▶ LOADING ──▶ WAITING_LOGIN ──▶ WAITING_COMPOSER
+//        ──▶ FILLING_CONTENT ──▶ UPLOADING_MEDIA ──▶ VERIFYING
+//        ──▶ READY_FOR_MANUAL_SEND
 //
-// 不修改：PublisherBase / BrowserManager / fill-input.js / Zhihu / V2EX / Juejin
+//   - 任一状态失败：只允许有限次数的 DOM 查找重试（800ms × 15），不刷新页面。
+//   - 浏览器导航只调一次：依赖 BrowserManager 自带的 same-url guard
+//     （多次 navigate 同一 URL 会被 BrowserManager 内部跳过）。
+//
+// v3 关键变更（取消"操作过于频繁"导致的应用层失败提示）：
+//   - 节流关键字（"操作过于频繁" 等）由 JikePrepareScript 当作"环境信号"记录，
+//     **不再 abort**，不影响 ok 字段。
+//   - 主进程拿到 submit 路径不弹错误框、不判失败、不 throw。
+//   - 仅在开发日志记录一行：
+//       [Jike] 检测到网页提示"操作过于频繁"，忽略该提示，不判定为自动发布失败
+//
+// 入参（兼容多形态）：
+//   payload.content                   - 直接文本
+//   payload.fillData.content          - 老 adapter 形态
+//   payload.publishTask               - 完整 PublishTask 形态
+//     publishTask.content: string
+//     publishTask.video : { type: 'video'|'image', src: 'https://...' | 'data:...' } | null
 'use strict';
 
-const { PublisherBase } = require('../../PublisherBase');
 const PublisherRegistry = require('../../PublisherRegistry');
-const fillScripts = require('../../fill-input');
+const { buildJikePrepareScript }  = require('./JikePrepareScript');
+const { buildJikeMediaUploadScript } = require('./JikeMediaUploadScript');
 
-// ============================================================
-// 1) 即刻配置：URL 集中管理
-// ============================================================
-const JIKE_CONFIG = {
-  platformId:   'jike',
-  platformName: '即刻',
-  homeUrl:      'https://web.okjike.com/',
-  loginUrl:     'https://web.okjike.com/',
-  publishUrl:   'https://web.okjike.com/'
+// =====================================================================
+// 状态机定义
+// =====================================================================
+const STATES = [
+  'INIT',
+  'LOADING',
+  'WAITING_LOGIN',
+  'WAITING_COMPOSER',
+  'FILLING_CONTENT',
+  'UPLOADING_MEDIA',
+  'VERIFYING',
+  'READY_FOR_MANUAL_SEND'
+];
+
+// 合法转移（自检用；运行时通过 _transition 显式允许）
+const VALID_TRANSITIONS = {
+  INIT:                  ['LOADING'],
+  LOADING:               ['WAITING_LOGIN', 'WAITING_COMPOSER'],
+  WAITING_LOGIN:         ['WAITING_COMPOSER'],
+  WAITING_COMPOSER:      ['FILLING_CONTENT'],
+  FILLING_CONTENT:       ['UPLOADING_MEDIA', 'VERIFYING'],
+  UPLOADING_MEDIA:       ['VERIFYING', 'READY_FOR_MANUAL_SEND'],
+  VERIFYING:             ['READY_FOR_MANUAL_SEND'],
+  READY_FOR_MANUAL_SEND: []
 };
 
-// ============================================================
-// 2) 即刻 selector：所有 selector 集中在这里，即刻改版后只改这里
-// ============================================================
-// 原则（与需求文档第十条、十七条对应）：
-//   - 优先 id / aria-label / placeholder / data-* / [contenteditable]，
-//     不依赖随机生成的 css-xxx className（保留 * 含语义片段的兜底）。
-//   - 候选按"最稳定 → 最不稳定"排序。
-//   - loginIndicators 优先级 > inSelectors（detectLogin 先看未登录标志）。
+// =====================================================================
+// 配置
+// =====================================================================
+const JIKE_CONFIG = {
+  platformId:    'jike',
+  platformName:  '即刻',
+  // 单次导航：登录后的内容流主页（动态发布入口即此页顶栏）
+  homeUrl:       'https://web.okjike.com/',
+  // 备用 URL（与 homeUrl 等价；有些客户端默认跳 following）
+  composeUrl:    'https://web.okjike.com/following',
+  // 等待时长：800ms × 15 = 12s（DOM 查找重试上限）
+  pollIntervalMs: 800,
+  maxAttempts:    15,
+  verifyDelayMs:  800
+};
+
+// =====================================================================
+// selector 列表（按特异性从高到低）
+// =====================================================================
 const JIKE_SELECTORS = {
-  // 已登录指示器：看到至少一个视为已登录
-  loggedInIndicators: [
-    // 顶栏右侧用户区（即刻首页顶部右侧）
-    '[class*="user-bar"]',
-    '[class*="UserBar"]',
-    '[class*="topbar-user"]',
-    '[class*="TopBarUser"]',
-    '[class*="user-info"]',
-    '[class*="UserInfo"]',
-    '[class*="user-menu"]',
-    '[class*="UserMenu"]',
-    // 头像 / 用户主页
-    'img[class*="avatar" i]',
-    'img[alt*="头像" i]',
-    'img[alt*="avatar" i]',
-    'a[href*="/user/"]',
-    'a[href*="/u/"]',
-    'a[href*="/me"]',
-    // 登出入口
-    'a[href*="logout" i]',
-    'a[href*="signout" i]',
-    // 发布入口（已登录后才显示）
-    '[class*="publish-entry"]',
-    '[class*="PublishEntry"]',
-    'button[class*="publish" i]',
-    '[class*="topbar-publish"]'
-  ],
-
-  // 未登录指示器：看到任一即视为未登录（detectLogin 先扫这个清单）
-  loginIndicators: [
-    // 登录浮层 / 弹窗
-    '[class*="login-modal"]',
-    '[class*="LoginModal"]',
-    '[class*="login-dialog"]',
-    '[class*="signin-modal"]',
-    '[class*="SigninModal"]',
-    '[class*="login-popup"]',
-    // 顶栏"登录"按钮
-    'button[class*="login-btn"]',
-    'button[class*="loginBtn"]',
-    '[class*="header-login"]',
-    'a[href*="/login"]',
-    'a[href*="/signin"]',
-    // 第三方登录 / 手机号登录
-    '[class*="wechat-login"]',
-    '[class*="phone-login"]',
-    'input[name="phone"]',
-    'input[name="password"]',
-    'input[type="tel"]',
-    // 验证码输入
-    'input[name="code"]',
-    'input[name="smsCode"]'
-  ],
-
-  // 即刻动态发布输入框
-  //   - 即刻 web.okjike.com 首页的"分享你的想法..."是 contenteditable div。
-  //   - placeholder 通过 HTML 属性 / data-placeholder / aria-label 实现。
-  //   - 候选清单按"最精确 → 最宽松"排序。
   content: [
-    // 1. placeholder 含"想法"（即刻当前主输入框）
+    '[contenteditable="true"][role="textbox"][aria-multiline="true"]',
+    '[contenteditable="true"][aria-multiline="true"]',
+    '[contenteditable="true"][placeholder*="分享你的想法"]',
     '[contenteditable="true"][placeholder*="想法"]',
-    '[contenteditable="true"][placeholder*="想法" i]',
-    // 2. placeholder 含"分享"
     '[contenteditable="true"][placeholder*="分享"]',
-    '[contenteditable="true"][placeholder*="分享" i]',
-    // 3. placeholder 含"发布" / "说点什么"
-    '[contenteditable="true"][placeholder*="发布"]',
     '[contenteditable="true"][placeholder*="说点什么"]',
-    // 4. data-placeholder (CSS / React fake placeholder)
     '[contenteditable="true"][data-placeholder*="想法"]',
     '[contenteditable="true"][data-placeholder*="分享"]',
-    // 5. aria-label
     '[contenteditable="true"][aria-label*="想法"]',
     '[contenteditable="true"][aria-label*="分享"]',
-    // 6. 即刻可能改成 textarea 的兜底
+    'textarea[placeholder*="分享你的想法"]',
     'textarea[placeholder*="想法"]',
     'textarea[placeholder*="分享"]',
-    'textarea[placeholder*="说点什么"]',
-    // 7. role=textbox
+    'textarea[aria-multiline="true"]',
     '[role="textbox"]',
-    // 8. 兜底：contenteditable / textarea
     '[contenteditable="true"]',
     'textarea'
   ]
 };
 
-// ============================================================
-// 3) buildJikePrepareScript —— 独立的即刻 prepare 脚本
-// ---------------------------------------------------------------
-// 设计要点：
-//   - 直接复用 fillScripts.RESOLVE_SELECTOR_FN /
-//     fillScripts.FILL_CONTENTEDITABLE_FN / fillScripts.SHOW_BANNER_FN
-//     三个 IIFE 字符串，不修改 fillScripts。
-//   - 不使用 fillScripts.buildFillScript —— 后者在 title / textarea
-//     分支有 typo bug（即刻只走 contenteditable，不触发 bug，
-//     但还是独立实现以保持路径可控）。
-//   - 只走 contenteditable 分支：title 直接跳过，textarea fallback 也不走。
-//   - 加内容验证：fillce 后再读一次 ce.textContent，与期望 trim 比较。
-//   - 不自动点提交按钮 —— 只显示 banner 提示用户手动确认。
-// ============================================================
-function buildJikePrepareScript(contentSelectors, fillData) {
-  var payload = JSON.stringify({
-    contentSelectors: Array.isArray(contentSelectors) ? contentSelectors : [],
-    fillData: fillData || { title: '', content: '', images: [] }
-  });
-  var body =
-    '(async function(p){\n' +
-    fillScripts.RESOLVE_SELECTOR_FN + '\n' +
-    fillScripts.FILL_CONTENTEDITABLE_FN + '\n' +
-    fillScripts.SHOW_BANNER_FN + '\n' +
-    'var result = { ok: true, filled: {}, verified: false, verifiedReason: "" };\n' +
-    'try {\n' +
-    '  var ce = resolveOne(p.contentSelectors);\n' +
-    '  if (!ce) {\n' +
-    '    result.ok = false;\n' +
-    '    result.filled.content = { ok: false, error: "content-not-found" };\n' +
-    '    result.verified = false;\n' +
-    '    result.verifiedReason = "content element not found in DOM";\n' +
-    '  } else {\n' +
-    '    var cr = fillce({ el: ce, value: p.fillData.content || "" });\n' +
-    '    result.filled.content = cr;\n' +
-    '    if (!cr.ok) { result.ok = false; }\n' +
-    '    var actual = String(ce.textContent || ce.innerText || "").trim();\n' +
-    '    var expected = String(p.fillData.content || "").trim();\n' +
-    '    if (expected.length === 0) {\n' +
-    '      result.verified = true;\n' +
-    '    } else if (actual === expected) {\n' +
-    '      result.verified = true;\n' +
-    '    } else {\n' +
-    '      var lenDiff = Math.abs(actual.length - expected.length);\n' +
-    '      if (lenDiff <= 2) {\n' +
-    '        result.verified = true;\n' +
-    '        result.verifiedReason = "len-tolerance(" + lenDiff + ")";\n' +
-    '      } else {\n' +
-    '        result.verified = false;\n' +
-    '        result.verifiedReason = "content-mismatch: actualLen=" +\n' +
-    '          actual.length + " expectedLen=" + expected.length;\n' +
-    '      }\n' +
-    '    }\n' +
-    '  }\n' +
-    '} catch (e) {\n' +
-    '  result.ok = false;\n' +
-    '  result.error = String((e && e.message) || e);\n' +
-    '  result.verified = false;\n' +
-    '  result.verifiedReason = "exception: " + result.error;\n' +
-    '}\n' +
-    'showBanner("即刻");\n' +
-    'return result;\n' +
-    '})(' + payload + ')';
-  return body;
-}
-
-// ============================================================
-// 4) JikePublisher —— 即刻适配器
-// ============================================================
-class JikePublisher extends PublisherBase {
-  constructor(opts) {
-    super(Object.assign({
-      platformId:   'jike',
-      platformName: '即刻',
-      loginUrl:    JIKE_CONFIG.loginUrl,
-      publishUrl:  JIKE_CONFIG.publishUrl,
-      selectors: {
-        title:   [],   // 即刻第一版不支持标题
-        content: JIKE_SELECTORS.content.slice(),
-        images:  []
-      },
-      loginConfig: {
-        inSelectors:  JIKE_SELECTORS.loggedInIndicators.slice(),
-        outSelectors: JIKE_SELECTORS.loginIndicators.slice()
-      },
-      // 即刻 SPA 路由切换比较慢，给个宽松超时
-      loginTimeoutMs:     5 * 60 * 1000,
-      loginPollIntervalMs: 2500
-    }, opts || {}));
+// =====================================================================
+// 主类
+// =====================================================================
+class JikePublisher {
+  constructor() {
+    this.platformId   = JIKE_CONFIG.platformId;
+    this.platformName = JIKE_CONFIG.platformName;
+    this._bm = null;
+    // 当前 fillContent 会话的状态（每次调用独立 start 重置）
+    this._currentState = 'INIT';
+    this._stateHistory = [];
   }
 
-  openLoginPage() {
-    this.logger.info('[JikePublisher] Opening Jike login page', {
-      platformId: this.platformId,
-      url: this.loginUrl
-    });
-    return super.openLoginPage();
+  // -----------------------------------------------------------------
+  // 状态机工具
+  // -----------------------------------------------------------------
+  _transition(next) {
+    const prev = this._currentState;
+    const allowed = VALID_TRANSITIONS[prev] || [];
+    if (allowed.indexOf(next) === -1) {
+      console.warn('[Jike][state] INVALID transition ' + prev + ' -> ' + next + ' (allowed: ' + JSON.stringify(allowed) + ')');
+      // 不 throw，仍前进（防止卡死）
+    }
+    this._currentState = next;
+    this._stateHistory.push({ from: prev, to: next, t: Date.now() });
+    console.log('[Jike][state] ' + prev + ' -> ' + next);
   }
 
-  openPublishPage() {
-    this.logger.info('[JikePublisher] Opening Jike publish page', {
-      platformId: this.platformId,
-      url: this.publishUrl
-    });
-    return super.openPublishPage();
+  _resetState() {
+    this._currentState = 'INIT';
+    this._stateHistory = [];
   }
 
-  // 覆盖：先走 fillScripts.detectLogin（DOM 启发式），unknown 时再用 URL 启发式
-  checkLoginStatus() {
-    var self = this;
-    var script = fillScripts.buildLoginScript(this.loginConfig);
-    return this.browserManager.execute(this.platformId, script)
-      .then(function (r) {
-        var s = (r && r.status) || 'unknown';
-        if (s === 'logged_in' || s === 'logged_out') return s;
-        return self.browserManager.execute(self.platformId,
-          '(function(){return location.href||"";})()')
-          .then(function (url) {
-            url = String(url || '');
-            if (/okjike\.com\/(login|signin|signup|oauth)/i.test(url)) return 'logged_out';
-            if (/okjike\.com\/(user|u|me|creator)/i.test(url))   return 'logged_in';
-            return 'unknown';
-          })
-          .catch(function () { return 'unknown'; });
+  // -----------------------------------------------------------------
+  // 打开/复用 BrowserWindow + 单次导航
+  // -----------------------------------------------------------------
+  async openPlatform(payload) {
+    const bm = payload && payload.browserManager;
+    if (!bm || typeof bm.openPlatform !== 'function') {
+      return { ok: false, error: 'no-browser-manager' };
+    }
+    this._bm = bm;
+
+    let openRes = null;
+    try {
+      openRes = await bm.openPlatform(this.platformId);
+    } catch (e) {
+      return { ok: false, error: String((e && e.message) || e) };
+    }
+
+    // 单次导航：依赖 BrowserManager 的 same-url guard，不会重复 reload
+    if (typeof bm.navigate === 'function') {
+      const url = (payload && payload.url) || JIKE_CONFIG.homeUrl;
+      try {
+        await bm.navigate(this.platformId, url);
+      } catch (_e) {
+        // navigate 异常（如已 same-url skip）也允许继续
+      }
+    }
+
+    console.log('[Jike][open] windowId=' + (openRes && openRes.windowId) + ' reused=' + !!(openRes && openRes.reused));
+    return { ok: true, windowId: openRes && openRes.windowId, reused: !!(openRes && openRes.reused) };
+  }
+
+  // -----------------------------------------------------------------
+  // 主流程：填表 + （可选）媒体上传
+  // payload: { browserManager?, content?, fillData?, publishTask? }
+  // -----------------------------------------------------------------
+  async fillContent(payload) {
+    payload = payload || {};
+    this._resetState();
+
+    const bm = payload.browserManager || this._bm;
+
+    // 解析入参（兼容多种形态）
+    const task = this._normalizePayload(payload);
+
+    if (!bm || typeof bm.execute !== 'function') {
+      this._transition('INIT'); // 兜底
+      return { ok: false, error: 'no-browser-manager', state: this._currentState, stateHistory: this._stateHistory.slice() };
+    }
+    if (!task.content) {
+      return { ok: false, error: 'empty-content', state: this._currentState, stateHistory: this._stateHistory.slice() };
+    }
+
+    // ============================================================
+    // 状态机：INIT -> LOADING -> WAITING_LOGIN -> WAITING_COMPOSER
+    //         -> FILLING_CONTENT -> UPLOADING_MEDIA -> VERIFYING
+    //         -> READY_FOR_MANUAL_SEND
+    // ============================================================
+
+    // ----- INIT -----
+    this._transition('INIT');
+    const result = {
+      ok:               false,
+      throttled:        false,
+      throttleSource:   null,
+      throttleSample:   '',
+      composer:         null,
+      fillMethod:       null,
+      contentBeforeLen: 0,
+      contentAfterLen:  0,
+      targetPreview:    task.content.slice(0, 50),
+      actualPreview:    '',
+      media:            null,
+      state:             this._currentState,
+      stateHistory:     this._stateHistory.slice(),
+      // 关键 flag：UI 看到 ready=true 时停止自动化
+      readyForManualSend: false,
+      // 不再弹出"无法自动发布：操作过于频繁"
+      manualReason:     'user-must-click-send-manually',
+      attempts:         0,
+      elapsedMs:        0
+    };
+
+    // ----- LOADING（确保窗口存在 + 单次导航） -----
+    this._transition('LOADING');
+    const openRes = await this._ensureOpen(bm);
+    if (!openRes.ok) {
+      result.error = openRes.error;
+      return result;
+    }
+
+    // ----- WAITING_LOGIN（轻量检查：等待 did-finish-load + 短暂延迟） -----
+    this._transition('WAITING_LOGIN');
+    // 这里不做强制登录校验（避免再次猜测身份）
+    // 仅以 prepare 脚本能填入(它隐含了：能进入动态框 = 登录态有效)
+    // 这里给浏览器留 ~400ms 让页面稳定
+    try {
+      await new Promise(function (r) { setTimeout(r, 400); });
+    } catch (_e) {}
+
+    // ----- WAITING_COMPOSER + FILLING_CONTENT + VERIFYING（合成一步：调 prepare） -----
+    this._transition('WAITING_COMPOSER');
+    this._transition('FILLING_CONTENT');
+
+    let pr = null;
+    try {
+      const script = buildJikePrepareScript({
+        contentSelectors: JIKE_SELECTORS.content,
+        fillData:          { content: task.content },
+        pollIntervalMs:    JIKE_CONFIG.pollIntervalMs,
+        maxAttempts:       JIKE_CONFIG.maxAttempts,
+        verifyDelayMs:     JIKE_CONFIG.verifyDelayMs
       });
-  }
+      pr = await bm.execute(this.platformId, script);
+    } catch (e) {
+      result.error = 'execute-threw: ' + String((e && e.message) || e);
+      return result;
+    }
+    if (!pr || typeof pr !== 'object') {
+      result.error = 'no-result';
+      return result;
+    }
 
-  waitForLogin() {
-    this.logger.info('[JikePublisher] Waiting for login (timeout=' +
-      Math.round(this.loginTimeoutMs / 1000) + 's)');
-    return super.waitForLogin();
-  }
+    // 把 prepare 的字段复制出来
+    result.composer         = pr.composer || null;
+    result.fillMethod       = pr.fillMethod || null;
+    result.contentBeforeLen = pr.contentBeforeLen || 0;
+    result.contentAfterLen  = pr.contentAfterLen || 0;
+    result.targetPreview    = pr.targetPreview || result.targetPreview;
+    result.actualPreview    = pr.actualPreview || '';
+    result.attempts         = pr.attempts || 0;
+    result.elapsedMs        = pr.elapsedMs || 0;
+    result.throttled        = !!pr.throttled;
+    result.throttleSource   = pr.throttleSource || null;
+    result.throttleSample   = pr.throttleSample || '';
 
-  // 覆盖 prepareContent：走 buildJikePrepareScript 并打详细日志
-  // 严格按照需求第九节日志格式：
-  //   [Jike] content filling started
-  //   [Jike] content filled (随 verification passed/failed 合并输出)
-  //   [Jike] content verification passed / failed
-  prepareContent(fillData) {
-    var self = this;
-    var data = fillScripts.extractFillData(fillData || {});
-    this.logger.info('[Jike] content filling started', {
-      platformId: self.platformId,
-      titleLen:   data.title.length,
-      contentLen: data.content.length,
-      imageCount: data.images.length
-    });
-    var script = buildJikePrepareScript(self.selectors.content, data);
-    return self.browserManager.execute(self.platformId, script)
-      .then(function (r) {
-        var ok = !!(r && r.ok);
-        var verified = !!(r && r.verified);
-        var reason = verified
-          ? (r.verifiedReason || 'ok')
-          : (r.verifiedReason || (r.error || 'unknown'));
-        var contentLen = (r && r.filled && r.filled.content && r.filled.content.length) || 0;
-        self.logger.info(
-          verified ? '[Jike] content verification passed' : '[Jike] content verification failed',
-          {
-            ok: ok,
-            verified: verified,
-            contentLen: contentLen,
-            reason: verified ? 'len-tolerance-or-exact' : reason
-          }
-        );
-        // 关键信号：返回 readyForManual=true，明确告知调用方"已停手，等用户点发送"
-        return Object.assign({}, r, {
-          readyForManual: true,
-          note: '即刻第一版不自动提交。请手动选择圈子、添加附件并点击「发送」按钮确认。',
-          hostName: 'web.okjike.com'
+    // ----- 节流不再判失败：仅日志 -----
+    if (result.throttled) {
+      console.log('[Jike] 检测到网页提示"操作过于频繁"，忽略该提示，不判定为自动发布失败', {
+        throttleSource: result.throttleSource,
+        throttleSample: result.throttleSample
+      });
+    }
+
+    // ----- 填表判定 -----
+    // 注意：节流不再作为失败条件。这里仅在填表本身失败时报错。
+    if (!pr.ok) {
+      result.error = pr.error || 'fill-failed';
+      // VERIFYING 失败 → 直接停；不刷新、不重试
+      this._transition('VERIFYING');
+      return result;
+    }
+
+    // ----- UPLOADING_MEDIA（仅当 task.video 存在时） -----
+    this._transition('VERIFYING');
+    if (task.video && task.video.src) {
+      this._transition('UPLOADING_MEDIA');
+      try {
+        const mediaScript = buildJikeMediaUploadScript({
+          media:     { type: task.video.type || 'video', src: task.video.src, name: task.video.name || '' },
+          timeoutMs: 15000
         });
-      });
+        const mr = await bm.execute(this.platformId, mediaScript);
+        if (mr && typeof mr === 'object') {
+          result.media = {
+            found:    !!mr.found,
+            ok:       !!mr.ok,
+            fileName: mr.fileName || '',
+            fileSize: mr.fileSize || 0,
+            fileType: mr.fileType || '',
+            error:    mr.error || ''
+          };
+          if (!mr.ok) {
+            // 媒体失败不中断整体流程：让用户手动选文件
+            console.log('[Jike] 媒体上传未成功，继续让用户在窗口手动添加附件', result.media);
+          }
+        }
+      } catch (e) {
+        result.media = { ok: false, error: String((e && e.message) || e) };
+      }
+    }
+
+    // ----- VERIFYING 终结 -----
+    // (已在上一行 transition 到 VERIFYING；若走过 UPLOADING_MEDIA，则从 UPLOADING_MEDIA -> VERIFYING)
+    // 这里再校验一次：实际写入长度应 > 0
+    if (result.contentAfterLen <= 0) {
+      result.error = 'actual-content-empty';
+      return result;
+    }
+
+    // ----- READY_FOR_MANUAL_SEND -----
+    this._transition('READY_FOR_MANUAL_SEND');
+    result.ok = true;
+    result.state = this._currentState;
+    result.stateHistory = this._stateHistory.slice();
+    result.readyForManualSend = true;
+
+    console.log('[Jike][fill] ' + JSON.stringify({
+      state:           result.state,
+      throttled:       result.throttled,
+      throttleSource:  result.throttleSource,
+      fillMethod:      result.fillMethod,
+      contentBefore:   result.contentBeforeLen,
+      contentAfter:    result.contentAfterLen,
+      targetPreview:   result.targetPreview,
+      actualPreview:   result.actualPreview,
+      media:           result.media && result.media.ok ? { fileName: result.media.fileName, size: result.media.fileSize } : (result.media ? { notReleased: result.media.error } : null),
+      attempts:        result.attempts,
+      elapsedMs:       result.elapsedMs
+    }));
+
+    return result;
   }
 
-  // 覆盖 fillTitle：即刻第一版不支持标题
-  fillTitle(text) {
-    this.logger.info('[JikePublisher] Title is ignored (即刻第一版不支持标题)', {
-      platformId: this.platformId,
-      length: String(text || '').length
-    });
-    return Promise.resolve({ ok: true, skipped: true, reason: 'jike-v1-no-title' });
+  // -----------------------------------------------------------------
+  // 兼容老调用
+  // -----------------------------------------------------------------
+  async fill(payload)            { return this.fillContent(payload); }
+  async prepareContent(payload)  { return this.fillContent(payload); }
+
+  // -----------------------------------------------------------------
+  // 永不自动发送
+  // -----------------------------------------------------------------
+  async submit(/* payload */) {
+    return { ok: false, error: 'auto-send-disabled', manualReason: 'user-must-click-send-manually' };
   }
 
-  // 不重写 click / clickSubmit —— 基类默认不发提交，需求文档第十一条强约束。
-  // 不重写 triggerClick —— 基类默认不调。
+  // -----------------------------------------------------------------
+  // 工具
+  // -----------------------------------------------------------------
+  _normalizePayload(payload) {
+    const pt = payload.publishTask;
+    if (pt && typeof pt === 'object') {
+      return {
+        content: String((pt.content != null ? pt.content : '') || ''),
+        video:   (pt.video && typeof pt.video === 'object') ? pt.video : null
+      };
+    }
+    const fd = payload.fillData || {};
+    const content = String(
+      (payload.content != null ? payload.content :
+       (fd.content != null ? fd.content : '')) || ''
+    );
+    return {
+      content: content,
+      video:   (payload.video && typeof payload.video === 'object') ? payload.video : null
+    };
+  }
+
+  // 确保窗口存在 + 已导航到首页（不强制 reload；same-url guard 自动跳过）
+  async _ensureOpen(bm) {
+    try {
+      const openRes = await bm.openPlatform(this.platformId);
+      if (typeof bm.navigate === 'function') {
+        try {
+          await bm.navigate(this.platformId, JIKE_CONFIG.homeUrl);
+        } catch (_e) {}
+      }
+      return { ok: true, windowId: openRes && openRes.windowId, reused: !!(openRes && openRes.reused) };
+    } catch (e) {
+      return { ok: false, error: String((e && e.message) || e) };
+    }
+  }
 }
 
 PublisherRegistry.register('jike', JikePublisher);
 
 module.exports = {
-  JikePublisher:            JikePublisher,
-  JIKE_CONFIG:              JIKE_CONFIG,
-  JIKE_SELECTORS:           JIKE_SELECTORS,
-  buildJikePrepareScript:   buildJikePrepareScript
+  JikePublisher:  JikePublisher,
+  JIKE_CONFIG:    JIKE_CONFIG,
+  JIKE_SELECTORS: JIKE_SELECTORS,
+  STATES:         STATES,
+  VALID_TRANSITIONS: VALID_TRANSITIONS
 };

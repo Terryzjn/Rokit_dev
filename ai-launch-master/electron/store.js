@@ -13,7 +13,8 @@ const path = require('path');
 //       说明：复用既有 `dl` 列保存"下载量"（语义对齐 GitHub Releases assets
 //       下载总数），不引入第二个"下载"字段；新增独立 `visitors` 列保存
 //       traffic/views uniques，避免与 `play`（抖音/B站等视频播放数）混淆。
-const CURRENT_VERSION = 4;
+//   v5：作品新增 yt_url / yt_views / yt_updated_at（YouTube Data API 播放量持久化）
+const CURRENT_VERSION = 5;
 
 let Database = null;
 let driver = null;
@@ -172,6 +173,19 @@ const migrations = [
     up: function (db) {
       try { db.exec("ALTER TABLE works ADD COLUMN visitors INTEGER DEFAULT 0"); } catch (_e) { /* 列已存在 */ }
     }
+  },
+  {
+    // v5：YouTube 播放量统计（「我的作品」卡片第三栏「播放」）
+    //   yt_url         TEXT    ：作品关联的 YouTube 视频链接（独立于 GitHub 作品链接 url）
+    //   yt_views       INTEGER ：最近一次成功拉到的 viewCount；NULL = 从未成功获取（前端显示 --）
+    //   yt_updated_at  TEXT    ：最近一次成功获取时间（ISO），用于缓存新鲜度判断
+    //   与 star / dl / visitors 完全独立，互不混用。
+    version: 5,
+    up: function (db) {
+      try { db.exec("ALTER TABLE works ADD COLUMN yt_url TEXT DEFAULT ''"); } catch (_e) { /* 列已存在 */ }
+      try { db.exec("ALTER TABLE works ADD COLUMN yt_views INTEGER DEFAULT NULL"); } catch (_e) { /* 列已存在 */ }
+      try { db.exec("ALTER TABLE works ADD COLUMN yt_updated_at TEXT DEFAULT NULL"); } catch (_e) { /* 列已存在 */ }
+    }
   }
 ];
 
@@ -230,6 +244,13 @@ class Store {
     }
     this.version = currentVersion;
 
+    // 防御性 schema 补全：先于"已是最新版本则跳过"判断。
+    //   必须在版本检查前运行：旧库可能 user_version=5 但物理列缺失
+    //   （历史上 PRAGMA user_version 被先设到目标版本，但实际 ALTER 没生效），
+    //   如果不补列就 return，会让用户继续撞到 "no such column: yt_url"。
+    //   列已经齐全时是 no-op（Set.has 检查），不影响性能。
+    this.ensureWorksColumns();
+
     // 已是最新版本则跳过
     if (currentVersion >= CURRENT_VERSION) return;
 
@@ -260,6 +281,34 @@ class Store {
         } catch (_e2) {}
         throw new Error('migration v' + m.version + ' failed: ' + (e && e.message ? e.message : String(e)));
       }
+    }
+  }
+
+  // ---------- 防御性 schema 校验 ----------
+  //   - 仅扫描 works 表的已知列；不影响已有数据
+  //   - 每条 ALTER 都用 try/catch 包裹，对"列已存在"等错误静默
+  //   - 非 sqlite 驱动直接跳过（JSON 模式无 schema 概念）
+  //   - 失败不影响主流程，错误吞掉但不影响 saveWork/listWorks 调用
+  ensureWorksColumns() {
+    if (this.mode !== 'sqlite') return;
+    let cols = null;
+    try {
+      cols = this.all('PRAGMA table_info(works)');
+    } catch (_e) { return; }
+    const have = new Set((cols || []).map(function (c) { return c.name; }));
+    const want = [
+      ['queue_state', "ALTER TABLE works ADD COLUMN queue_state TEXT DEFAULT 'queued'"],
+      ['priority', 'ALTER TABLE works ADD COLUMN priority INTEGER DEFAULT 0'],
+      ['launched_at', 'ALTER TABLE works ADD COLUMN launched_at TEXT'],
+      ['last_active_at', 'ALTER TABLE works ADD COLUMN last_active_at TEXT'],
+      ['visitors', 'ALTER TABLE works ADD COLUMN visitors INTEGER DEFAULT 0'],
+      ['yt_url', "ALTER TABLE works ADD COLUMN yt_url TEXT DEFAULT ''"],
+      ['yt_views', 'ALTER TABLE works ADD COLUMN yt_views INTEGER DEFAULT NULL'],
+      ['yt_updated_at', 'ALTER TABLE works ADD COLUMN yt_updated_at TEXT DEFAULT NULL']
+    ];
+    for (const w of want) {
+      if (have.has(w[0])) continue;
+      try { this.exec(w[1]); } catch (_e) { /* 已存在或失败：忽略 */ }
     }
   }
 
@@ -374,6 +423,10 @@ class Store {
         if ('dl' in w) addCol('dl', Number(w.dl) || 0);
         if ('visitors' in w) addCol('visitors', Number(w.visitors) || 0);
         if ('play' in w) addCol('play', String(w.play || '0'));
+        // v5：YouTube 播放量。yt_views 允许显式传 null（表示"无有效缓存"，卡片显示 --）
+        if ('yt_url' in w) addCol('yt_url', String(w.yt_url || ''));
+        if ('yt_views' in w) addCol('yt_views', (w.yt_views === null || w.yt_views === undefined) ? null : (Number(w.yt_views) || 0));
+        if ('yt_updated_at' in w) addCol('yt_updated_at', w.yt_updated_at || null);
         if ('next' in w) addCol('next', String(w.next || ''));
         // updated_at 永远刷新
         fields.push('updated_at = ?'); args.push(now);
@@ -395,13 +448,16 @@ class Store {
           star: Number(w.star) || 0, dl: Number(w.dl) || 0,
           visitors: Number(w.visitors) || 0,
           play: String(w.play || '0'), next: String(w.next || ''),
+          yt_url: String(w.yt_url || ''),
+          yt_views: (w.yt_views === null || w.yt_views === undefined) ? null : (Number(w.yt_views) || 0),
+          yt_updated_at: w.yt_updated_at || null,
           created_at: w.created_at || now,
           updated_at: now
         };
         this.run(`
-          INSERT INTO works (id, name, type, intro, url, status, queue, queue_state, priority, launched_at, last_active_at, star, dl, visitors, play, next, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, [row.id, row.name, row.type, row.intro, row.url, row.status, row.queue, row.queue_state, row.priority, row.launched_at, row.last_active_at, row.star, row.dl, row.visitors, row.play, row.next, row.created_at, row.updated_at]);
+          INSERT INTO works (id, name, type, intro, url, status, queue, queue_state, priority, launched_at, last_active_at, star, dl, visitors, play, next, yt_url, yt_views, yt_updated_at, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [row.id, row.name, row.type, row.intro, row.url, row.status, row.queue, row.queue_state, row.priority, row.launched_at, row.last_active_at, row.star, row.dl, row.visitors, row.play, row.next, row.yt_url, row.yt_views, row.yt_updated_at, row.created_at, row.updated_at]);
         return row;
       }
     } else {
@@ -439,6 +495,9 @@ class Store {
           visitors: Number(w.visitors) || 0,
           play: String(w.play || '0'),
           next: String(w.next || ''),
+          yt_url: String(w.yt_url || ''),
+          yt_views: (w.yt_views === null || w.yt_views === undefined) ? null : (Number(w.yt_views) || 0),
+          yt_updated_at: w.yt_updated_at || null,
           created_at: w.created_at || new Date().toISOString(),
           updated_at: new Date().toISOString()
         });

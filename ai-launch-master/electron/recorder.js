@@ -183,8 +183,9 @@ function attachIpc(ipcMain) {
     return listSessions();
   });
   ipcMain.handle('recorder:probe', async function (_e, payload) {
+    // v1.20.1：走统一 resolver（不再直接信任 require('ffmpeg-static') 的裸路径）
     let ffmpegPath = '';
-    try { ffmpegPath = require('ffmpeg-static'); } catch (_e) { ffmpegPath = ''; }
+    try { ffmpegPath = require('./ffmpeg-resolver').ffmpegPath(); } catch (_e) { ffmpegPath = ''; }
     if (!payload || !payload.path) return { ok: false, error: 'no-path' };
     if (!fs.existsSync(payload.path)) return { ok: false, error: 'file-not-found' };
     const ms = await probeDurationMs(payload.path, ffmpegPath);

@@ -125,6 +125,26 @@ async function checkAllHealth(channels) {
   return out;
 }
 
+// v1.10：从 GitHub 错误响应里提取 JSON message 字段
+//   GitHub API 错误体通常是 { "message": "...", "documentation_url": "...", ... }
+//   把 message 拼到 detail，方便用户定位（不打印 Authorization header / token）
+async function extractGhError(res, status, defaultMsg, fallbackDetail) {
+  let ghMsg = '';
+  try {
+    const j = await res.json().catch(function () { return null; });
+    if (j && typeof j.message === 'string' && j.message) ghMsg = j.message;
+    else if (fallbackDetail) ghMsg = String(fallbackDetail).slice(0, 200);
+  } catch (_e) {
+    if (fallbackDetail) ghMsg = String(fallbackDetail).slice(0, 200);
+  }
+  return {
+    ok: false,
+    status: status,
+    error: defaultMsg,
+    detail: ghMsg ? (defaultMsg + '（GitHub: ' + ghMsg + '）') : defaultMsg
+  };
+}
+
 // GitHub L1 直发：把文章作为 Markdown 文件创建/更新到目标 Repository
 //   token: GitHub PAT（Fine-grained PAT 需 Contents: Read and write + 目标仓库在 Repository access 中）
 //   opts: {
@@ -148,6 +168,24 @@ async function githubPutFile(token, opts) {
   const filePath = String(opts.path).replace(/^\/+/, '').replace(/\/+$/, '');
   if (!filePath) return { ok: false, error: 'missing-params', detail: 'path 非法' };
 
+  // v1.10：发布前安全日志（绝不打印 Authorization / 完整 token / 文件内容）
+  //   用途：用户报告"发错仓库"时能直接看到本次到底请求了哪个 URL
+  try {
+    const logger = (() => { try { return require('./logger'); } catch (_e) { return null; } })();
+    const payload = {
+      method: 'PUT',
+      target: opts.owner + '/' + opts.repo,
+      path: filePath,
+      branch: branch,
+      contentBytes: Buffer.byteLength(rawContent, 'utf8')
+    };
+    if (logger && typeof logger.info === 'function') {
+      logger.info('[GitHub Publisher] request', payload);
+    }
+    // 兼容：受限环境日志写不到 userData 时，也保证用户能从 PowerShell 启动窗口看到
+    try { console.error('[GitHub Publisher] request ' + JSON.stringify(payload)); } catch (_e) {}
+  } catch (_e) { /* 日志失败不影响发布 */ }
+
   // 1) 探测文件：GET .../contents/{path}?ref={branch}
   const encodedPath = filePath.split('/').map(encodeURIComponent).join('/');
   const getUrl = 'https://api.github.com/repos/' + encodeURIComponent(opts.owner) + '/' + encodeURIComponent(opts.repo) + '/contents/' + encodedPath + '?ref=' + encodeURIComponent(branch);
@@ -167,9 +205,9 @@ async function githubPutFile(token, opts) {
     } else if (getRes.status === 404) {
       sha = null; // 文件不存在 → 直接创建
     } else if (getRes.status === 401) {
-      return { ok: false, status: 401, error: 'Token 失效或权限不足（需 Contents: Read）' };
+      return extractGhError(getRes, 401, 'Token 失效或权限不足（需 Contents: Read）');
     } else if (getRes.status === 403) {
-      return { ok: false, status: 403, error: 'Token 权限不足（Fine-grained PAT 需勾选 Contents: Read and write + 目标仓库在 Repository access 中）' };
+      return extractGhError(getRes, 403, 'Token 权限不足（Fine-grained PAT 需勾选 Contents: Read and write + 目标仓库在 Repository access 中）');
     } else {
       let detail = '';
       try { detail = (await getRes.text()).slice(0, 300); } catch (_) {}
@@ -205,11 +243,11 @@ async function githubPutFile(token, opts) {
   if (!putRes.ok) {
     let detail = '';
     try { detail = (await putRes.text()).slice(0, 300); } catch (_) {}
-    if (putRes.status === 401) return { ok: false, status: 401, error: 'Token 失效或权限不足（需 Contents: Read and write）' };
-    if (putRes.status === 403) return { ok: false, status: 403, error: 'Token 权限不足（Fine-grained PAT 需勾选 Contents: Read and write + 目标仓库在 Repository access 中）' };
-    if (putRes.status === 404) return { ok: false, status: 404, error: '仓库不存在或 Token 无权访问' };
-    if (putRes.status === 409) return { ok: false, status: 409, error: '文件冲突（sha 不匹配，并发更新？）' };
-    if (putRes.status === 422) return { ok: false, status: 422, error: '参数非法：' + (detail || '') };
+    if (putRes.status === 401) return extractGhError(putRes, 401, 'Token 失效或权限不足（需 Contents: Read and write）');
+    if (putRes.status === 403) return extractGhError(putRes, 403, 'Token 权限不足（Fine-grained PAT 需勾选 Contents: Read and write + 目标仓库在 Repository access 中）');
+    if (putRes.status === 404) return extractGhError(putRes, 404, '仓库不存在或 Token 无权访问');
+    if (putRes.status === 409) return extractGhError(putRes, 409, '文件冲突（sha 不匹配，并发更新？）');
+    if (putRes.status === 422) return extractGhError(putRes, 422, '参数非法', detail);
     return { ok: false, status: putRes.status, error: detail || ('HTTP ' + putRes.status) };
   }
 

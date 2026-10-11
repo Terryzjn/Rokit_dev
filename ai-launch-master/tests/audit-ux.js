@@ -213,7 +213,7 @@ console.log('\n[5] 桌面端 publishers.js auto 字段一致性');
 const publishers = readOrFail(path.join(ROOT, 'electron', 'publishers.js'));
 if (publishers) {
   const expectTrue = ['github', 'v2ex', 'x'];
-  const expectFalse = ['ph', 'juejin', 'facebook', 'youtube', 'douyin', 'xhs', 'bili', 'jike', 'zhihu', 'wechat'];
+  const expectFalse = ['ph', 'juejin', 'facebook', 'youtube', 'douyin', 'bili', 'jike', 'zhihu', 'wechat'];
   expectTrue.forEach(function (id) {
     // 找 id: { ... auto: ... 这一段
     const re = new RegExp('\\b' + id + '\\s*:\\s*\\{[\\s\\S]*?auto\\s*:\\s*(true|false)');

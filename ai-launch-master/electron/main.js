@@ -43,6 +43,14 @@ logger.installGlobalHandlers({ stage: 'pre-app-ready' });
 let store = null;
 let mainWindow = null;
 
+// 启动阶段耗时埋点：定位启动慢/卡在 Chromium 缓存初始化的具体阶段。
+// 标记函数本体始终存在（避免分支内调用 NPE），实际行为在 logger.init 之后激活。
+let startupT0 = 0;
+function stageMark(name) {
+  if (!startupT0) return;
+  try { logger.info('[startup] ' + name + ' (+' + (Date.now() - startupT0) + 'ms)'); } catch (_e) {}
+}
+
 // 固定 userData 目录（品牌更名后路径稳定），并一次性迁移旧数据
 // 支持 ROKIT_USER_DATA 环境变量覆盖（用于沙箱环境或便携运行）
 (function ensureUserData() {
@@ -72,6 +80,38 @@ let mainWindow = null;
   app.setPath('userData', dir);
 })();
 
+// 启动阶段兼容：预创建 Chromium 期望的纯缓存子目录 + 处理"同名文件占位导致 mv 失败"。
+//   背景：Windows CMD 下偶发 `net/disk_cache/cache_util_win.cc:20 Unable to move the cache` /
+//   `Gpu Cache Creation failed: -2`。根因是上一次异常退出后，某些子目录被 Windows
+//   残留为同名文件（被 AV 扫描占用、或上一进程没及时释放），Chromium 启动时执行
+//   `mv Cache_tmp -> Cache` 或创建 GPUCache 子目录失败。
+//   仅处理 Chromium 自动管理的纯缓存子目录；不动 LocalStorage/IndexedDB/Partitions/
+//   Service Worker Database/video 等业务目录（OAuth 凭证 / 登录态 / 视频资产）。
+//   修复策略：存在但不是目录 → 加时间戳重命名为 .bak 备份 + 让 Chromium 重建；
+//             不存在 → 预创建空目录，让 Chromium 不用 mv。
+//   失败一律降级为日志，不影响启动主流程。
+function repairChromiumCacheDirs(userDataDir) {
+  const safe = [
+    'Cache', 'Code Cache', 'GPUCache',
+    'DawnGraphiteCache', 'DawnWebGPUCache',
+    'Dictionaries', 'Shared Dictionary',
+    'shared_proto_db', 'VideoDecodeStats'
+  ];
+  for (const rel of safe) {
+    const abs = path.join(userDataDir, rel);
+    let st = null;
+    try { st = fs.statSync(abs); } catch (_e) { st = null; }
+    if (st && st.isDirectory()) continue;
+    if (st) {
+        // 损坏：存在但不是目录（同名的文件占位）
+        const bak = abs + '.bak-' + Date.now();
+        try { fs.renameSync(abs, bak); stageMark('repaired-cache ' + rel); }
+        catch (_e) { /* rename 失败也继续 mkdir，让 Chromium 自己重试 */ }
+    }
+    try { fs.mkdirSync(abs, { recursive: true }); } catch (_e2) {}
+  }
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1080,
@@ -94,6 +134,16 @@ function createWindow() {
     }
   });
   mainWindow = win;
+  // 启动耗时埋点：标记 BrowserWindow 创建完成的时刻，区分"创建耗时"与"首屏渲染耗时"
+  win.once('ready-to-show', () => {
+    stageMark('ready-to-show');
+    // 启动完成提示（用户友好输出，绕过 logger 的 ROKIT_DEBUG 控制，确保普通用户也能看到）
+    try {
+      var ver = (typeof app !== 'undefined' && app.getVersion) ? app.getVersion() : '0.0.0';
+      // eslint-disable-next-line no-console
+      console.log('Rokit 已启动，版本 ' + ver + '。');
+    } catch (_e) { /* 取版本失败不阻塞 */ }
+  });
   win.on('closed', () => { if (mainWindow === win) mainWindow = null; });
   win.loadFile(path.join(__dirname, '..', 'index.html'));
   // v1.5：无边框顶栏需要窗口控制 IPC——必须在 createWindow 内部挂载，
@@ -436,8 +486,162 @@ async function refreshGithubStats(works) {
     }
   });
   try { console.warn('[GitHub Stats][Stars] === refresh done === ok=' + updates.filter(function(u){return u.ok;}).length + ' failed=' + updates.filter(function(u){return !u.ok;}).length); } catch(_e) {}
+
+  // ---------- YouTube 播放量（独立于 GitHub 统计；单作品失败不影响其他，绝不伪造 0） ----------
+  // 前端按作品逐个决定是否要拉（wantYt）：无有效缓存 / 缓存过期 / 手动刷新时才为 true。
+  var ytTargets = (works || []).filter(function (w) {
+    if (!w || !w.id) return false;
+    if (w.wantYt === false) return false;
+    return !!(parseYoutubeVideoId(w.yt_url) || parseYoutubeVideoId(w.url));
+  });
+  if (ytTargets.length) {
+    var ytKey = await resolveYoutubeApiKey();
+    try { console.warn('[YouTube Stats] === refresh start === targetCount=' + ytTargets.length + ' hasApiKey=' + (ytKey ? 'true' : 'false')); } catch (_e) {}
+    var byId = {};
+    updates.forEach(function (u) { if (u && u.id) byId[u.id] = u; });
+    await Promise.allSettled(ytTargets.map(async function (w) {
+      var vid = parseYoutubeVideoId(w.yt_url) || parseYoutubeVideoId(w.url);
+      var entry = byId[w.id];
+      if (!entry) { entry = { id: w.id, ok: true, ytOnly: true }; updates.push(entry); byId[w.id] = entry; }
+      if (!ytKey) {
+        // 未配置 API Key：不是错误，返回明确原因让前端提示用户去设置页配置
+        entry.yt_views_error = 'no-youtube-api-key';
+        entry.yt_reason = 'no-api-key';
+        try { console.warn('[YouTube Stats]', (w.id || ''), 'skipped: no API key configured'); } catch (_e) {}
+        return;
+      }
+      try {
+        var yr = await fetchYoutubeViewCount(vid, ytKey);
+        entry.yt_views = yr.views;
+        entry.yt_updated_at = new Date().toISOString();
+        // 主进程侧持久化（与 GitHub 一致的双保险；失败时前端保留旧缓存）
+        try { store.saveWork({ id: w.id, yt_views: yr.views, yt_updated_at: entry.yt_updated_at }); } catch (_e) {}
+        try { console.warn('[YouTube Stats]', (w.id || ''), 'videoId=' + vid, 'viewCount=' + yr.views); } catch (_e) {}
+      } catch (ye) {
+        entry.yt_views_error = String((ye && ye.message) || ye);
+        entry.yt_reason = (ye && ye.ytReason) || 'unknown';
+        if (ye && typeof ye.httpStatus === 'number') entry.yt_http_status = ye.httpStatus;
+        try { console.warn('[YouTube Stats]', (w.id || ''), 'failed reason=' + entry.yt_reason, 'msg=' + entry.yt_views_error); } catch (_e) {}
+      }
+    }));
+  }
   return updates;
 }
+
+// ============================================================
+// YouTube 播放量统计（「我的作品」卡片第三栏「播放」）
+//   - 只读公开数据：YouTube Data API v3 videos.list?part=statistics
+//   - API Key 来源：secrets.getYoutubeApiKey()（OS 凭据管理器）→ ROKIT_YOUTUBE_API_KEY env
+//   - 视频链接来源：作品 yt_url 字段优先；为空且作品 url 本身是 YouTube 链接时兜底解析
+//   - 失败语义：抛错 / 返回 error，绝不伪造 0；前端保留旧缓存
+// ============================================================
+
+// 从常见 YouTube 链接中解析 videoId；非 YouTube 链接（如 GitHub 仓库）返回 null
+// 支持：
+//   https://www.youtube.com/watch?v=VIDEO_ID
+//   https://youtu.be/VIDEO_ID
+//   https://www.youtube.com/shorts/VIDEO_ID
+//   https://www.youtube.com/embed/VIDEO_ID
+function parseYoutubeVideoId(rawUrl) {
+  if (!rawUrl) return null;
+  var s = String(rawUrl).trim();
+  if (!s) return null;
+  if (!/^https?:\/\//i.test(s)) s = 'https://' + s;
+  var u;
+  try { u = new URL(s); } catch (_e) { return null; }
+  var host = String(u.hostname || '').toLowerCase();
+  var id = '';
+  if (host === 'youtu.be') {
+    id = u.pathname.replace(/^\/+|\/+$/g, '').split('/')[0] || '';
+  } else if (host === 'youtube.com' || host === 'www.youtube.com' || host === 'm.youtube.com') {
+    var parts = u.pathname.replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
+    if (parts[0] === 'watch') {
+      id = u.searchParams.get('v') || '';
+    } else if (parts[0] === 'shorts' || parts[0] === 'embed' || parts[0] === 'live') {
+      id = parts[1] || '';
+    }
+  } else {
+    return null; // 明确不是 YouTube 域名（GitHub 仓库链接等）—— 不得误识别
+  }
+  // YouTube videoId 规范：11 位 [A-Za-z0-9_-]
+  if (!/^[A-Za-z0-9_-]{11}$/.test(id)) return null;
+  return id;
+}
+
+// 查询单个公开视频的总播放次数
+// 返回 { ok:true, views:Number }；失败抛错（err.httpStatus / err.ytReason 挂属性）
+async function fetchYoutubeViewCount(videoId, apiKey) {
+  if (!videoId) throw new Error('no-video-id');
+  if (!apiKey) { var e0 = new Error('no-youtube-api-key'); e0.ytReason = 'no-api-key'; throw e0; }
+  var api = 'https://www.googleapis.com/youtube/v3/videos?part=statistics&id='
+    + encodeURIComponent(videoId) + '&key=' + encodeURIComponent(apiKey);
+  var res;
+  try {
+    res = await fetchWithTimeout(api, { headers: { 'Accept': 'application/json' } }, 10000);
+  } catch (netErr) {
+    var name = (netErr && netErr.name) || '';
+    var msg = String((netErr && netErr.message) || netErr);
+    var code = (netErr && netErr.cause && netErr.cause.code) ? String(netErr.cause.cause && netErr.cause.code || netErr.cause.code) : '';
+    try { console.warn('[YouTube Stats] NETWORK ERROR videoId=' + videoId + ' name=' + name + ' msg=' + msg + ' code=' + (code || '-')); } catch (_e) {}
+    var en = new Error('YouTube 网络错误（' + name + '）：' + msg + (code ? ' · code=' + code : ''));
+    en.ytReason = 'network';
+    throw en;
+  }
+  if (!res.ok) {
+    // 400 → key 无效 / 请求非法；403 → 配额耗尽 / key 未启用 Data API（reason 在 error.errors[0].reason）
+    var ytReason = '';
+    var ytMsg = '';
+    try {
+      var eb = await res.json();
+      if (eb && eb.error) {
+        ytMsg = String(eb.error.message || '').slice(0, 200);
+        var errs = eb.error.errors;
+        if (Array.isArray(errs) && errs[0] && errs[0].reason) ytReason = String(errs[0].reason);
+      }
+    } catch (_e) {}
+    try { console.warn('[YouTube Stats] HTTP ' + res.status + ' videoId=' + videoId + ' reason=' + (ytReason || '-') + ' msg=' + (ytMsg || '-')); } catch (_e) {}
+    var eh = new Error('YouTube API HTTP ' + res.status + (ytReason ? '（' + ytReason + '）' : ''));
+    eh.httpStatus = res.status;
+    eh.ytReason = ytReason || (res.status === 403 ? 'forbidden' : 'http-' + res.status);
+    eh.ytMessage = ytMsg;
+    throw eh;
+  }
+  var j = await res.json().catch(function () { return null; });
+  if (!j || !Array.isArray(j.items)) {
+    var ep = new Error('YouTube 响应解析失败');
+    ep.ytReason = 'parse';
+    throw ep;
+  }
+  if (!j.items.length) {
+    // 视频不存在 / 已删除 / 非公开 —— 不是 0，是无数据
+    var enf = new Error('YouTube 视频不存在或不可公开访问');
+    enf.ytReason = 'video-not-found';
+    throw enf;
+  }
+  var stats = j.items[0] && j.items[0].statistics;
+  var vc = stats && stats.viewCount;
+  if (vc === undefined || vc === null || vc === '') {
+    var env2 = new Error('YouTube 响应缺 viewCount 字段');
+    env2.ytReason = 'no-field';
+    throw env2;
+  }
+  var views = Number(vc);
+  if (!isFinite(views) || views < 0) {
+    var eb2 = new Error('YouTube viewCount 非法：' + String(vc).slice(0, 40));
+    eb2.ytReason = 'parse';
+    throw eb2;
+  }
+  return { ok: true, views: Math.floor(views) };
+}
+
+// 取当前可用的 YouTube Data API Key：OS 凭据管理器优先，env 兜底（不打印任何字符）
+async function resolveYoutubeApiKey() {
+  var k = '';
+  try { k = (await secrets.getYoutubeApiKey()) || ''; } catch (_e) {}
+  if (!k) { try { k = process.env.ROKIT_YOUTUBE_API_KEY || ''; } catch (_e) {} }
+  return k;
+}
+
 
 // v1.10：fetchGithubReleaseDownloads
 //   - 累加所有 Release 的 assets[].download_count（按需求一）
@@ -711,10 +915,13 @@ ipcMain.handle('secrets:status', async () => {
   const hasNative = secrets.hasNative();
   const apiKey = await secrets.getApiKey();
   const githubPat = await secrets.getGithubPat();
+  const youtubeApiKey = await secrets.getYoutubeApiKey();
   return {
     hasNative: hasNative,
     hasApiKey: !!apiKey,
     hasGithubPat: !!githubPat,
+    // env 兜底也算"已配置"（与 resolveYoutubeApiKey 的实际取数逻辑一致）
+    hasYoutubeApiKey: !!youtubeApiKey || !!(process.env.ROKIT_YOUTUBE_API_KEY || ''),
     keytarError: keytarErrorMessage()
   };
 });
@@ -727,6 +934,18 @@ ipcMain.handle('secrets:set-github-pat', async (_e, value) => {
 
 ipcMain.handle('secrets:clear-github-pat', async () => {
   await secrets.clearGithubPat();
+  return { ok: true };
+});
+
+// YouTube Data API Key：只写 OS 凭据管理器；仅用于 videos.list?part=statistics 只读查询
+ipcMain.handle('secrets:set-youtube-api-key', async (_e, value) => {
+  if (!value) return { ok: false, error: 'empty-key' };
+  const persisted = await secrets.setYoutubeApiKey(String(value));
+  return { ok: true, persisted: !!persisted };
+});
+
+ipcMain.handle('secrets:clear-youtube-api-key', async () => {
+  await secrets.clearYoutubeApiKey();
   return { ok: true };
 });
 
@@ -3048,6 +3267,10 @@ function installXhsObserverHooks(win) {
 let videoSource = null;
 try { videoSource = require('./video-source'); } catch (_e) { videoSource = null; }
 
+// v1.15：AI 自动演示（屏幕录制 + 主进程 IO 桥接）
+let aiDemo = null;
+try { aiDemo = require('./ai-demo'); } catch (_e) { aiDemo = null; }
+
 // 安全地把 youtube 上传进度发送给 mainWindow 的 renderer
 // 必须在每次 send 前重新检查窗口存活
 function safeSendYoutubeProgress(progress) {
@@ -3452,6 +3675,20 @@ app.whenReady().then(() => {
   });
   // 初始化日志（需要 userData 路径，因此放在 whenReady 后）
   try { logger.init(app.getPath('userData')); logger.info('app ready', { version: app.getVersion() }); } catch (_e) {}
+  // 启动中提示（与 ready-to-show 的"已启动"配套，让普通用户的 CMD 窗口只看到两行文案）
+  try {
+    // eslint-disable-next-line no-console
+    console.log('Rokit 启动中...');
+  } catch (_e) { /* 即使控制台不可用也不阻塞 */ }
+  // 启动耗时起点（必须在 logger.init 之后激活 stageMark）
+  startupT0 = Date.now();
+  stageMark('logger-init');
+  // 预创建 / 修复 Chromium 自动管理的纯缓存子目录（避免启动时 mv 失败导致日志刷屏）
+  try {
+    const _ud = app.getPath('userData');
+    repairChromiumCacheDirs(_ud);
+    stageMark('crud-repair');
+  } catch (_e) { try { logger.warn('[startup] cache repair failed', { error: String(_e && _e.message || _e) }); } catch (__) {} }
 
   // 启动时记录令牌完整性级别（必须在 logger.init 之后）
   // 探测逻辑集中在 electron/platform-context.js（按完整性 SID 判定，与系统语言无关）
@@ -3470,6 +3707,7 @@ app.whenReady().then(() => {
     }
   } catch (_e) { /* 检测失败不影响启动 */ }
   store = new Store(path.join(app.getPath('userData'), 'ai-launch-master.db'));
+  stageMark('store-init');
   // 注册抖音开放平台 IPC（依赖 Store 已创建）
   try { require('./douyin-ipc').registerDouyinIpc(ipcMain, store); }
   catch (_e) { logger.warn('[douyin] IPC 注册失败', { error: String(_e && _e.message || _e) }); }
@@ -3486,13 +3724,18 @@ app.whenReady().then(() => {
   } catch (_e) {
     logger.warn('[BrowserManager] 初始化失败', { error: String(_e && _e.message || _e) });
   }
+  stageMark('browser-manager');
   // YouTube / Google OAuth 应用级 Client ID / Client Secret 由
   // electron/config/youtube-oauth.local.js 提供（仅 Main Process 可见），
   // 这里**不**注册任何 IPC 暴露 client_secret 给 Renderer
   // 注册视频来源 IPC（VideoSource / VideoAsset 选择与缓存）
   try { require('./video-source').registerVideoSourceIpc(ipcMain); }
   catch (_e) { logger.warn('[video-source] IPC 注册失败', { error: String(_e && _e.message || _e) }); }
+  // v1.15：注册 AI 自动演示相关 IPC（屏幕源 / 录制保存 / MP4 导出 / 时长探测）
+  try { aiDemo && aiDemo.attachIpc(ipcMain, { app: app }); }
+  catch (_e) { logger.warn('[ai-demo] IPC 注册失败', { error: String(_e && _e.message || _e) }); }
   createWindow();
+  stageMark('window-created');
   // attachWindowControls 已在 createWindow() 内部挂载（避免 macOS activate 新窗口漏挂）
 
   // v1.5：应用启动后自动跑一次主推队列选择

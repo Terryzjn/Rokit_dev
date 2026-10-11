@@ -197,17 +197,6 @@ var adapters = {
     },
     submit: function (p) { return inject('({status:\'confirm\',note:\'抖音发布请在窗口手动完成（视频上传与封面）\'})', p); }
   },
-  xhs: {
-    auto: false,
-    launch: function () { return 'https://creator.xiaohongshu.com/publish/publish'; },
-    fill: function (p) {
-      return inject('(async function(p){\n' + WAIT + '\n' + SETV + '\n' +
-        "try{await waitFor('textarea,input',6000);}catch(e){return {status:'need_login'};}\n" +
-        "var ta=document.querySelector('textarea');if(ta&&!ta.value)setv(ta,(p.title?p.title+'\\n':'')+(p.body||''));\n" +
-        "return {status:'filled',note:'小红书需上传图片 + 话题标签，请在窗口手动完成'};})", p);
-    },
-    submit: function (p) { return inject('({status:\'confirm\',note:\'小红书发布请在窗口手动完成（图片上传）\'})', p); }
-  },
   bili: {
     auto: false,
     launch: function () { return 'https://member.bilibili.com/platform/upload/video/frame'; },

@@ -20,6 +20,7 @@ const logger = (() => {
 const SERVICE = 'Rokit';
 const ACCOUNT_API_KEY = 'llm-api-key';
 const ACCOUNT_GITHUB_PAT = 'github-pat';
+const ACCOUNT_YOUTUBE_API_KEY = 'youtube-api-key';
 
 // 模块级缓存（避免每次 LLM 调用都走 keytar）
 const cache = { apiKey: null, githubPat: null };
@@ -97,6 +98,17 @@ async function setGithubPat(value) {
 }
 async function clearGithubPat() {
   return deleteSecret(ACCOUNT_GITHUB_PAT);
+}
+
+// YouTube Data API Key 专属接口（「我的作品」播放量统计用，只读公开数据）
+async function getYoutubeApiKey() {
+  return getSecret(ACCOUNT_YOUTUBE_API_KEY);
+}
+async function setYoutubeApiKey(value) {
+  return setSecret(ACCOUNT_YOUTUBE_API_KEY, value);
+}
+async function clearYoutubeApiKey() {
+  return deleteSecret(ACCOUNT_YOUTUBE_API_KEY);
 }
 
 // 一次性明文迁移：把 store.settings.api_key 写入凭据管理器后清空 SQLite 字段
@@ -215,6 +227,10 @@ module.exports = {
   getGithubPat,
   setGithubPat,
   clearGithubPat,
+  // YouTube Data API Key
+  getYoutubeApiKey,
+  setYoutubeApiKey,
+  clearYoutubeApiKey,
   // OAuth Token（Phase 1：GitHub）
   setOauthToken,
   getOauthToken,

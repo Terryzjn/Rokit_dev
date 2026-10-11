@@ -21,6 +21,8 @@ contextBridge.exposeInMainWorld('api', {
   secretsStatus: () => ipcRenderer.invoke('secrets:status'),
   secretsSetGithubPat: (v) => ipcRenderer.invoke('secrets:set-github-pat', v),
   secretsClearGithubPat: () => ipcRenderer.invoke('secrets:clear-github-pat'),
+  secretsSetYoutubeApiKey: (v) => ipcRenderer.invoke('secrets:set-youtube-api-key', v),
+  secretsClearYoutubeApiKey: () => ipcRenderer.invoke('secrets:clear-youtube-api-key'),
   secretsMigratePlaintext: () => ipcRenderer.invoke('secrets:migrate-plaintext'),
   // 主推队列
   queueSchedule: () => ipcRenderer.invoke('queue:schedule'),
@@ -38,6 +40,16 @@ contextBridge.exposeInMainWorld('api', {
   recorderDiscard: (sessionId) => ipcRenderer.invoke('recorder:discard', { sessionId: sessionId }),
   recorderListSessions: () => ipcRenderer.invoke('recorder:list-sessions'),
   recorderProbe: (path) => ipcRenderer.invoke('recorder:probe', { path: path }),
+  // v1.15：AI 自动演示（屏幕源 / 保存 / MP4 导出 / 时长探测）
+  demoListSources: () => ipcRenderer.invoke('demo:list-sources'),
+  demoSaveRecording: (payload) => ipcRenderer.invoke('demo:save-recording', payload),
+  demoExportMp4: (payload) => ipcRenderer.invoke('demo:export-mp4', payload),
+  demoProbeDuration: (path) => ipcRenderer.invoke('demo:probe-duration', { path: path }),
+  // v1.19：录制区域 + 隐私保护
+  captureListSources: () => ipcRenderer.invoke('capture:list-sources'),
+  captureProbe: (payload) => ipcRenderer.invoke('capture:probe', payload || {}),
+  // v1.20：返回 Rokit 主窗口的真实屏幕坐标（用于 preview 与录制边界校验）
+  captureGetRokitBounds: () => ipcRenderer.invoke('capture:get-rokit-bounds'),
   // 视频后处理（ffmpeg-static）
   videoProcess: (input, opts) => ipcRenderer.invoke('video:process', { input: input, opts: opts }),
   videoMetadata: (input) => ipcRenderer.invoke('video:metadata', { input: input }),

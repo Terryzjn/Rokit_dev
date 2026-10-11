@@ -46,6 +46,26 @@ if (!process.env.ROKIT_USER_DATA) {
   process.env.ROKIT_USER_DATA = '.userdata';
 }
 
+// 普通启动模式：CMD 窗口只显示 2 行用户提示（启动中 + 关闭窗口）。
+// 设 ROKIT_DEBUG=1 / yes / true 后会同步打印主进程内部的初始化阶段、IPC 注册、BrowserManager
+// 状态、缓存修复耗时等，便于排查启动卡顿；详细日志始终落盘到 userData/logs/rokit.log。
+try {
+  const _isDebug = process.env.ROKIT_DEBUG === '1'
+    || process.env.ROKIT_DEBUG === 'true'
+    || process.env.ROKIT_DEBUG === 'yes';
+  if (!_isDebug) {
+    // eslint-disable-next-line no-console
+    console.log('Rokit 启动中...');
+    // eslint-disable-next-line no-console
+    console.log('关闭此窗口即可退出。');
+  } else {
+    // eslint-disable-next-line no-console
+    console.log('Rokit 启动中（ROKIT_DEBUG=1：详细启动日志会同步打印到控制台）...');
+    // eslint-disable-next-line no-console
+    console.log('关闭此窗口即可退出。');
+  }
+} catch (_e) { /* 即使控制台不可用也不阻塞启动 */ }
+
 const electronBin = require('electron'); // 返回 electron.exe 路径
 const child = spawn(electronBin, ['.', '--no-sandbox'], {
   cwd: root,

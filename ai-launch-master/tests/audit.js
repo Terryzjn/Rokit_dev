@@ -25,7 +25,7 @@ function ok(cond, msg) {
   ok(s.listChannels().length === 0, '初始 channels 为空');
 
   // seed 13 个内置
-  const KINDS = ['github','ph','v2ex','juejin','jike','bili','xhs','douyin','zhihu','wechat','facebook','youtube','x'];
+  const KINDS = ['github','ph','v2ex','juejin','jike','bili','douyin','zhihu','wechat','facebook','youtube','x'];
   KINDS.forEach(k => s.saveChannel({ name: k, kind: k, enabled: 1 }));
   ok(s.listChannels().length === 13, 'seed 13 个内置平台');
 

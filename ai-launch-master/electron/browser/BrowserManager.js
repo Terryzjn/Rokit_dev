@@ -47,6 +47,18 @@ var DEFAULT_USER_AGENT =
 // 单条诊断事件保留的最大数量（环形缓冲）
 var DIAG_BUFFER_SIZE = 200;
 
+// v1.14：URL 归一化（用于同 URL guard）：抹除 hash / query / 末尾斜杠
+//   例如 "https://web.okjike.com/following?x=1#foo"
+//     和 "https://web.okjike.com/following"
+//     归一化后均为 "https://web.okjike.com/following"
+function normalizeUrl(u) {
+  if (!u) return '';
+  return String(u)
+    .replace(/[?#].*$/, '')
+    .replace(/\/+$/, '')
+    .toLowerCase();
+}
+
 class BrowserManager {
   constructor(opts) {
     opts = opts || {};
@@ -148,6 +160,10 @@ class BrowserManager {
       listeners: [],
       isReady: false,
       pendingNavigations: [],
+      // v1.14：平台特定状态袋（successive，跨点击持久化）。
+      //   - JikePublisher 在这里存 6 状态机当前阶段 / throttle 时间戳。
+      //   - Zhihu / V2EX / Juejin 等平台不使用，保持空对象。
+      state: Object.create(null),
       // v1.10：最近 200 条诊断事件环形缓冲，给 Renderer 通过 getDiagnostics 查看
       diag: [],
       _diagCount: 0,
@@ -355,6 +371,23 @@ class BrowserManager {
     if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) {
       return Promise.reject(new Error('navigate: URL 必须以 http/https 开头'));
     }
+    // v1.14：同 URL 跳过 —— 防止重复 reload 触发平台风控（"操作过于频繁"）
+    //   - 立刻 page 的相同 hash/query/结尾块抹平后比较
+    //   - 如果页面已经在目标 URL，直接返回 skipped，不调 loadURL
+    //   - 适用于任何平台（Jike / 知乎 / V2EX / 掘金 / GitHub / YouTube）：
+    //     严格不破坏任何业务，反而降低后续动作再发请求
+    var currentUrl = '';
+    try { currentUrl = entry.window.webContents.getURL() || ''; } catch (_e) {}
+    var normCurrent = normalizeUrl(currentUrl);
+    var normTarget = normalizeUrl(url);
+    if (normCurrent && normTarget && normCurrent === normTarget) {
+      this.logger.info('[BrowserManager] navigate skipped (already at URL, avoid duplicate reload)', {
+        platformId: id,
+        currentUrl: currentUrl,
+        targetUrl: url
+      });
+      return Promise.resolve({ skipped: 'same-url', currentUrl: currentUrl, targetUrl: url });
+    }
     this.logger.info('[BrowserManager] Navigating', { platformId: id, url: url });
     return Promise.resolve(entry.window.loadURL(url))
       .catch(function (e) {
@@ -438,6 +471,18 @@ class BrowserManager {
   getSession(platformId) {
     var id = String(platformId);
     return session.fromPartition(this._partition(id));
+  }
+
+  // v1.14：获取/初始化某个平台的特定状态袋。
+  //   - 状态袋是 platform 内部使用的跨点击持久存储（例如状态机当前阶段、节流冷却时间戳）。
+  //   - 返回 null 如果窗口未打开（让调用方判断 "未启动 / 未初始化"）。
+  //   - 不提供给 Renderer；Main 内部使用。
+  getPlatformState(platformId) {
+    var id = String(platformId);
+    var entry = this._windows[id];
+    if (!entry) return null;
+    if (!entry.state) entry.state = Object.create(null);
+    return entry.state;
   }
 
   // 销毁 Session（清空登录态）。**仅在用户显式确认后调用**。

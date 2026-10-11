@@ -310,7 +310,7 @@ describe('Store · Channels（推广渠道）', () => {
   it('内置平台 kind 应被正常存储（与 publishers.js 适配器一一对应）', () => {
     const { Store } = require('../electron/store');
     const store = new Store(dbPath);
-    const kinds = ['github','ph','v2ex','juejin','jike','bili','xhs','douyin','zhihu','wechat','facebook','youtube','x'];
+    const kinds = ['github','ph','v2ex','juejin','jike','bili','douyin','zhihu','wechat','facebook','youtube','x'];
     kinds.forEach((k) => store.saveChannel({ name: k, kind: k }));
     expect(store.listChannels()).toHaveLength(kinds.length);
     store.listChannels().forEach((c) => expect(kinds).toContain(c.kind));

@@ -1,5 +1,11 @@
 // Rokit · 极简日志模块（主进程）
 // 落盘到 userData/logs/rokit.log，单文件最大 1MB，自动 rotate 保留 3 个
+//
+// 控制台输出策略（v0.1.5+）：
+//   - error / warn 永远打到 stderr（确保启动失败 / 关键告警可见）
+//   - info / debug 仅在 ROKIT_DEBUG=1（或 =yes / =true）时同步打到 stdout
+//   - 不论是否打印，所有内容都会落盘到 rokit.log（保留完整诊断能力）
+//   - 切换：npm start（默认） / cross-env ROKIT_DEBUG=1 npm start / set ROKIT_DEBUG=1 && npm start
 const fs = require('fs');
 const path = require('path');
 
@@ -8,6 +14,14 @@ const KEEP_FILES = 3;
 
 let logFile = null;
 let initialized = false;
+
+// 仅在 ROKIT_DEBUG=1/yes/true 时，把 info/debug 同步到控制台
+function _isDebugConsole() {
+  try {
+    var v = process && process.env && process.env.ROKIT_DEBUG;
+    return v === '1' || v === 'true' || v === 'yes';
+  } catch (_e) { return false; }
+}
 
 function init(userDataDir) {
   if (initialized) return;
@@ -52,10 +66,14 @@ function write(level, msg, extra) {
   const line = '[' + ts() + '] [' + level.toUpperCase() + '] ' + msg
     + (extra ? ' ' + (typeof extra === 'string' ? extra : JSON.stringify(extra)) : '');
 
-  // 永远打到 stderr（开发期可见）
+  // 控制台输出策略：
+  //   - error / warn 永远打到 stderr（启动失败 / 关键告警必须可见）
+  //   - info / debug 仅在 ROKIT_DEBUG=1 时同步到 stdout
+  //   - 兜底：未 init（logFile 为空）时仍打印 info/debug 到 stdout，便于开发期观察
   if (level === 'error' || level === 'warn') {
     console.error(line);
-  } else {
+  } else if (_isDebugConsole() || !logFile) {
+    // eslint-disable-next-line no-console
     console.log(line);
   }
 
@@ -65,6 +83,9 @@ function write(level, msg, extra) {
     fs.appendFileSync(logFile, line + '\n', 'utf8');
   } catch (_e) {}
 }
+
+// 是否启用调试控制台（供 main.js / 其他模块查询，避免到处重复读 env）
+function isDebugConsole() { return _isDebugConsole(); }
 
 function debug(msg, extra) { write('debug', msg, extra); }
 function info(msg, extra) { write('info', msg, extra); }
@@ -89,5 +110,6 @@ module.exports = {
   info: info,
   warn: warn,
   error: error,
-  installGlobalHandlers: installGlobalHandlers
+  installGlobalHandlers: installGlobalHandlers,
+  isDebugConsole: isDebugConsole
 };

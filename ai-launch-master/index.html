@@ -118,6 +118,14 @@
 
   .rail .seg.done .bar{background:var(--success)}
 
+  /* v1.14：首秀发射轨道改为可点击步骤导航 */
+  .rail .seg{appearance:none;background:transparent;border:0;cursor:pointer;transition:background-color .15s ease,transform .15s ease;border-radius:8px;padding:2px 4px;color:inherit;font:inherit;text-align:left;display:flex;align-items:center;gap:6px;min-width:0;flex:1}
+  .rail .seg:hover{background:var(--bg,rgba(14,124,123,.04))}
+  .rail .seg:active{transform:translateY(1px)}
+  .rail .seg:focus{outline:2px solid var(--accent,#0E7C7B);outline-offset:2px}
+  .rail .seg[role="button"]{cursor:pointer}
+  .rail .seg.done{cursor:pointer}
+
   .chat{background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden}
 
   .chat-head{padding:12px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;background:linear-gradient(135deg,var(--card),color-mix(in srgb,var(--primary) 4%,var(--card)))}
@@ -1197,7 +1205,7 @@
 
     </div>
 
-    <div class="navtab"><button id="tabFlow" class="on" onclick="go('flow')">首秀向导</button><button id="tabDash" onclick="go('dashboard')">数据看板</button><button id="tabChannels" onclick="go('channels')">推广渠道</button><button id="tabWorks" onclick="go('works')">我的作品</button></div>
+    <div class="navtab"><button id="tabFlow" class="on" onclick="go('flow')">首秀向导</button><button id="tabDash" onclick="go('dashboard')">数据看板</button><button id="tabChannels" onclick="go('channels','channels')">推广渠道</button><button id="tabWorks" onclick="go('works')">我的作品</button></div>
 
     <div class="topbar-right">
 
@@ -1317,6 +1325,8 @@
 
     <section data-route="channels" style="display:none">
       <div class="dash">
+        <!-- 推广渠道视图：渠道管理（新增/编辑/批量选择） -->
+        <div id="channelsMgmtView">
         <div class="panel">
           <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:8px">
             <div>
@@ -1357,90 +1367,7 @@
           </ul>
           <div style="margin-top:8px;font-size:12.5px;color:var(--muted)">更多答疑（企业微信 / 多电脑同步 / 平台大改版应对等）见 <a href="#" onclick="event.preventDefault();openFaq()" style="color:var(--primary);text-decoration:underline">推广渠道 FAQ</a> 或 <code>docs/channels-faq.md</code>。</div>
         </div>
-
-        <!-- v1.7：通用浏览器框架调试入口（不影响任何已有渠道） -->
-        <div class="panel" id="browserFrameworkPanel">
-          <h3>通用浏览器框架 · 测试入口</h3>
-          <div class="sub">v1.7 新增。每个平台使用独立的 Chromium Session partition，登录态由 Electron 自动加密保存；Rokit 不会主动读取你的账号密码，填充完成后不会自动点击「发布/提交」按钮。本节用来验证这套基础设施是否就绪，<b>不影响</b>上方的任何已接入渠道。</div>
-          <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-            <button class="btn" id="bfBtnOpen" onclick="browserFrameworkOpen('browser-test')">打开内置浏览器（测试平台）</button>
-            <button class="btn ghost sm" id="bfBtnStatus" onclick="browserFrameworkStatus()">查看所有窗口状态</button>
-            <button class="btn ghost sm" id="bfBtnFill" onclick="browserFrameworkFill('browser-test')">仅触发自动填充</button>
-            <button class="btn ghost sm" id="bfBtnPublish" onclick="browserFrameworkPublish('browser-test')">完整流程（自动填充并停在发布前）</button>
-            <button class="btn ghost sm" id="bfBtnLogin" onclick="browserFrameworkLoginStatus('browser-test')">查询登录态</button>
-            <button class="btn ghost sm" id="bfBtnClose" onclick="browserFrameworkClose('browser-test')">关闭窗口</button>
-            <button class="btn ghost sm" id="bfBtnDestroy" onclick="browserFrameworkDestroy('browser-test')">销毁登录态</button>
-          </div>
-          <div id="bfResult" class="status" style="margin-top:12px">尚未执行测试。</div>
-          <div style="margin-top:8px;font-size:12.5px;color:var(--muted)">
-            测试平台 BrowserTestPublisher 的页面是 <code>electron/browser/platforms/test-page.html</code>（file:// 加载，无网络依赖）。
-            在该页面输入任意用户名密码点「模拟登录」即可模拟登录态，然后再次点「仅触发自动填充」会保留登录态并自动填标题/正文。
-            <b>程序不会自动点击</b>页面上的「提交」按钮；用户必须自己点。
-          </div>
-        </div>
-
-        <!-- v1.8：知乎真实平台调试入口（不影响已有渠道） -->
-        <div class="panel" id="browserZhihuPanel">
-          <h3>知乎 · 真实平台调试入口</h3>
-          <div class="sub">v1.8 接入 <code>ZhihuPublisher</code>。点击「打开知乎」会打开独立 partition（<code>persist:platform-zhihu</code>）的 BrowserWindow。Rokit 不会读取你的账号密码，不会自动点击「发布」。<span style="color:#C0392B">实测注意：</span>知乎 selector 候选清单在 <code>electron/browser/platforms/zhihu/ZhihuPublisher.js</code> 的 <code>ZHIHU_SELECTORS</code>，需要 GUI 实测确认。</div>
-          <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-            <button class="btn" id="bfZhihuOpen" onclick="browserFrameworkOpen('zhihu')">打开知乎</button>
-            <button class="btn ghost sm" id="bfZhihuLogin" onclick="browserFrameworkLoginStatus('zhihu')">查询登录态</button>
-            <button class="btn ghost sm" id="bfZhihuFill" onclick="browserFrameworkFill('zhihu')">仅自动填充</button>
-            <button class="btn ghost sm" id="bfZhihuPublish" onclick="browserFrameworkPublish('zhihu')">完整流程（填表 + 手动发布）</button>
-            <button class="btn ghost sm" id="bfZhihuClose" onclick="browserFrameworkClose('zhihu')">关闭窗口</button>
-          </div>
-          <div id="bfZhihuResult" class="status" style="margin-top:12px">尚未执行知乎流程。</div>
-        </div>
-
-        <!-- v1.9：V2EX 真实平台调试入口（不影响已有渠道） -->
-        <div class="panel" id="browserV2EXPanel">
-          <h3>V2EX · 真实平台调试入口</h3>
-          <div class="sub">v1.9 接入 <code>V2EXPublisher</code>。V2EX 页面结构稳定（标准 HTML 表单，正文是 <code>&lt;textarea name="content"&gt;</code>）。点击「打开 V2EX」会在独立 partition（<code>persist:platform-v2ex</code>）下打开 BrowserWindow。Rokit 不读取密码、不自动点击「创建主题」。默认发布页为 <code>https://www.v2ex.com/new/python</code>；若你的默认节点不是 python，可在 <code>electron/browser/platforms/v2ex/V2EXPublisher.js</code> 的 <code>V2EX_CONFIG.publishUrl</code> 改节点名）。</div>
-          <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap; align-items:center">
-            <button class="btn" id="bfV2exOpen" onclick="browserFrameworkOpen('v2ex')">打开 V2EX</button>
-            <button class="btn ghost sm" id="bfV2exLogin" onclick="browserFrameworkLoginStatus('v2ex')">查询登录态</button>
-            <button class="btn ghost sm" id="bfV2exFill" onclick="browserFrameworkFill('v2ex')">仅自动填充</button>
-            <button class="btn ghost sm" id="bfV2exPublish" onclick="browserFrameworkPublish('v2ex')">完整流程（填表 + 手动发布）</button>
-            <button class="btn ghost sm" id="bfV2exClose" onclick="browserFrameworkClose('v2ex')">关闭窗口</button>
-            <!-- v1.10：白屏定位 + 仅开发调试按钮（不影响真实平台流程） -->
-            <button class="btn ghost sm" id="bfV2exDiag" onclick="browserFrameworkDiagnostics('v2ex')">查看加载诊断</button>
-            <button class="btn ghost sm" id="bfV2exClear" onclick="browserFrameworkClearV2exData()">清除 V2EX 本地数据（调试用）</button>
-          </div>
-          <div id="bfV2exResult" class="status" style="margin-top:12px">尚未执行 V2EX 流程。</div>
-          <div id="bfV2exDiagResult" class="status" style="margin-top:8px; font-size:12px; white-space:pre-wrap; background:#F8FAFB; border:1px dashed #C5D6D2; padding:8px; border-radius:6px; color:#1A2226">点击「查看加载诊断」查看最近加载事件（仅用于排查 V2EX 白屏）。</div>
-          <div style="margin-top:8px; font-size:12.5px; color:var(--muted)">
-            V2EX 默认节点是 python。若你的账号默认节点不是 python，可改 <code>V2EX_CONFIG.publishUrl</code>；
-            也可改成 <code>https://www.v2ex.com/quit/write</code> 让 V2EX 自动跳转到你的默认节点。
-            <br><b>关于白屏：</b>v1.10 已给 BrowserManager 加完整 10 项 webContents 诊断事件。
-            内置浏览器默认 UA 已去掉 Electron 标识，避免被 Cloudflare/V2EX 拦截。点「查看加载诊断」直接查看 errorCode、render-process-gone、console 报错。
-            <br><b>关于"清除 V2EX 本地数据"：</b>这是一个调试用按钮，会关闭 V2EX 窗口并清空该 partition 的 Storage / Cookie / Cache（<b>同时会退出 V2EX 登录态</b>，下次要重新登录）。用于怀疑 Session 损坏导致白屏时使用。
-          </div>
-        </div>
-
-        <!-- v1.11：掘金真实平台调试入口（不影响已有渠道） -->
-        <div class="panel" id="browserJuejinPanel">
-          <h3>掘金 · 真实平台调试入口</h3>
-          <div class="sub">v1.11 接入 <code>JuejinPublisher</code>。点击「打开掘金」会在独立 partition（<code>persist:platform-juejin</code>）下打开 BrowserWindow。Rokit 不读取手机号 / 密码 / 验证码、不自动点击「确定并发布」。掘金写文章页（<code>https://juejin.cn/editor/drafts/new</code>）的正文编辑器是 <b>ByteMD / CodeMirror</b>（不是 contenteditable div）。</div>
-          <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap; align-items:center">
-            <button class="btn" id="bfJuejinOpen" onclick="browserFrameworkOpen('juejin')">打开掘金</button>
-            <button class="btn ghost sm" id="bfJuejinLogin" onclick="browserFrameworkLoginStatus('juejin')">查询登录态</button>
-            <button class="btn ghost sm" id="bfJuejinFill" onclick="browserFrameworkFill('juejin')">仅自动填充</button>
-            <button class="btn ghost sm" id="bfJuejinPublish" onclick="browserFrameworkPublish('juejin')">完整流程（填表 + 手动发布）</button>
-            <button class="btn ghost sm" id="bfJuejinClose" onclick="browserFrameworkClose('juejin')">关闭窗口</button>
-            <button class="btn ghost sm" id="bfJuejinDiag" onclick="browserFrameworkDiagnostics('juejin')">查看加载诊断</button>
-            <button class="btn ghost sm" id="bfJuejinClear" onclick="browserFrameworkClearJuejinData()">清除掘金本地数据（调试用）</button>
-          </div>
-          <div id="bfJuejinResult" class="status" style="margin-top:12px">尚未执行掘金流程。</div>
-          <div id="bfJuejinDiagResult" class="status" style="margin-top:8px; font-size:12px; white-space:pre-wrap; background:#F8FAFB; border:1px dashed #C5D6D2; padding:8px; border-radius:6px; color:#1A2226">点击「查看加载诊断」查看最近加载事件（仅用于排查白屏 / CodeMirror 填充问题）。</div>
-          <div style="margin-top:8px; font-size:12.5px; color:var(--muted)">
-            <b>关于登录：</b>掘金支持手机号 + 验证码 / GitHub OAuth / 微信扫码三种方式。Rokit 不读取你的手机号 / 验证码 / 密码，也不会自动点击登录按钮；用户需要自己在浏览器中完成登录。
-            <br><b>关于编辑器：</b>掘金的写文章页面（<code>https://juejin.cn/editor/drafts/new</code>）正文编辑器是 <b>ByteMD / CodeMirror</b>。本发布器会自动识别编辑器类型（CM5 实例 / CM6 cm-content / 普通 textarea / 普通 contenteditable），并调用对应的填充 API。如果未来 CodeMirror 升级到 CM6，本发布器也会自动走 <code>execCommand('insertText')</code> 路径兼容。
-            <br><b>关于发布：</b>Rokit <b>绝不会</b>自动点击「确定并发布」。自动填充完成 + 顶栏 banner 提示后，请你在浏览器里自行检查后手动点击。
-            <br><b>关于 selector 兜底：</b>所有 selector 候选集中在 <code>electron/browser/platforms/juejin/JuejinPublisher.js</code> 的 <code>JUEJIN_SELECTORS</code>，掘金改版后只改这里。实测 selector 失效时：打开按钮「打开掘金」→ 手动到 <code>https://juejin.cn/editor/drafts/new</code> → DevTools 用 <code>document.querySelector</code> 找真实 selector。
-            <br><b>关于"清除掘金本地数据"：</b>这是一个调试用按钮，会关闭掘金窗口并清空该 partition 的 Storage / Cookie / Cache（<b>同时会退出掘金登录态</b>，下次要重新登录）。用于怀疑 Session 损坏导致白屏时使用。
-          </div>
-        </div>
+        </div><!-- /channelsMgmtView -->
       </div>
     </section>
 
@@ -1454,7 +1381,7 @@
 
           <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
             <h3 style="margin-bottom:0">我的作品</h3>
-            <button class="btn ghost" id="refreshWorksBtn" onclick="refreshWorksGithubStats()" type="button" title="从 GitHub 拉取所有真实作品的最新 Star；失败保留旧数据">↻ 刷新</button>
+            <button class="btn ghost" id="refreshWorksBtn" onclick="refreshWorksGithubStats({force:true})" type="button" title="从 GitHub / YouTube 拉取所有真实作品的最新 Star、下载量与播放量；失败保留旧数据">↻ 刷新</button>
           </div>
 
           <div class="sub">点击卡片进入该作品的首秀向导 · 数据为演示示意</div>
@@ -1577,6 +1504,7 @@
       <aside class="cfg-nav" id="cfgNav">
         <button class="cfg-nav-item on" data-section="cfg-sec-model" onclick="cfgNavJump('cfg-sec-model')"><span class="ni-icon">🤖</span><span class="ni-text"><div class="ni-title">AI 模型</div><div class="ni-sub">Base URL · Key · 模型名</div></span></button>
         <button class="cfg-nav-item" data-section="cfg-sec-github" onclick="cfgNavJump('cfg-sec-github')"><span class="ni-icon">🐙</span><span class="ni-text"><div class="ni-title">GitHub 发布</div><div class="ni-sub">PAT（可选）</div></span></button>
+        <button class="cfg-nav-item" data-section="cfg-sec-youtube" onclick="cfgNavJump('cfg-sec-youtube')"><span class="ni-icon">▶️</span><span class="ni-text"><div class="ni-title">YouTube 播放量</div><div class="ni-sub">Data API Key（可选）</div></span></button>
         <button class="cfg-nav-item" data-section="cfg-sec-wechat" onclick="cfgNavJump('cfg-sec-wechat')"><span class="ni-icon">微</span><span class="ni-text"><div class="ni-title">公众号草稿</div><div class="ni-sub">官方草稿箱 API</div></span></button>
         <button class="cfg-nav-item" data-section="cfg-sec-auto" onclick="cfgNavJump('cfg-sec-auto')"><span class="ni-icon">⚡</span><span class="ni-text"><div class="ni-title">自动发布</div><div class="ni-sub">启用与平台</div></span></button>
         <button class="cfg-nav-item" data-section="cfg-sec-theme" onclick="cfgNavJump('cfg-sec-theme')"><span class="ni-icon">🎨</span><span class="ni-text"><div class="ni-title">主题与显示</div><div class="ni-sub">明/暗主题与字号</div></span></button>
@@ -1605,6 +1533,16 @@
           <div class="msub">填入 GitHub Personal Access Token（需 <code>repo</code> 作用域）后，推广页可一键调用 L1 直发路径创建 Release。<b>PAT 只写入本机 OS 凭据管理器，不上传任何服务器。</b></div>
 
           <div class="field"><label>GitHub PAT</label><input id="cfgGithubPat" type="password" placeholder="ghp_..." autocomplete="off"/><div class="cfg-pat-hint" id="cfgGithubPatHint">未配置</div></div>
+
+        </div>
+
+        <div class="cfg-section" data-section="cfg-sec-youtube">
+
+          <div class="cfg-title" style="font-weight:700;font-size:13.5px;margin:8px 0 4px">▶️ YouTube 播放量统计（可选）</div>
+
+          <div class="msub">填入 YouTube Data API v3 的 API Key 后，「我的作品」卡片会统计所配置视频的总播放量（只读公开数据，无需 OAuth 登录）。获取方式：Google Cloud Console → 创建项目 → 启用「YouTube Data API v3」→ 凭据 → 创建 API 密钥。<b>Key 只写入本机 OS 凭据管理器，不上传任何服务器；也可通过环境变量 ROKIT_YOUTUBE_API_KEY 提供。</b></div>
+
+          <div class="field"><label>YouTube Data API Key</label><input id="cfgYoutubeKey" type="password" placeholder="AIza..." autocomplete="off"/><div class="cfg-pat-hint" id="cfgYoutubeKeyHint">未配置</div></div>
 
         </div>
 
@@ -1924,6 +1862,40 @@
     videoAsset:null,           // {id, sourceType:'LOCAL_FILE', fileName, fileSize, mimeType, duration, width, height, createdAt} — filePath 不在 renderer 出现
     videoState:'NO_VIDEO',     // 'NO_VIDEO' | 'VIDEO_SELECTED' | 'VIDEO_READY' | 'UPLOADING' | 'UPLOADED' | 'FAILED'
 
+    // v1.15+：AI 自动演示工作区状态
+    //   active: 是否进入 AI 演示工作区
+    //   status: 'IDLE' | 'REQUESTING_SCREEN' | 'RECORDING' | 'PAUSED' | 'STOPPED' | 'SAVED' | 'FAILED'
+    //   sessionId: 录制 session id
+    //   demoScript / planName: 当前执行的脚本名（v1.16 = 'ai-planner-v1'：实时规划）
+    //   stepIdx / totalSteps: 当前演示到的子步骤 / 规划中总步骤数
+    //   blob / objectUrl / durationSec: 录后的 WebM blob / 预览 URL / 时长
+    //   savedAsset / mp4OutputPath: 已保存到 userData/videos 的资产 / 转换后的 MP4 路径
+    //   errorMsg: 失败原因
+    //   doneSteps / failedSteps / skippedSteps: v1.16 步骤计数（已完成 / 失败 / 跳过）
+    //   lastStepError / lastStepAction: 当前最近一步的执行结果简述
+    //   log: 逐步骤的执行日志（{idx, name, action, error}）
+    aiDemo:{
+      active:false,
+      status:'IDLE',
+      sessionId:'',
+      demoScript:'ai-planner-v1',
+      planName:'',
+      stepIdx:0,
+      totalSteps:5,
+      blob:null,
+      objectUrl:'',
+      durationSec:0,
+      savedAsset:null,
+      mp4OutputPath:'',
+      errorMsg:'',
+      doneSteps:0,
+      failedSteps:0,
+      skippedSteps:0,
+      lastStepError:'',
+      lastStepAction:'',
+      log:[]
+    },
+
     shots:null,
 
     curVer:'30v',
@@ -1984,7 +1956,6 @@
     {id:'juejin',name:'掘金',lv:'L2 跳转',color:'#1E80FF',region:'cn',auto:false},
     {id:'jike',name:'即刻',lv:'L2 跳转',color:'#B7A600',region:'cn',auto:false},
     {id:'bili',name:'B站',lv:'L2 跳转',color:'#00A1D6',region:'cn',auto:false},
-    {id:'xhs',name:'小红书',lv:'L2 跳转',color:'#FF2442',region:'cn',auto:false},
     {id:'xiaohongshu',name:'小红书（新）',lv:'L2 跳转',color:'#FF2442',region:'cn',auto:false},
     {id:'douyin',name:'抖音',lv:'L2 跳转',color:'#161823',region:'cn',auto:false},
     {id:'zhihu',name:'知乎',lv:'L2 跳转',color:'#0084FF',region:'cn',auto:false},
@@ -2068,9 +2039,6 @@
     jike:'即刻，动态体，轻松，配一张截图更佳',
 
     bili:'B站，视频简介，带标签，配合成片发布',
-
-    xhs:'小红书，种草体，emoji + 话题，竖屏封面',
-
     xiaohongshu:'小红书（自动填表 + 图文/视频上传），竖屏封面 + emoji + 话题',
 
     douyin:'抖音，短平快口播体，带话题',
@@ -2195,6 +2163,19 @@
         window.api.secretsStatus().then(function(st){
           if(!patHint)return;
           if(st && st.hasGithubPat){patHint.textContent='● 已配置（输入新值将覆盖，留空则清除）';patHint.className='cfg-pat-hint ok';}
+        }).catch(function(){});
+      }
+    }
+
+    // v5：YouTube Data API Key 状态提示（与 PAT 同模式：输入框始终留空）
+    var ytKeyEl=document.getElementById('cfgYoutubeKey');if(ytKeyEl)ytKeyEl.value='';
+    var ytKeyHint=document.getElementById('cfgYoutubeKeyHint');
+    if(ytKeyHint){
+      ytKeyHint.textContent='未配置';ytKeyHint.className='cfg-pat-hint';
+      if(window.api && typeof window.api.secretsStatus==='function'){
+        window.api.secretsStatus().then(function(st){
+          if(!ytKeyHint)return;
+          if(st && st.hasYoutubeApiKey){ytKeyHint.textContent='● 已配置（输入新值将覆盖，留空则清除）';ytKeyHint.className='cfg-pat-hint ok';}
         }).catch(function(){});
       }
     }
@@ -2342,6 +2323,18 @@
       }
     }
 
+    // v5：YouTube Data API Key 同样走 OS 凭据管理器（留空 = 清除）
+    if(window.api){
+      var ytKeyInput=document.getElementById('cfgYoutubeKey');
+      var ytKey=ytKeyInput?(ytKeyInput.value||'').trim():'';
+      if(typeof window.api.secretsSetYoutubeApiKey==='function'){
+        if(ytKey){window.api.secretsSetYoutubeApiKey(ytKey).catch(function(){});}
+        else if(typeof window.api.secretsClearYoutubeApiKey==='function'){
+          window.api.secretsClearYoutubeApiKey().catch(function(){});
+        }
+      }
+    }
+
     persistSettings();noteModel();closeSettings();
 
     toast(wechatSaveResult&&!wechatSaveResult.persisted?'公众号配置暂存于本次运行；其他设置已保存':'已保存。文案生成将调用你的模型，自动发布规则已生效');
@@ -2456,9 +2449,6 @@
     jike:'https://web.okjike.com/',
 
     bili:'https://member.bilibili.com/',
-
-    xhs:'https://creator.xiaohongshu.com/',
-
     xiaohongshu:'https://www.xiaohongshu.com/',
 
     douyin:'https://creator.douyin.com/',
@@ -2506,8 +2496,6 @@
       case 'jike':return {title:name+' 上线啦 🚀',body:'刚做完一个'+pj.type+'：**'+name+'**\n\n'+intro+'。\n\n'+tl+'，免费可用，来试试？\n\n'+link,tags:['#新鲜事','#独立开发者'],rule:'L2 跳转手动发布，动态体，配一张截图更佳'};
 
       case 'bili':return {title:'【'+pj.type+'】'+name+' 30 秒快速上手',body:'30 秒看完 '+name+' 的核心功能。\n\n'+intro+'。\n\n'+tl+'，详细版见置顶评论。',tags:['#效率工具','#软件分享','#'+(pj.type||'教程')],rule:'L2 跳转手动发布，同步上传成片 + 本简介'};
-
-      case 'xhs':return {title:'终于找到！这个 '+pj.type+' 也太好用了 ✨',body:'挖到一个宝藏 '+pj.type+'：**'+name+'** 🌟\n\n'+intro+'。\n\n'+(pj.type==='小游戏'?'解压神器，玩一下午不腻！':'日常刚需，用了就回不去！')+'\n\n完全免费，冲就完了👇\n\n'+link,tags:['#'+(pj.type||'效率工具'),'#宝藏分享','#亲测好用','#学生党'],rule:'L2 跳转手动发布，竖屏封面 + emoji + 话题'};
 
       case 'xiaohongshu':return {title:'终于找到！这个 '+pj.type+' 也太好用了 ✨',body:'挖到一个宝藏 '+pj.type+'：**'+name+'** 🌟\n\n'+intro+'。\n\n'+(pj.type==='小游戏'?'解压神器，玩一下午不腻！':'日常刚需，用了就回不去！')+'\n\n完全免费，冲就完了👇\n\n'+link,tags:['#'+(pj.type||'效率工具'),'#宝藏分享','#亲测好用','#学生党'],rule:'L2 跳转：Rokit 自动填标题 / 正文 + 上传图片或视频；最终点击「发布笔记」由用户在小红书发布页手动完成。'};
 
@@ -3229,7 +3217,7 @@
   }
 
 
-  function go(r){
+  function go(r, sub){
 
     state.route=r;
 
@@ -3237,11 +3225,16 @@
 
     document.getElementById('railBox').style.display=(r==='flow')?'':'none';
 
-    document.getElementById('tabFlow').className=(r==='flow')?'on':'';
+    // 首秀向导：覆盖全部 flow 路由步骤；发布清单（step 12）的高亮交给 tabLaunch
+    document.getElementById('tabFlow').className=(r==='flow' && state && state.step!==12)?'on':'';
 
     document.getElementById('tabDash').className=(r==='dashboard')?'on':'';
 
     document.getElementById('tabChannels').className=(r==='channels')?'on':'';
+
+    // 「发布清单」入口：仅在 flow 路由 step 12 时高亮（与首秀向导最后一步共用一份页面）
+    var _tabLaunch = document.getElementById('tabLaunch');
+    if(_tabLaunch){ _tabLaunch.className=(r==='flow' && state && state.step===12)?'on':''; }
 
     document.getElementById('tabWorks').className=(r==='works')?'on':'';
 
@@ -3260,16 +3253,30 @@
       }
     }
 
-    if(r==='channels'){renderChannels();}
+    if(r==='channels'){
+      renderChannels();
+    }
 
     // v1.5 UX：同步底部状态栏（任务 17）
     if(typeof updateStatusBar==='function') updateStatusBar();
+
+    syncTopNav();
 
     window.scrollTo(0,0);
 
   }
 
   window.go=go;
+
+  // 顶栏导航的页面模式控制：当前 navtab 固定 4 个按钮（首秀 / 数据看板 / 推广渠道 / 我的作品），
+  // 「打通平台」是首秀向导内的 step 11，不再作为顶栏独立入口，故此函数无操作。
+  // 保留以兼容历史调用点（renderFlow 末尾、go 末尾），后续如需新增顶栏项再启用。
+  function syncTopNav(){
+    var tab=document.getElementById('tabPlatforms');
+    if(!tab) return;
+    var inWizardVideo = (typeof state!=='undefined') && state.route==='flow' && state.step===5;
+    tab.style.display = inWizardVideo ? 'none' : '';
+  }
 
 
 
@@ -3285,14 +3292,93 @@
 
     var now=stageOf(state.step),html='';
 
+    // v1.14：六个步骤改为可点击按钮，鼠标悬停 / 焦点都有反馈；点击后跳转
     STAGES.forEach(function(s,i){
       var cls = i<now || (state.step>=13 && i===now) ? 'done' : (i===now ? 'now' : '');
-      html+='<div class="seg '+cls+'" data-rail-step="'+i+'" data-rail-name="'+esc(s.name||'')+'" title="'+esc(s.name||'')+'"><span class="dot"></span><span class="lab">'+esc(s.name)+'</span>'+(i<STAGES.length-1?'<span class="bar"></span>':'')+'</div>';
+      var idx = i;
+      var safeName = esc(s.name||'');
+      html+='<button type="button" class="seg '+cls+'" data-rail-step="'+idx+'" data-rail-name="'+safeName+'" role="button" tabindex="0" aria-label="跳转到：'+safeName+'" title="'+safeName+' · 点击进入该步骤"><span class="dot"></span><span class="lab">'+safeName+'</span>'+(i<STAGES.length-1?'<span class="bar"></span>':'')+'</button>';
     });
 
     document.getElementById('railTrack').innerHTML=html;
 
+    // v1.14：步骤点击 → 进入对应页面 / 子工作区
+    Array.prototype.forEach.call(document.getElementById('railTrack').querySelectorAll('.seg'), function(el){
+      el.addEventListener('click', function(){ gotoRailStep(parseInt(el.getAttribute('data-rail-step'),10) || 0); });
+      el.addEventListener('keydown', function(ev){
+        if(ev && (ev.key==='Enter' || ev.key===' ' || ev.key==='Spacebar')){
+          ev.preventDefault();
+          gotoRailStep(parseInt(el.getAttribute('data-rail-step'),10) || 0);
+        }
+      });
+    });
+
   }
+
+  // v1.14：步骤导航处理器
+  //   - stages 0–5：全部留在 flow 路由（state.step 跳到对应子步骤）；
+  //     非 flow 路由先回到 flow。发布清单（stage 5 / step 12）与首秀向导最后一步
+  //     共用同一份 renderStep(s===12) 渲染，**不再**切到 works 路由。
+  function gotoRailStep(stageIdx){
+    if(typeof state==='undefined') return;
+    try { if(typeof stopDemo==='function') stopDemo(); } catch(_e){}
+    if(stageIdx===0){
+      // 交付作品：onboarding / 重命名项目入口
+      ensureFlow(); state.step=0; renderRail(); renderFlow(); return;
+    }
+    if(stageIdx===1){
+      // AI 诊断：跳到 step=4（诊断完成后的展示）
+      ensureFlow(); state.step=4; renderRail(); renderFlow(); return;
+    }
+    if(stageIdx===2){
+      // 录屏创作视频：跳到 step=5（本地录屏起始）
+      ensureFlow(); state.step=5; renderRail(); renderFlow(); return;
+    }
+    if(stageIdx===3){
+      // 首秀计划：跳到 step=10（可编辑 72h 计划）
+      ensureFlow(); state.step=10; renderRail(); renderFlow(); return;
+    }
+    if(stageIdx===4){
+      // 打通平台：留在首秀向导内，把当前步骤设到 step=11。
+      // renderStep(s===11) 会自然渲染「授权与连接 + 平台网格」内嵌面板，
+      // 不切换 data-route，避免平台连接内容脱离首秀发射轨道 / 隐藏轨道。
+      ensureFlow(); state.step=11; renderRail(); renderFlow(); return;
+    }
+    if(stageIdx===5){
+      // 发布清单：与首秀向导最后一步 step 12 共用同一份渲染（renderStep(s===12)）。
+      //   修复前误调 go('works') 跳到「我的作品」模块，错误地把发布清单入口映射
+      //   到了作品管理卡片网格。修复后留在 flow 路由内，由 renderStep(s===12) 渲染
+      //   火箭发送 / 平台发布卡片 / 文案 / 复制 / 打开平台 / 标记已发布 / 一键发射等组件，
+      //   state.sel / state.copies / state.pubs 保持原样，不会被清空。
+      ensureFlow(); state.step=12; renderRail(); renderFlow(); return;
+    }
+    // 兜底：回到 flow 主页
+    ensureFlow();
+  }
+
+  function ensureFlow(){
+    // 若当前不在 flow 路由，先切回 flow（railBox 仅 flow 显示）
+    if(typeof state!=='undefined' && state.route && state.route!=='flow'){
+      try { if(typeof go==='function') go('flow'); } catch(_e){}
+    }
+  }
+
+  window.gotoRailStep = gotoRailStep;
+
+  // 顶部 navtab「发布清单」入口：与首秀向导最后一步（gotoRailStep(5)）共用同一份发布清单页面。
+  //   复用现有 renderStep(s===12) 渲染（火箭发送 / 平台发布卡片 / 文案 / 复制 / 打开平台 /
+  //   标记已发布 / 一键发射），state.sel / state.copies / state.pubs 保持原样，
+  //   进入时不重新初始化或清空已有发布队列。
+  window.goFlowPublishList=function(){
+    if(typeof state==='undefined') return;
+    try { if(typeof stopDemo==='function') stopDemo(); } catch(_e){}
+    if(typeof state.route==='string' && state.route!=='flow'){
+      try { if(typeof go==='function') go('flow'); } catch(_e){}
+    }
+    state.step=12;
+    renderRail();
+    renderFlow();
+  };
 
   function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 
@@ -3486,6 +3572,9 @@
     // v1.5 UX：挂载聊天 / 命令（任务 23）
     if(typeof setupChatSlash==='function') setupChatSlash();
 
+    // 步骤变化后同步顶栏「打通平台」入口的显隐（向导视频步骤内隐藏）
+    if(typeof syncTopNav==='function') syncTopNav();
+
   }
 
 
@@ -3594,17 +3683,21 @@
 
         '<button class="btn ghost" onclick="addPlan()">+ 添加阶段</button>'+
 
-        '<button class="btn" onclick="goNext(10)">保存，去打通平台</button></div>';
+        '<button class="btn" onclick="goToPlatformsStage()">保存，去打通平台</button></div>';
 
     }
 
     else if(s===11){
 
-      ctrl.innerHTML='<div style="font-size:12.5px;color:var(--muted);margin-bottom:8px">选择本次要发布的平台（可多选）。AI 为每个平台生成专属文案，复制后打开平台粘贴发布。平台按国内/国外分组，卡片会标注 ⚡自动 / 手动——自动平台在发布队列可一键复制并打开。</div>'+
+      // 与独立「打通平台」页（platformsView）一致的面板结构：授权说明 + 平台卡片
+      ctrl.innerHTML='<div class="panel"><h3>打通平台 · 授权与连接</h3>'+
+        '<div class="sub">在这里连接各内容平台的发布账号。每个平台使用独立的 Chromium 分区，登录态由 Electron 加密保存在本机，<b>Rokit 不读取、不上传你的账号密码</b>。点击「打开 XX」在弹出的浏览器中登录一次即可，后续发布自动复用登录态。</div></div>'+
 
-        '<div class="platforms" id="platGrid"></div><div style="height:10px"></div>'+
+        '<div class="panel"><h3>选择本次要发布的平台</h3>'+
+        '<div class="sub">平台按国内 / 国外分组，卡片标注 ⚡自动 / 手动——自动平台在发布队列可一键复制并打开。点选平台后，可在下方先做授权连接，再进入发布清单。</div>'+
+        '<div class="platforms" id="platGrid" style="margin-top:10px"></div><div style="height:10px"></div>'+
 
-        '<button class="btn accent" onclick="genAll()" '+(selCount()<1?'disabled':'')+'>生成发布文案（已选 '+selCount()+'）</button>';
+        '<button class="btn accent" onclick="genAll()" '+(selCount()<1?'disabled':'')+'>生成发布文案（已选 '+selCount()+'）</button></div>';
 
       renderPlatforms();
 
@@ -3813,9 +3906,10 @@
     renderLocalVideoStage(document.getElementById('ctrlBox'));
   };
 
-  // 「暂未开放」入口：标记旧 AI 录屏流程不可点击进入主流程（保留函数不删）
+  // v1.15 兼容：保留旧入口作为兜底，但推荐使用 openAiDemoWorkspace()
   window.showUnavailableHint=function(){
-    toast('AI 视频生成：暂未开放（当前阶段只支持本地视频）；录屏与配音代码已保留，未来恢复可重新接入。', 'info');
+    if(typeof openAiDemoWorkspace==='function'){ openAiDemoWorkspace(); return; }
+    toast('AI 视频生成：暂未开放（当前阶段只支持本地视频）。', 'info');
   };
 
   // 第 5 步主渲染：本地视频选择器 + 预览 + 元数据
@@ -3824,21 +3918,26 @@
     if(!ctrl) return;
     var a=state.videoAsset;
     var st=state.videoState||'NO_VIDEO';
+    // v1.15：AI 自动演示工作区（覆盖默认空状态）
+    if(state.aiDemo && state.aiDemo.active){
+      renderAiDemoStage(ctrl);
+      return;
+    }
     if(!a || st==='NO_VIDEO'){
-      // 空状态：选择本地视频
+      // 空状态：选择本地视频 / 启动 AI 自动演示
       ctrl.innerHTML=
         '<div class="rec-stage"><div class="head"><span class="st">选择视频</span></div>'+
         '<div class="script">'+
-        '<div class="step-txt">当前阶段：选择本地视频。请选一个 .mp4 / .mov / .webm / .mkv / .avi 文件。</div>'+
+        '<div class="step-txt">当前阶段：选择本地视频，或启动 AI 自动演示项目，由 Rokit 自己录一段产品演示视频。</div>'+
         '<div class="demo-note" style="margin-top:10px;padding:8px 10px;border-radius:6px;background:rgba(14,124,123,.06);border:1px solid rgba(14,124,123,.2);font-size:12px;color:#0E6E6D;line-height:1.6">'+
-        '📁 <b>本地视频</b>：当前可用路径<br/>'+
-        '🎬 AI 录屏 / 配音 / 合成：<b>暂未开放</b>（spec 阶段；底层代码保留，未来恢复时只需新增 VideoSource=AI_GENERATED）'+
+        '📁 <b>本地视频</b>：点下方按钮选一个 .mp4 / .mov / .webm / .mkv / .avi 文件<br/>'+
+        '🎬 <b>AI 自动演示项目</b>：让 Rokit 自己打开真窗口、按预设脚本点按钮、录屏并保存 WebM / MP4（在当前 v1.15 仅交付这一个预设脚本）'+
         '</div>'+
         '<div id="localVideoStatus" style="margin-top:10px;font-size:12.5px;color:var(--muted)">未选择视频</div>'+
         '<div style="height:12px"></div>'+
         '<div class="choice">'+
           '<button class="btn" id="pickLocalVideoBtn" onclick="pickLocalVideo()">📁 选择本地视频</button>'+
-          '<button class="btn sm ghost" onclick="showUnavailableHint()">🎬 AI 录屏（暂未开放）</button>'+
+          '<button class="btn sm ghost" onclick="openAiDemoWorkspace()">🎬 AI 自动演示项目</button>'+
         '</div></div></div>';
       return;
     }
@@ -3874,13 +3973,2224 @@
         '<div class="choice">'+
           '<button class="btn sm" onclick="repickLocalVideo()">重新选择</button>'+
           '<button class="btn sm ghost red" onclick="clearLocalVideo()">删除</button>'+
-          '<button class="btn sm" onclick="goNext(10)">下一步：去打通平台</button>'+
+          '<button class="btn sm" onclick="goToPlatformsStage()">下一步：去打通平台</button>'+
         '</div>'+
         '<div class="demo-note" style="margin-top:10px;padding:8px 10px;border-radius:6px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);font-size:12px;color:#B36B00;line-height:1.6">'+
         '📌 当前阶段：视频只保留在用户本地，<b>不上传任何服务器</b>，不自动转码。YouTube 上传模块后续会读取本地的 VideoAsset 并直接走 Resumable Upload。'+
         '</div>'+
+        '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">'+
+          '<button class="btn sm ghost" onclick="openAiDemoWorkspace()">🎬 试试 AI 自动演示项目</button>'+
+          '<button class="btn sm ghost" onclick="renderLocalVideoStage(document.getElementById(\'ctrlBox\'))">← 返回视频选择</button>'+
+        '</div>'+
       '</div></div>';
   }
+
+  // ============================================================
+  // v1.15：AI 自动演示工作区
+  //   - 进入：openAiDemoWorkspace()  → state.aiDemo.active = true
+  //   - 主流程：startAiDemo() / pauseAiDemo() / resumeAiDemo() / stopAiDemo()
+  //   - 完成后：saveAiDemo()（保存 WebM 到 userData/videos）/ exportAiDemoMp4()（可选 ffmpeg 转码）
+  //   - 录屏使用 navigator.mediaDevices.getDisplayMedia；录制整个 Rokit 主窗口时让用户在系统 chooser 里选
+  //   - AI 自动操作仅作用于真实存在的 Rokit tab（数据看板 / 推广渠道 / 我的作品 / 首秀向导），
+  //     通过 document.getElementById('tabXxx').click() + 等待 DOM 验证；不发表/上传/任何外发动作
+  // ============================================================
+
+  // ============================================================
+  // v1.16：AI 演示规划器 + 约束执行器
+  //   - 规划器（Planner）按当前应用真实存在的路由/卡片选择演示目标
+  //     （同时检查 go() 是否可用、目标选择器是否存在），不允许幻想不存在的功能
+  //   - 执行器（Executor）只暴露安全的原语：route / find / wait / click /
+  //     scroll / scrollToTop|Bottom / fill / exists / assertNeverDangerous
+  //   - 所有原语对真实 DOM 操作，绝不依赖屏幕坐标；坐标仅作最后兜底（v1.16 不启用）
+  //   - 安全过滤器：selector / elementText / 函数名命中下列之一 → 拒绝执行
+  //       发布 / 发送 / 上传 / 删除 / 支付 / OAuth / Token / API Key / 退出登录 / 重置 / 一键清空 / 授权
+  //   - 单步超时 4s、总步数上限 18（防止无限循环探索）；失败步骤保留录屏，UI 标记后跳过
+  //   - 每个步骤支持配置：dwell/scroll/click/fill/wait/verify/optional/retries
+  //   - 与 v1.15 录屏链路兼容（MediaRecorder / blob / fmtDur / save IPC 完全复用）
+  // ============================================================
+
+  // v1.16：禁止命中的危险关键词（中文 + 英文）
+  //   支持 "API Key"/"api key"/"apikey"/"api-key"/"api_key" 等多种写法
+  var AI_DEMO_DANGER_WORDS = [
+    '发布','发送','上传','删除','移除','清空','销毁','彻底删','一键删',
+    '支付','打款','充值','扣款','退款','结算',
+    '授权','登录','登出','退出登录','绑定','解绑','实名','认证',
+    'oauth','token','api key','api-key','api_key','apikey',
+    'secret','password','cred','credential',
+    '重置','还原','销毁全部','清除全部'
+  ];
+  // v1.16：禁止命中的危险选择器前缀（即使 onclick 文本安全，这些也是 reroutable/危险动作）
+  var AI_DEMO_DANGER_SELECTORS = [
+    '[data-danger="true"]',
+    '#launchRocketBtn',                    // 火箭发送
+    '#rocket-bar', '#rocketBar',           // 上传队列的火箭
+    '.btn-danger', '.danger-btn',
+    'button[onclick*="delete"]','button[onclick*="remove"]','button[onclick*="publish"]',
+    'button[onclick*="销毁"]','button[onclick*="delete"]','button[onclick*="clearAll"]',
+    'button[onclick*="launch"]',           // launch() 是发射按钮
+    'button[onclick*="login"]'
+  ];
+
+  // v1.18：通用应用自动化适配层（AppAdapter）
+  //   目标：让上层 AI（explorer / planner）只与抽象接口打交道，
+  //   不再依赖某个特定页面的"硬编码"选择器或固定步骤。
+  //
+  //   支持的后端（backends）：
+  //     - 'dom'    —— 直接操作 WebView DOM（覆盖 Rokit Electron / 任意 Web 应用 / Electron 渲染网页）
+  //     - (占位) 'uia'  —— Windows 原生 UI Automation（保留接口，本轮不实装）
+  //     - (占位) 'vision' —— 截图 + 鼠标键盘兜底（保留接口，本轮不实装）
+  //
+  //   所有原语返回 `{ ok: true|false, error?: string, value?: ... }`，永不抛错。
+  //
+  //   安全性：所有原语在执行前会调用 isDangerous() 过滤。
+  //   不模仿目标：只读真实 DOM，不读屏幕坐标，不读 PDF / 图片 OCR。
+  var AI_APP_ADAPTER = {
+    backend: 'dom', // 当前固定 DOM，可热替换为 uia / vision
+
+    // ────── 通用接口（与后端无关）──────
+    inspect: function(){
+      var pageId = AI_APP_ADAPTER.dom.currentPageId();
+      return {
+        backend: AI_APP_ADAPTER.backend,
+        pageId: pageId,
+        title: (document && document.title) || '',
+        url: (typeof location !== 'undefined' && location && location.href) || '',
+        timestamp: Date.now(),
+        controls: AI_APP_ADAPTER.dom.listControls({ skipDangerous: true }),
+        routeScopes: AI_APP_ADAPTER.dom.listRouteScopes(),
+        scrollContainers: AI_APP_ADAPTER.dom.listScrollContainers()
+      };
+    },
+    // 一条通用操作指令。AI 给出 {op, target, value}，不必写 DOM 代码。
+    //   ops: 'go' | 'click' | 'fill' | 'scroll' | 'back' | 'wait' | 'noop'
+    act: function(cmd){
+      cmd = cmd || {};
+      var op = String(cmd.op || '');
+      var backend = AI_APP_ADAPTER.dom;
+      try {
+        switch(op){
+          case 'go':      return backend.go(cmd.target || cmd.value || '');
+          case 'click':   return backend.click({ selector: cmd.target, textMatch: cmd.textMatch, role: cmd.role });
+          case 'fill':    return backend.fill({ selector: cmd.target, value: cmd.value });
+          case 'scroll':  return backend.scroll({ container: cmd.target, to: cmd.to, distance: cmd.distance });
+          case 'back':    return backend.goBack();
+          case 'wait':    return backend.wait({ ms: cmd.ms || (cmd.value|0) || 600 });
+          case 'noop':    return { ok:true, value:'noop' };
+          default:        return { ok:false, error:'unsupported-op:'+op };
+        }
+      } catch(e){ return { ok:false, error:'act-exception:'+((e&&e.message)||e) }; }
+    },
+    // 通用验证：根据 predicate 类型分派
+    verify: function(spec){
+      spec = spec || {};
+      var backend = AI_APP_ADAPTER.dom;
+      if(spec.ariaPressed != null) return backend.verifyAriaPressed(spec);
+      if(spec.textContains != null) return backend.verifyTextContains(spec);
+      if(spec.minCount != null) return backend.verifyMinCount(spec);
+      if(spec.exists != null) return backend.verifyExists(spec);
+      return { ok:true, value:'no-verify' };
+    },
+    isDangerous: function(text, selector){
+      return AI_DEMO_EXECUTOR && AI_DEMO_EXECUTOR.danger
+        ? AI_DEMO_EXECUTOR.danger.isDangerBySelector(selector || '')
+            || AI_DEMO_EXECUTOR.danger.isDangerByText(text || '')
+        : false;
+    },
+    // 暴露后端（未来 uia / vision 也实现同样接口）
+    dom: {
+      // 在下方 v1.18 DOM Backend 块内实现
+    }
+  };
+
+  // v1.18：DOM Backend（覆盖 Rokit Electron 与任意 Web/Electron WebView）
+  AI_APP_ADAPTER.dom = (function(){
+    function safeStr(v){ return String(v==null?'':v); }
+
+    function elVisible(n){
+      if(!n) return false;
+      var rect = n.getBoundingClientRect();
+      if(rect.width<=0||rect.height<=0) return false;
+      var cs = window.getComputedStyle ? window.getComputedStyle(n) : null;
+      if(!cs) return true;
+      if(cs.visibility==='hidden'||cs.display==='none'||parseFloat(cs.opacity||'1')<=0) return false;
+      var vw = window.innerWidth||document.documentElement.clientWidth||0;
+      var vh = window.innerHeight||document.documentElement.clientHeight||0;
+      return (rect.right>0&&rect.bottom>0&&rect.left<vw&&rect.top<vh);
+    }
+    function elEnabled(n){
+      if(!n) return false;
+      if(n.disabled) return false;
+      var ad = n.getAttribute && n.getAttribute('aria-disabled');
+      if(ad==='true') return false;
+      var cls = (n.className && typeof n.className==='string') ? n.className : '';
+      return !/\b(disabled|is-disabled)\b/i.test(cls);
+    }
+    function elementText(n){
+      if(!n) return '';
+      return safeStr(n.textContent || n.getAttribute && (n.getAttribute('aria-label')||'') || n.title || '').trim().slice(0,120);
+    }
+    function stableId(n){
+      // 生成一个稳定的"页内节点 ID"，供 Explorer 去重
+      if(!n) return '';
+      if(n.id) return '#'+n.id;
+      if(n.getAttribute && n.getAttribute('data-testid')) return '[data-testid="'+n.getAttribute('data-testid')+'"]';
+      var aria = n.getAttribute && n.getAttribute('aria-label');
+      if(aria) return '[aria-label='+JSON.stringify(aria)+']';
+      // fallback: 用行号 / 父 ID + tag + 文本 hash
+      var parent = n.parentElement; var pid = parent && parent.id ? '#'+parent.id : '';
+      return pid+' '+n.tagName.toLowerCase()+':text='+elementText(n).slice(0,20);
+    }
+
+    return {
+      // 当前页的"页 ID"——当前实现用 [data-route] 派生
+      currentPageId: function(){
+        var sec = document.querySelector('[data-route]:not([style*="display: none"])');
+        if(sec) return 'route:'+sec.getAttribute('data-route');
+        return (document && document.title) || 'unknown';
+      },
+      // 路由切换
+      go: function(name){
+        if(!name) return { ok:false, error:'go-no-target' };
+        try {
+          if(typeof go === 'function'){ go(name); }
+          else {
+            var btn = document.querySelector('[onclick*="go(\''+name+'\')"]');
+            if(btn) btn.click();
+            else return { ok:false, error:'go-no-handler:'+name };
+          }
+          return { ok:true, value:name };
+        } catch(e){ return { ok:false, error:'go-exception:'+((e&&e.message)||e) }; }
+      },
+      // 暂时没有"系统返回键"，先做"回主页"
+      goBack: function(){
+        try {
+          if(typeof go === 'function'){ go('flow'); return { ok:true, value:'flow' }; }
+        } catch(_e){}
+        return { ok:false, error:'back-no-handler' };
+      },
+      wait: function(opts){
+        opts = opts || {};
+        var ms = Math.max(0, Math.min(8000, Number(opts.ms)||0));
+        return new Promise(function(r){ setTimeout(function(){ r({ ok:true, value:ms }); }, ms); });
+      },
+      click: function(spec){
+        spec = spec || {};
+        var sel = spec.selector;
+        // 如果没给 selector，按 text / role 找第一个可见、可交互、且不是 danger 的
+        if(!sel){
+          var candidates = (function(){
+            var all = Array.prototype.slice.call(document.querySelectorAll('button, a, [role=button], [role=link], [role=menuitem], .btn'));
+            var out = [];
+            for(var i=0;i<all.length;i++){
+              var n = all[i];
+              if(!elVisible(n) || !elEnabled(n)) continue;
+              var t = elementText(n);
+              if(!t) continue;
+              if(AI_APP_ADAPTER.isDangerous(t, '')) continue;
+              if(spec.textMatch && t.toLowerCase().indexOf(String(spec.textMatch).toLowerCase())<0) continue;
+              if(spec.role && (n.getAttribute('role')||'').toLowerCase() !== String(spec.role).toLowerCase()) continue;
+              out.push({ id: stableId(n), text: t });
+              if(out.length >= 12) break;
+            }
+            return out;
+          })();
+          return { ok:false, error:'click-needs-selector', candidates: candidates };
+        }
+        // 显式 selector 路径（与 v1.16 同等安全过滤）
+        if(AI_APP_ADAPTER.isDangerous('', sel)) return { ok:false, error:'danger-selector-blocked:'+sel, danger:true };
+        return AI_DEMO_EXECUTOR.click(sel);
+      },
+      fill: function(spec){
+        spec = spec || {};
+        if(!spec.selector) return { ok:false, error:'fill-needs-selector' };
+        // 复用 v1.16 已有的白名单 fill
+        return AI_DEMO_EXECUTOR.fill(spec.selector, spec.value || '');
+      },
+      scroll: function(spec){
+        spec = spec || {};
+        // v1.20：把 async / verify / waitScrollSettled 都封装到统一接口
+        var r = AI_DEMO_EXECUTOR.scroll(spec.container || '', spec);
+        if(r && r.async && r.value && typeof r.value.verify === 'function'){
+          // wrap 成一个 Promise，让 explorer / planner 可以 await
+          return (async function(){
+            var settled = await AI_DEMO_EXECUTOR.waitScrollSettled(r, { maxMs: spec.maxMs || 900 });
+            return { ok: settled.changed, value: settled, async: false };
+          })();
+        }
+        return r;
+      },
+      // 列举所有可见、安全、可交互控件
+      listControls: function(opts){
+        opts = opts || {};
+        var list = [];
+        // v1.20：扩展可交互元素集合，覆盖 Rokit 的 chip/tab/card/segment/checkbox 等自定义控件
+        var sel = 'button, a, input, textarea, select, [role=button], [role=link], [role=menuitem], [role=tab], [tabindex]:not([tabindex="-1"]),' +
+                  '.btn, .pcard, .ver-tab, .filter-chip, .seg, .ck, .choice button, .rocket-item, .cfg-plat-item, .navtab button, [data-range], .kpi.clickable, .brand .name, .topbar .navtab button';
+        var nodes = Array.prototype.slice.call(document.querySelectorAll(sel));
+        var seen = {};
+        for(var i=0;i<nodes.length;i++){
+          var n = nodes[i];
+          var sid = stableId(n);
+          if(!sid) continue;
+          if(seen[sid]) continue;
+          seen[sid] = true;
+          if(opts.skipDangerous){
+            var t = elementText(n);
+            if(AI_APP_ADAPTER.isDangerous(t, '')) continue;
+          }
+          if(!elVisible(n)) continue;
+          var role = (n.tagName==='BUTTON' ? 'button' : n.tagName==='A' ? 'link' : (n.getAttribute('role')||''));
+          list.push({
+            id: sid,
+            tag: n.tagName.toLowerCase(),
+            role: role,
+            text: elementText(n),
+            disabled: !elEnabled(n),
+            ariaPressed: n.getAttribute && n.getAttribute('aria-pressed'),
+            ariaSelected: n.getAttribute && n.getAttribute('aria-selected'),
+            danger: !!opts.skipDangerous && AI_APP_ADAPTER.isDangerous(elementText(n), ''),
+            // 展示价值评分（planner 据此排序）
+            score: AI_APP_ADAPTER.dom._scoreControl(n)
+          });
+        }
+        // 排序：高分在前，但 dedupe 已保证 unique
+        list.sort(function(a, b){ return (b.score || 0) - (a.score || 0); });
+        return list;
+      },
+      // v1.20：控件"展示价值"评分（planner 据此决定点击顺序）
+      //   - 文本短但明确的标签（如"近 7 天"、"AI 自动选主推"、切换类）→ 高分
+      //   - 无文本纯图标 / 占位 / 装饰元素 → 低分
+      //   - 危险关键词 → 0
+      _scoreControl: function(n){
+        try {
+          var t = elementText(n);
+          if(!t) return 1;
+          if(AI_APP_ADAPTER.isDangerous(t, '')) return 0;
+          // 高价值关键词
+          if(/^(本会话|今天|近\s*\d+\s*天|全部)$/.test(t)) return 9;
+          if(/切换|筛选|刷新|新建|同步|添加|↻|批量|⇆|↗|设置|开始|继续|下一步|完成|导出|保存|收起|展开/.test(t)) return 8;
+          if(/^\d+(\.\d+)?[kKmMbB%]?$/.test(t)) return 3; // 纯数字（KPI 数字）
+          if(t.length <= 2) return 4; // 单字符（× / + / 等）
+          if(t.length <= 8) return 7;
+          if(t.length <= 20) return 6;
+          return 4;
+        } catch(_e){ return 1; }
+      },
+      // 列出顶层"作用域 scope"：route sections + dialogs
+      listRouteScopes: function(){
+        var out = [];
+        var secs = document.querySelectorAll('[data-route]');
+        var allCtrls = AI_APP_ADAPTER.dom.listControls({ skipDangerous:true });
+        for(var i=0;i<secs.length;i++){
+          var s = secs[i], r = s.getAttribute('data-route');
+          // 计算属于本 section 的控件数（按 element 是否 in section）
+          var cnt = 0;
+          for(var j=0;j<allCtrls.length;j++){
+            try { if(s.contains(document.querySelector(allCtrls[j].id.replace(/^#/, '').split(' ')[0]))) cnt++; } catch(_e){}
+          }
+          out.push({ pageId: 'route:'+r, label: r, controls: cnt });
+        }
+        return out;
+      },
+      // 列出可滚动容器（基于 picker，覆盖所有 overflow:auto/scroll 与 document.scrollingElement）
+      listScrollContainers: function(){
+        var out = [];
+        // 1) 通过 picker 拿到候选集
+        try {
+          var picked = AI_DEMO_EXECUTOR._scrollPick('', {});
+          var r = picked && picked.root;
+          if(r){
+            var sh = r.scrollHeight || 0, ch = r.clientHeight || 0;
+            out.push({ id: AI_DEMO_EXECUTOR._elLabel(r) || 'scrollingElement', scrollHeight: sh, clientHeight: ch, scrollable: sh - ch });
+          }
+        } catch(_e){}
+        // 2) 命名容器（兜底）
+        var sels = ['main','body','#chatBody','.chat-body','.chat','.ch-grid','#barsBox','#channelsBox','#worksGrid','#queueBar','.dash','.chat-input-wrap'];
+        for(var i=0;i<sels.length;i++){
+          var n = document.querySelector(sels[i]);
+          if(!n) continue;
+          var sh = n.scrollHeight || 0, ch = n.clientHeight || 0;
+          if(sh > ch + 30){
+            var dup = false;
+            for(var k=0;k<out.length;k++){ if(out[k].id === sels[i]) { dup = true; break; } }
+            if(!dup) out.push({ id: sels[i], scrollHeight: sh, clientHeight: ch, scrollable: sh-ch });
+          }
+        }
+        return out;
+      },
+      verifyExists: function(spec){ return AI_DEMO_EXECUTOR.find.exists(spec.exists || ''); },
+      verifyAriaPressed: function(spec){
+        var node = document.querySelector((spec.exists||'').split(',')[0].trim());
+        var ap = node && node.getAttribute && node.getAttribute('aria-pressed');
+        if(!node || ap !== String(spec.ariaPressed)) return { ok:false, error:'aria-pressed-mismatch:expected-'+spec.ariaPressed+'-actual-'+(ap||'null') };
+        return { ok:true };
+      },
+      verifyTextContains: function(spec){
+        var node = document.querySelector((spec.exists||'').split(',')[0].trim());
+        var hay = node ? node.textContent : '';
+        if(!hay || hay.toLowerCase().indexOf(String(spec.textContains).toLowerCase())<0) return { ok:false, error:'text-not-found:'+spec.textContains };
+        return { ok:true };
+      },
+      verifyMinCount: function(spec){
+        var sels = (spec.exists||'').split(',').map(function(s){return s.trim();}).filter(Boolean);
+        var total = 0;
+        for(var i=0;i<sels.length;i++){
+          try { var n = document.querySelectorAll(sels[i]); if(n) total += n.length; } catch(_e){}
+        }
+        if(total < spec.minCount) return { ok:false, error:'min-count-mismatch:'+spec.minCount+'-actual-'+total };
+        return { ok:true };
+      }
+    };
+  })();
+
+  // v1.18：通用 AI 应用探索器（Explorer）
+  //   - 输入：要探索的入口 URL/route
+  //   - 输出：FunctionMap + 可选 Execution Log（可直接喂给 record 阶段）
+  //   - 默认不做任何发布 / 删除 / 付款 / 登录 / OAuth / Token 操作
+  var AI_FUNCTION_MAP = {
+    appInfo: { name:'', version:'', entryPageId:'unknown' },
+    pages: {}, // pageId -> { id, label, controlsCount, visitedAt, dangerRisks }
+    controlIndex: {}, // stableId -> { id, pageId, tag, text, danger }
+    history: [], // [{ pageId, action, t, ok }]
+    pendingOps: [], // 待执行
+    createdAt: 0,
+    lastExploredAt: 0
+  };
+
+  function aiResetFunctionMap(appName){
+    AI_FUNCTION_MAP.appInfo = { name: appName || 'unknown', version: '', entryPageId: AI_APP_ADAPTER.dom.currentPageId() };
+    AI_FUNCTION_MAP.pages = {};
+    AI_FUNCTION_MAP.controlIndex = {};
+    AI_FUNCTION_MAP.history = [];
+    AI_FUNCTION_MAP.pendingOps = [];
+    AI_FUNCTION_MAP.createdAt = Date.now();
+    AI_FUNCTION_MAP.lastExploredAt = 0;
+  }
+  // 把当前页加入地图
+  function aiIndexCurrentPage(){
+    var info = AI_APP_ADAPTER.inspect();
+    var pageId = info.pageId;
+    if(!AI_FUNCTION_MAP.pages[pageId]){
+      AI_FUNCTION_MAP.pages[pageId] = {
+        id: pageId, label: pageId, visitedAt: 0,
+        controlsSnapshot: [], scrollContainers: info.scrollContainers
+      };
+    }
+    AI_FUNCTION_MAP.pages[pageId].visitedAt = Date.now();
+    // 索引所有 controls（去重）
+    for(var i=0;i<info.controls.length;i++){
+      var c = info.controls[i];
+      // 已存在则更新 lastSeen
+      if(AI_FUNCTION_MAP.controlIndex[c.id]){
+        AI_FUNCTION_MAP.controlIndex[c.id].lastSeen = Date.now();
+        continue;
+      }
+      AI_FUNCTION_MAP.controlIndex[c.id] = {
+        id: c.id, pageId: pageId, tag: c.tag, role: c.role,
+        text: c.text, danger: !!c.danger, firstSeen: Date.now(), lastSeen: Date.now()
+      };
+    }
+    return pageId;
+  }
+  // 探索循环：固定上限内主动点击每个安全控件，遇到 route 切换就重新索引
+  var AI_EXPLORER_STATS = {
+    explored: 0, skipped: 0, blocked: 0, failed: 0,
+    visitedPages: [], stopReason: ''
+  };
+  function aiResetExplorerStats(){ AI_EXPLORER_STATS = { explored:0, skipped:0, blocked:0, failed:0, visitedPages:[], stopReason:'' }; }
+
+  function aiMakeExplorationPlan(maxSteps){
+    maxSteps = Math.max(1, Math.min(60, maxSteps|0 || 25));
+    // v1.20 策略：
+    //   1) 按"主流导航顺序"加入 route go
+    //   2) 每页先滚动一次（向下→向上），把页面里更多可交互元素带入视口
+    //   3) 再按 listControls 的 score 选择若干高分控件（带 verify）
+    var plan = [];
+    var info = AI_APP_ADAPTER.inspect();
+    // 1) go to each preferred route
+    var preferredRoutes = ['flow','dashboard','channels','works','settings'];
+    var seenPage = {};
+    seenPage[info.pageId] = true;
+    for(var r_i=0;r_i<preferredRoutes.length && plan.length < maxSteps;r_i++){
+      var r = preferredRoutes[r_i];
+      if(!document.querySelector('[data-route="'+r+'"]')) continue;
+      plan.push({ op:'go', target:r, name:'导航到 '+r, pageId:'route:'+r, dwellAfter: 900 });
+    }
+    // 2) for each route, plan scroll + click(s)
+    var routes = Array.prototype.slice.call(document.querySelectorAll('[data-route]'));
+    for(var i=0;i<routes.length && plan.length < maxSteps;i++){
+      var sec = routes[i];
+      var r = sec.getAttribute('data-route');
+      // 2a) 向下滚动（让下方元素进入视口）
+      plan.push({
+        op:'scroll', target:'', _route: r, _phase:'down',
+        scroll:{ container:'', to:'down', distance: 360, smooth:true },
+        name:'向下滚动 '+r+' 页内容',
+        pageId:'route:'+r, dwellAfter: 1100
+      });
+      // 2b) 选择 2 个高分控件（带 verify）
+      var cands = (function(){
+        try { return AI_APP_ADAPTER.dom.listControls({ skipDangerous:true }) || []; } catch(_e){ return []; }
+      })();
+      // 只保留属于本 section 的
+      var inSec = cands.filter(function(c){
+        try {
+          // 从 stableId 提取第一个选择器（"#xxx" 或 "tagName:text=..."），取 element 判断
+          var first = (c.id || '').replace(/^#/, '').split(' ')[0];
+          var el = document.getElementById(first) || document.querySelector('[' + first + ']');
+          if(!el) return false;
+          return sec.contains(el);
+        } catch(_e){ return false; }
+      });
+      inSec.sort(function(a,b){ return (b.score||0) - (a.score||0); });
+      var added = 0;
+      for(var j=0;j<inSec.length && added < 2 && plan.length < maxSteps;j++){
+        var c = inSec[j];
+        if(!c || c.disabled) continue;
+        if(c.danger) continue;
+        // dedupe
+        var dup = false;
+        for(var p=0;p<plan.length;p++){
+          if(plan[p].target === c.id || (plan[p]._stableId && plan[p]._stableId === c.id)) { dup = true; break; }
+        }
+        if(dup) continue;
+        // 跳过顶栏导航 / 顶栏非交互项
+        if(/^(首秀向导|数据看板|推广渠道|我的作品|⚙️?设置|Rokit)$/.test(c.text || '')) continue;
+        plan.push({
+          op:'click', target: c.id, name: '点击「'+ ((c.text||c.id).length>14 ? (c.text||c.id).slice(0,14)+'…' : (c.text||c.id)) +'」',
+          pageId: 'route:'+r, dwellAfter: 1100,
+          verify: { exists: c.id },
+          _stableId: c.id,
+          _preClickText: c.text || ''
+        });
+        added++;
+      }
+      // 2c) 再向上滚到顶部（回到入口位置）
+      plan.push({
+        op:'scroll', target:'', _route: r, _phase:'up',
+        scroll:{ container:'', to:'top' },
+        name:'回到 '+r+' 顶部',
+        pageId:'route:'+r, dwellAfter: 700
+      });
+    }
+    // 3) 收尾回到 flow
+    if(plan.length < maxSteps && AI_APP_ADAPTER.dom.currentPageId() !== 'route:flow'){
+      plan.push({ op:'go', target:'flow', name:'回到首秀向导收尾', pageId:'route:flow', dwellAfter: 600 });
+    }
+    return plan;
+  }
+  function elVisibleSafe(n){
+    try { return AI_APP_ADAPTER && (function(){ var t = n.textContent || ''; return !!(n.offsetWidth>0||n.offsetHeight>0); })(); } catch(_e){ return false; }
+  }
+  function elementTextSafe(n){
+    try { return String(n.textContent || n.getAttribute && (n.getAttribute('aria-label')||'') || n.title || '').trim().slice(0,80); } catch(_e){ return ''; }
+  }
+  function stableIdSafe(n){
+    try { return (function(n){
+      if(!n) return '';
+      if(n.id) return '#'+n.id;
+      if(n.getAttribute && n.getAttribute('data-testid')) return '[data-testid="'+n.getAttribute('data-testid')+'"]';
+      var aria = n.getAttribute && n.getAttribute('aria-label');
+      if(aria) return '[aria-label='+JSON.stringify(aria)+']';
+      return '';
+    })(n); } catch(_e){ return ''; }
+  }
+
+  // 探索阶段（dry run）—— 不录制、可被打断；结束后输出可重放的 execution log
+  async function aiExplore(maxSteps){
+    if(typeof __aiDemoSleepOrPause !== 'function'){
+      // 探索用同款 pause/stop 标志，避免 UI 状态字段全冲突；默认遵循 stop flag
+    }
+    aiResetFunctionMap(AI_APP_ADAPTER.dom.currentPageId());
+    aiResetExplorerStats();
+    AI_EXPLORER_STATS.visitedPages.push(AI_APP_ADAPTER.inspect().pageId);
+    var plan = aiMakeExplorationPlan(maxSteps || 25);
+    var log = [];
+    for(var i=0;i<plan.length;i++){
+      if(__aiDemoStopFlag) { AI_EXPLORER_STATS.stopReason='user-stopped'; break; }
+      // 暂停
+      while(__aiDemoPauseFlag && !__aiDemoStopFlag){
+        await (AI_APP_ADAPTER.dom.wait({ ms:200 }) || Promise.resolve());
+      }
+      if(__aiDemoStopFlag) break;
+      var step = plan[i]; var op = step.op;
+      var r;
+      if(op === 'go'){
+        r = await AI_APP_ADAPTER.act({ op:'go', target: step.target });
+        if(r.ok){ aiIndexCurrentPage(); AI_EXPLORER_STATS.visitedPages.push(AI_APP_ADAPTER.dom.currentPageId()); }
+      } else if(op === 'click'){
+        // 记录点击前后状态（用于 verify）
+        var pre = AI_APP_ADAPTER.dom.currentPageId();
+        r = await AI_APP_ADAPTER.act({ op:'click', target: step.target });
+        if(r.ok){
+          AI_EXPLORER_STATS.explored++;
+          var np = AI_APP_ADAPTER.dom.currentPageId();
+          // verify：点击后控件是否还在 + 路由是否变化
+          var verify = AI_APP_ADAPTER.verify(step.verify || { exists: step.target });
+          if(!verify || !verify.ok){ AI_EXPLORER_STATS.failed++; }
+          aiIndexCurrentPage();
+          if(np !== pre){
+            AI_FUNCTION_MAP.history.push({ pageId: pre, action: step.target, t:Date.now(), ok:true, note:'page-changed-to-'+np });
+          }
+        } else {
+          AI_EXPLORER_STATS.failed++;
+        }
+      } else if(op === 'scroll'){
+        // v1.20：scroll op 直接 delegate 给 executor
+        r = await AI_APP_ADAPTER.act({ op:'scroll', target: (step.scroll && step.scroll.container) || '', to: step.scroll && step.scroll.to, distance: step.scroll && step.scroll.distance });
+        if(r && r.ok){ AI_EXPLORER_STATS.explored++; }
+        else { AI_EXPLORER_STATS.failed++; }
+      } else {
+        r = { ok:true };
+      }
+      log.push({ t: Date.now(), op:op, target:step.target, name:step.name, ok:!!r.ok, error:r.error||'', pageId: (r.ok?AI_APP_ADAPTER.dom.currentPageId():(step.pageId||'')) });
+      // 短暂停留让 UI 稳定
+      await AI_APP_ADAPTER.dom.wait({ ms: step.dwellAfter || 500 });
+    }
+    AI_FUNCTION_MAP.lastExploredAt = Date.now();
+    AI_FUNCTION_MAP.pendingOps = log;
+    // 去重 visitedPages
+    var seen = {}, dedup = [];
+    for(var v=0;v<AI_EXPLORER_STATS.visitedPages.length;v++){
+      var k = AI_EXPLORER_STATS.visitedPages[v];
+      if(!seen[k]){ seen[k]=true; dedup.push(k); }
+    }
+    AI_EXPLORER_STATS.visitedPages = dedup;
+    return {
+      ok: true,
+      exploredCount: AI_EXPLORER_STATS.explored,
+      skippedCount: AI_EXPLORER_STATS.skipped,
+      blockedCount: AI_EXPLORER_STATS.blocked,
+      failedCount: AI_EXPLORER_STATS.failed,
+      pageCount: AI_EXPLORER_STATS.visitedPages.length,
+      visitedPages: AI_EXPLORER_STATS.visitedPages,
+      pageDetails: AI_FUNCTION_MAP.pages,
+      controlIndexSize: Object.keys(AI_FUNCTION_MAP.controlIndex).length,
+      plan: plan,
+      log: log
+    };
+  }
+
+  // 第二个入口的 explorer 暴露
+  window.aiExplore = function(maxSteps){ return aiExplore(maxSteps || 25); };
+  window.aiResetFunctionMap = aiResetFunctionMap;
+  window.aiIndexCurrentPage = aiIndexCurrentPage;
+  window.aiMakeExplorationPlan = aiMakeExplorationPlan;
+  window.AI_APP_ADAPTER = AI_APP_ADAPTER;
+  window.AI_FUNCTION_MAP = AI_FUNCTION_MAP;
+  // window.AI_DEMO_EXECUTOR 在下面 executor 定义完成后赋值（避免 TDZ）
+
+  // v1.16：执行器原语（保留所有 v1.16/17 接口；delegate 关键操作到 AI_APP_ADAPTER 以保证 adapter 单点改造）
+  var AI_DEMO_EXECUTOR = {
+    route: {
+      set: function(name){
+        try {
+          if(typeof go === 'function'){ go(name); return { ok: !!document.querySelector('[data-route="'+name+'"]'), value: name }; }
+          var btn = document.querySelector('[onclick*="go(\'' + name + '\')"]');
+          if(btn){ btn.click(); return { ok: !!document.querySelector('[data-route="'+name+'"]'), value: name }; }
+          return { ok:false, error:'route-no-handler:'+name };
+        } catch(e) { return { ok:false, error:'route-exception:'+((e&&e.message)||e) }; }
+      },
+      current: function(){
+        var sec = document.querySelector('[data-route]:not([style*="display: none"])');
+        return sec ? sec.getAttribute('data-route') : '';
+      }
+    },
+    find: {
+      bySelector: function(sel, timeoutMs){
+        timeoutMs = timeoutMs || 1500;
+        var start = Date.now();
+        while(Date.now() - start < timeoutMs){
+          try { var n = document.querySelector(sel); if(n) return { ok:true, value:n }; } catch(_e){}
+        }
+        return { ok:false, error:'selector-not-found:'+sel };
+      },
+      // 显式版本：返回当前是否命中（不等）
+      exists: function(sel){
+        try { var n = document.querySelector(sel); return { ok:!!n, value:n }; } catch(_e){ return { ok:false, error:'bad-selector' }; }
+      }
+    },
+    el: {
+      visible: function(n){
+        if(!n) return false;
+        var rect = n.getBoundingClientRect();
+        if(rect.width <= 0 || rect.height <= 0) return false;
+        var cs = window.getComputedStyle ? window.getComputedStyle(n) : null;
+        if(!cs) return true;
+        if(cs.visibility === 'hidden' || cs.display === 'none' || parseFloat(cs.opacity||'1') <= 0) return false;
+        var vw = window.innerWidth || document.documentElement.clientWidth || 0;
+        var vh = window.innerHeight || document.documentElement.clientHeight || 0;
+        // 至少 1px 与视口相交
+        return (rect.right > 0 && rect.bottom > 0 && rect.left < vw && rect.top < vh);
+      },
+      isEnabled: function(n){
+        if(!n) return false;
+        if(n.disabled) return false;
+        var ariaDisabled = n.getAttribute && n.getAttribute('aria-disabled');
+        if(ariaDisabled === 'true') return false;
+        var cls = (n.className && typeof n.className === 'string') ? n.className : '';
+        if(/\\b(disabled|is-disabled)\\b/i.test(cls)) return false;
+        return true;
+      }
+    },
+    danger: {
+      // 命名包含发布/上传等风险动作 → 拒绝（大小写不敏感，避免 "Token"/"OAUTH" 漏判）
+      isDangerByText: function(s){
+        if(!s) return false;
+        var ls = String(s).toLowerCase();
+        for(var i=0;i<AI_DEMO_DANGER_WORDS.length;i++){
+          if(ls.indexOf(String(AI_DEMO_DANGER_WORDS[i]).toLowerCase()) >= 0) return true;
+        }
+        return false;
+      },
+      // 选择器命中危险前缀 → 拒绝
+      isDangerBySelector: function(sel){
+        if(!sel) return false;
+        for(var i=0;i<AI_DEMO_DANGER_SELECTORS.length;i++){
+          // 用简单的 includes 判断：精确匹配或属性前缀匹配；不需要完整 CSS 引擎
+          if(sel === AI_DEMO_DANGER_SELECTORS[i]) return true;
+          // 形如 "button[onclick*=...]" 的子串都视为可能危险
+          if(AI_DEMO_DANGER_SELECTORS[i].indexOf('button[onclick*=') === 0){
+            if(sel.indexOf(AI_DEMO_DANGER_SELECTORS[i].substring('button[onclick*='.length, AI_DEMO_DANGER_SELECTORS[i].indexOf(']'))) >= 0) return true;
+          }
+        }
+        return false;
+      }
+    },
+    click: function(sel){
+      if(typeof sel !== 'string' || !sel) return { ok:false, error:'click-needs-selector' };
+      if(this.danger.isDangerBySelector(sel)) return { ok:false, error:'danger-selector-blocked:'+sel, danger:true };
+      var n = this.find.bySelector(sel, 1200);
+      if(!n.ok) return n;
+      try {
+        if(!this.el.visible(n.value)) return { ok:false, error:'target-not-visible:'+sel };
+        if(!this.el.isEnabled(n.value)) return { ok:false, error:'target-not-enabled:'+sel };
+        var text = (n.value.textContent || n.value.getAttribute('aria-label') || n.value.title || '').trim().slice(0, 80);
+        if(this.danger.isDangerByText(text)) return { ok:false, error:'danger-text-blocked:'+text, danger:true };
+        var rect = n.value.getBoundingClientRect();
+        // 滚动到可视区
+        try { n.value.scrollIntoView({ block:'center', behavior:'smooth' }); } catch(_e){
+          try { n.value.scrollIntoView(); } catch(__e){}
+        }
+        n.value.click();
+        return { ok:true, value:{ sel:sel, text:text, rect:{x:Math.round(rect.x),y:Math.round(rect.y),w:Math.round(rect.width),h:Math.round(rect.height)} } };
+      } catch(e) { return { ok:false, error:'click-exception:'+((e&&e.message)||e) }; }
+    },
+    // v1.20：滚动的根因修复（升级版）
+    //   关键改进：
+    //     1) 自动检测"真能滚动"的容器：
+    //        a) 显式选择器列表（containerSel 多个逗号分隔）
+    //        b) document.scrollingElement（实际可能为 body 或 html）
+    //        c) 当前可见 [data-route] section 内 overflow:auto/scroll 的子元素
+    //        d) 顶层 body/html
+    //     2) 平滑滚动使用原生 scrollTo({behavior:'smooth'})，并 **等待动画结束**（轮询 scrollTop）
+    //        验证 scrollTop 真正变化；不变化则视为"页面无法滚动"，返回 error 让 planner 跳过
+    //     3) 平滑滚动失败时退化到直接 scrollTop = target（同步），并在 verify 中校验变化
+    //     4) 支持 to=top/bottom/up/down/y 四种语义
+    //     5) 可选 steps：把单次滚动拆成 N 步小滚动（每步一帧），让画面看起来"慢慢下移"
+    scroll: function(containerSel, opts){
+      opts = opts || {};
+      var picked = AI_DEMO_EXECUTOR._scrollPick(containerSel, opts);
+      var root = picked.root;
+      if(!root){
+        return { ok:false, error:'no-scroll-root-found', candidates:picked.candidatesTried, scrollable:false };
+      }
+      var preTop = root.scrollTop || 0;
+      var maxScroll = Math.max(0, (root.scrollHeight || 0) - (root.clientHeight || 0));
+      // 页面无法滚动（无溢出）→ 不假装 ok
+      if(maxScroll <= 0){
+        return { ok:false, error:'page-not-scrollable', element: AI_DEMO_EXECUTOR._elLabel(root), maxScroll: maxScroll };
+      }
+      var to = opts.to || 'down';
+      var dy = Math.max(0, Number(opts.distance) || 0);
+      var target;
+      if(to === 'top'){ target = 0; }
+      else if(to === 'bottom'){ target = maxScroll; }
+      else if(to === 'up'){ target = Math.max(0, preTop - (dy || Math.min(260, maxScroll))); }
+      else if(to === 'down'){ target = Math.min(maxScroll, preTop + (dy || Math.min(260, maxScroll))); }
+      else if(to === 'y' && typeof opts.distance === 'number'){ target = Math.max(0, Math.min(maxScroll, opts.distance)); }
+      else { target = Math.min(maxScroll, preTop + 240); }
+      // 已经在目标位置（top/bottom 场景）→ 不触发无效的 smooth 滚动，返回 ok=false 让 caller 跳过
+      if(to === 'bottom' && preTop >= maxScroll - 1){
+        return { ok:false, error:'already-at-bottom', element: AI_DEMO_EXECUTOR._elLabel(root), before:preTop, after:preTop, maxScroll:maxScroll };
+      }
+      if(to === 'top' && preTop <= 1){
+        return { ok:false, error:'already-at-top', element: AI_DEMO_EXECUTOR._elLabel(root), before:preTop, after:preTop, maxScroll:maxScroll };
+      }
+      var steps = Math.max(1, Math.min(8, Number(opts.steps) || 1));
+      // 执行滚动：原生 smooth 或直接同步
+      try {
+        if(typeof root.scrollTo === 'function'){
+          if(steps > 1 && to !== 'y'){
+            // 分步滚动：把 distance 切成 steps 段，每段插值后 smooth scrollTo
+            // 注意：浏览器原生 smooth 动画无法被中途打断合并，所以这里采用多次 scrollTo 调用
+            // 实际起效是最后一次 scrollTo 的目标；为了让动画更慢更连续，启用 opts.smooth 时
+            // 使用单次原生 smooth + 等待即可（steps 仅作可读性参数，对单容器内同步滚动意义有限）。
+          }
+          root.scrollTo({ top: target, behavior: 'smooth' });
+        } else {
+          root.scrollTop = target;
+        }
+      } catch(_e){
+        try { root.scrollTop = target; } catch(__e){}
+      }
+      // 等待 smooth 动画完成（轮询 scrollTop，每 30ms 一次，最多 800ms）
+      var settledTop = root.scrollTop || 0;
+      var startWait = Date.now();
+      // 由于 smooth 动画是异步的，这里先返回 ok=true（动画已开始），调用方仍需 await dwellAfter
+      return {
+        ok: true,
+        async: true,
+        value: {
+          element: AI_DEMO_EXECUTOR._elLabel(root),
+          before: preTop, requested: target,
+          scrollHeight: root.scrollHeight, clientHeight: root.clientHeight,
+          maxScroll: maxScroll,
+          to: to,
+          // 调用方在 dwellAfter 之后用此方法做最终校验
+          verify: function(){
+            var topNow = root.scrollTop || 0;
+            return {
+              element: AI_DEMO_EXECUTOR._elLabel(root),
+              before: preTop, after: topNow, requested: target,
+              changed: topNow !== preTop,
+              scrollHeight: root.scrollHeight, clientHeight: root.clientHeight,
+              maxScroll: maxScroll
+            };
+          }
+        }
+      };
+    },
+    // v1.20：等待 smooth 滚动真正完成并校验 scrollTop 变化
+    //   - 多次轮询直到 scrollTop 在 ~50ms 内不再变化（视为动画结束）
+    //   - 始终返回 {changed, before, after, ...}；不变化时 ok:false 让 planner 可选跳过
+    waitScrollSettled: function(asyncResult, opts){
+      opts = opts || {};
+      var maxMs = Math.max(100, Math.min(2000, Number(opts.maxMs) || 900));
+      if(!asyncResult || !asyncResult.value || !asyncResult.value.verify) return { ok:false, error:'no-async-scroll-result' };
+      var start = Date.now();
+      var lastTop = -1, sameSince = 0;
+      // 用 requestAnimationFrame 轮询更可靠
+      function poll(){
+        return new Promise(function(res){
+          function step(){
+            var v = asyncResult.value.verify();
+            if(v.after === lastTop){ sameSince += 16; } else { sameSince = 0; lastTop = v.after; }
+            // 1) 到达目标（top/bottom 允许 lastTop 与 requested 偏差 <= 1）
+            if(Math.abs(v.after - asyncResult.value.requested) <= 1 && sameSince >= 30){ return res(v); }
+            // 2) 停止变化（持续 60ms 相同）且至少滚过一次
+            if(sameSince >= 60 && v.changed){ return res(v); }
+            if(Date.now() - start > maxMs){ return res(v); }
+            requestAnimationFrame(step);
+          }
+          step();
+        });
+      }
+      return poll();
+    },
+    _elLabel: function(el){
+      try {
+        if(!el) return '';
+        if(el.id) return '#'+el.id;
+        var cn = (el.className && typeof el.className === 'string') ? el.className.split(/\s+/)[0] : '';
+        return (el.tagName ? el.tagName.toLowerCase() : '') + (cn ? '.'+cn : '');
+      } catch(_e){ return ''; }
+    },
+    // v1.20：选择一个真正能滚动的容器（按 containerSel 列表 → 自动推断 → 当前可见 route 内 overflow:auto）
+    _scrollPick: function(containerSel, opts){
+      var candidates = [];
+      function tryAdd(sel){
+        try {
+          var nodes = document.querySelectorAll(sel);
+          for(var i=0;i<nodes.length;i++){
+            var n = nodes[i];
+            if(!n) continue;
+            var sh = n.scrollHeight || 0, ch = n.clientHeight || 0;
+            candidates.push({ sel: sel, el:n, scrollHeight:sh, clientHeight:ch, scrollable: (sh - ch) > 20 });
+          }
+        } catch(_e){}
+      }
+      // 1) 显式选择器列表（多个逗号分隔）
+      if(containerSel){
+        String(containerSel).split(',').forEach(function(s){ s = s.trim(); if(s) tryAdd(s); });
+      }
+      // 2) 兜底：document.scrollingElement (html 或 body) → main
+      if(!candidates.length){
+        // document.scrollingElement 不可直接用 CSS 选择；用 .scrollHeight/.clientHeight 直接算
+        try {
+          var se = document.scrollingElement || document.documentElement || document.body;
+          if(se){
+            candidates.push({
+              sel:'scrollingElement',
+              el: se,
+              scrollHeight: se.scrollHeight || 0,
+              clientHeight: se.clientHeight || 0,
+              scrollable: ((se.scrollHeight || 0) - (se.clientHeight || 0)) > 20
+            });
+          }
+        } catch(_e){}
+        tryAdd('html'); tryAdd('body'); tryAdd('main');
+      }
+      // 3) 进一步：在当前可见 route 下寻找 overflow:auto/scroll 的子容器
+      try {
+        var sec = document.querySelector('[data-route]:not([style*="display:none"])') || document;
+        if(sec && sec.querySelectorAll){
+          sec.querySelectorAll('*').forEach(function(n){
+            if(!n || candidates.some(function(c){ return c.el === n; })) return;
+            var cs = window.getComputedStyle ? window.getComputedStyle(n) : null;
+            if(!cs) return;
+            if((cs.overflowY === 'auto' || cs.overflowY === 'scroll') && n.scrollHeight > n.clientHeight + 20){
+              candidates.push({ sel:'auto-detected', el:n, scrollHeight:n.scrollHeight, clientHeight:n.clientHeight, scrollable:true });
+            }
+          });
+        }
+      } catch(_e){}
+      // 4) 选择第一个实际能滚动的
+      var pick = candidates.find(function(c){ return c.scrollable; });
+      if(!pick) pick = candidates[0];
+      AI_DEMO_EXECUTOR._scrollLastCandidates = candidates;
+      if(!pick) return { root:null, candidatesTried:[] };
+      return { root: pick.el, candidatesTried: candidates.map(function(c){ return { sel:c.sel, scrollable:c.scrollable, h:c.scrollHeight - c.clientHeight } }) };
+    },
+    exists: function(sel){
+      return this.find.exists(sel);
+    },
+    // v1.17：多个选择器（逗号分隔）的命中校验。任一命中即 ok。匹配 CSS 选择器列表。
+    countMatches: function(selList){
+      var sels = String(selList||'').split(',').map(function(s){return s.trim();}).filter(Boolean);
+      var total = 0;
+      for(var i=0;i<sels.length;i++){
+        try { var m = document.querySelectorAll(sels[i]); if(m && m.length) total += m.length; } catch(_e){}
+      }
+      return total;
+    },
+    // v1.17：点击指定选择器；找不到则记录说明但不抛错（用于 rollback 步骤）
+    clickIfPresent: function(sel){
+      if(typeof sel !== 'string' || !sel) return { ok:false, error:'clickIfPresent-needs-selector' };
+      var ex = this.find.exists(sel);
+      if(!ex.ok) return { ok:false, error:'not-present:'+sel };
+      try { if(!this.el.visible(ex.value)) return { ok:false, error:'not-visible:'+sel }; } catch(_e){}
+      try { ex.value.click(); return { ok:true, value:sel }; } catch(e){ return { ok:false, error:'click-exception:'+((e&&e.message)||e) }; }
+    },
+    // v1.17：连续 click（每个 400ms 间隔），找不到就停止。
+    clickRetryAll: function(sel, maxN){
+      maxN = Math.max(1, Math.min(5, Number(maxN)||3));
+      var lastResult = null;
+      for(var i=0;i<maxN;i++){
+        var r = this.clickIfPresent(sel);
+        lastResult = r;
+        if(!r.ok) return r;
+        // 短暂等待再继续（不需要 await，因为是串联慢操作）
+      }
+      return lastResult;
+    },
+    wait: function(ms){
+      ms = Math.max(0, Math.min(8000, Number(ms) || 0));
+      return new Promise(function(r){ setTimeout(function(){ r({ ok:true, value:ms }); }, ms); });
+    },
+    waitVisible: function(sel, timeoutMs){
+      timeoutMs = Math.max(0, Math.min(6000, Number(timeoutMs) || 2000));
+      var start = Date.now();
+      var ex = this.find.exists(sel);
+      if(ex.ok && this.el.visible(ex.value)) return Promise.resolve({ ok:true });
+      return new Promise(function(r){
+        var iv = setInterval(function(){
+          try {
+            var n = document.querySelector(sel);
+            if(n && AI_DEMO_EXECUTOR.el.visible(n)){ clearInterval(iv); r({ ok:true, value:n }); return; }
+          } catch(_e){}
+          if(Date.now() - start > timeoutMs){ clearInterval(iv); r({ ok:false, error:'waitVisible-timeout:'+sel }); }
+        }, 100);
+      });
+    },
+    fill: function(sel, value){
+      if(typeof sel !== 'string' || !sel) return { ok:false, error:'fill-needs-selector' };
+      if(this.danger.isDangerBySelector(sel)) return { ok:false, error:'danger-selector-blocked:'+sel, danger:true };
+      var n = this.find.bySelector(sel, 1200);
+      if(!n.ok) return n;
+      try {
+        if(!this.el.visible(n.value)) return { ok:false, error:'target-not-visible:'+sel };
+        // 仅在 Rokit 已有的、明确安全 demo 输入上填充（白名单）
+        var SAFE_INPUTS = ['#inName','#inIntro','#inUrl','#chatInput','#cfgBaseUrl','#cfgModel','#aiDemoName'];
+        if(SAFE_INPUTS.indexOf(sel) < 0) return { ok:false, error:'input-not-whitelisted-for-demo:'+sel };
+        n.value.focus();
+        n.value = String(value || '');
+        try { n.dispatchEvent(new Event('input', { bubbles:true })); n.dispatchEvent(new Event('change', { bubbles:true })); } catch(_e){}
+        return { ok:true, value:n.value };
+      } catch(e) { return { ok:false, error:'fill-exception:'+((e&&e.message)||e) }; }
+    }
+  };
+  // v1.20：在 executor 完全定义后再 expose 给 window（避免 TDZ / undefined）
+  try { window.AI_DEMO_EXECUTOR = AI_DEMO_EXECUTOR; } catch(_e){}
+
+  // v1.16：单步超时保护
+  function __aiDemoWithTimeout(p, ms){
+    return Promise.race([
+      p,
+      new Promise(function(r){ setTimeout(function(){ r({ ok:false, error:'step-timeout:'+ms+'ms' }); }, ms); })
+    ]);
+  }
+  // v1.16：暂停 / 停止等待（每 200ms 检一次）
+  function __aiDemoSleepOrPause(ms){
+    return new Promise(function(resolve){
+      var slept = 0;
+      var tick = function(){
+        if(__aiDemoStopFlag){ resolve({ ok:false, stopped:true }); return; }
+        if(__aiDemoPauseFlag){ setTimeout(tick, 200); return; }
+        slept += 200;
+        if(slept >= ms){ resolve({ ok:true }); return; }
+        setTimeout(tick, 200);
+      };
+      tick();
+    });
+  }
+
+  // v1.17：AI 演示规划器 —— 每页多次操作（不只是切页面）
+  //   关键改进：
+  //     - 单一页面可执行多个动作：滚动 + 真实点击 + 验证 + 切页
+  //     - 每个动作都基于对真实 DOM 的 probe → 缺则自动跳过，绝不 fabricate
+  //     - 总时长预计 90–180 秒，依赖真实演示内容，不靠黑屏凑时间
+  //     - 与 v1.16 安全过滤兼容：危险动作自动跳过并计数，不影响其他步骤
+  function buildDemoPlan(){
+    var plan = { name: 'Rokit 真实界面演示（v1.17 多步版）', steps: [] };
+    var hasRoute = function(r){ return !!document.querySelector('[data-route="'+r+'"]'); };
+    var hasId = function(id){ return !!document.getElementById(id); };
+    // 是否有真实的"非示例"作品（用户实际登记的作品）。没有则跳过作品详情演示。
+    var realWorksCount = (state && state.works && state.works.filter(function(w){return !w.isSample;}).length) || 0;
+
+    // ───────────────────────── 首秀向导 (flow) ─────────────────────────
+    if(hasRoute('flow')){
+      plan.steps.push({
+        id:'s_f0_enter',
+        name:'进入「首秀向导」主页，展示 1.4 秒',
+        route:'flow',
+        dwell:1400,
+        verify:{ exists:'[data-route=\"flow\"]' }
+      });
+      plan.steps.push({
+        id:'s_f1_scroll_a',
+        name:'向下滚动浏览对话区',
+        scroll:{ container:'.chat-body, .chat', to:'down', distance:280, smooth:true },
+        dwellAfter:1400,
+        verify:{ exists:'#chatBody' }
+      });
+      plan.steps.push({
+        id:'s_f2_chat_input',
+        name:'在聊天框内写入演示文本（绝不点击发送）',
+        fill:{ selector:'#chatInput', value:'你好 Rokit（演示自动填写 · 不发送）' },
+        dwellAfter:1200,
+        optional:true,
+        verify:{ exists:'#chatInput' }
+      });
+      plan.steps.push({
+        id:'s_f3_scroll_back',
+        name:'滚回对话区顶部，展示完整聊天',
+        scroll:{ container:'.chat-body, .chat', to:'top' },
+        dwellAfter:1000
+      });
+    }
+
+    // ───────────────────────── 数据看板 (dashboard) ─────────────────────────
+    if(hasRoute('dashboard')){
+      plan.steps.push({ id:'s_d0_enter', name:'切换到「数据看板」', route:'dashboard', dwell:900 });
+      plan.steps.push({
+        id:'s_d1_kpi_dwell',
+        name:'顶部 4 个 KPI 卡片（作品 / 发布 / 渠道 / 最近）停留 1.8 秒',
+        scroll:{ container:'main, body', to:'top' },
+        dwell:1800,
+        verify:{ exists:'#kpiPub, #kpiWorks', minCount:2 }
+      });
+      // 选 [data-range=\"7d\"] 期间筛选芯片（真实存在的元素）
+      if(hasId('kpiPub')){
+        plan.steps.push({
+          id:'s_d2_filter_7d',
+          name:'点击时段筛选芯片「近 7 天」（本地切换，无外部副作用）',
+          click:'[data-range=\"7d\"]',
+          retries:1,
+          verify:{ exists:'[data-range=\"7d\"]', ariaPressed:'true', minCount:1 },
+          dwellAfter:1700
+        });
+      }
+      plan.steps.push({
+        id:'s_d3_scroll_bars',
+        name:'向下滚动查看各平台发布条形图',
+        scroll:{ container:'main, body', to:'down', distance:260, smooth:true },
+        dwellAfter:1300,
+        verify:{ exists:'#barsBox' }
+      });
+      // ↻ 刷新按钮
+      plan.steps.push({
+        id:'s_d4_refresh',
+        name:'点击「↻ 刷新」（重新拉取真实 GitHub / 发布数据）',
+        click:'#refreshWorksBtn',
+        retries:1,
+        dwellAfter:1700,
+        verify:{ exists:'#refreshWorksBtn' }
+      });
+      // AI 切换按钮
+      plan.steps.push({
+        id:'s_d5_ai_toggle',
+        name:'点击「AI 自动选主推」开关（本地切换 aria-pressed，无外发）',
+        click:'#aiPickMainToggle',
+        retries:1,
+        dwellAfter:1500,
+        verify:{ exists:'#aiPickMainToggle' }
+      });
+      // 还原 AI 切换
+      plan.steps.push({
+        id:'s_d6_ai_toggle_back',
+        name:'再次点击同一开关，恢复初始状态',
+        click:'#aiPickMainToggle',
+        optional:true,
+        dwellAfter:1000
+      });
+      plan.steps.push({
+        id:'s_d7_filter_back',
+        name:'切回「本会话」时段芯片，恢复初始视图',
+        click:'[data-range=\"session\"]',
+        optional:true,
+        dwellAfter:1200
+      });
+    }
+
+    // ───────────────────────── 推广渠道 (channels) ─────────────────────────
+    if(hasRoute('channels')){
+      plan.steps.push({ id:'s_c0_enter', name:'切换到「推广渠道」', route:'channels', dwell:900 });
+      plan.steps.push({
+        id:'s_c1_scroll_top',
+        name:'停留 1.2 秒查看真实渠道列表状态',
+        dwell:1200,
+        verify:{ exists:'#channelsBox' }
+      });
+      plan.steps.push({
+        id:'s_c2_scroll_mid',
+        name:'向下滚动浏览渠道卡片',
+        scroll:{ container:'main, body', to:'down', distance:320, smooth:true },
+        dwellAfter:1500
+      });
+      plan.steps.push({
+        id:'s_c3_scroll_bottom',
+        name:'继续滚动到渠道列表底部',
+        scroll:{ container:'main, body', to:'bottom' },
+        dwellAfter:1200
+      });
+      // 真实按钮：「☑ 批量」
+      if(document.querySelector('[onclick*=\"enterChannelSelect\"]')){
+        plan.steps.push({
+          id:'s_c4_enter_select',
+          name:'点击「☑ 批量」按钮进入批量选择模式（仅切换 UI）',
+          click:'[onclick*=\"enterChannelSelect\"]',
+          retries:1,
+          dwellAfter:1500
+        });
+        plan.steps.push({
+          id:'s_c5_exit_select',
+          name:'再次点击退出批量模式，恢复正常视图',
+          click:'[onclick*=\"enterChannelSelect\"]',
+          optional:true,
+          dwellAfter:1200
+        });
+      }
+      plan.steps.push({
+        id:'s_c6_scroll_top',
+        name:'回到渠道列表顶部',
+        scroll:{ container:'main, body', to:'top' },
+        dwellAfter:900
+      });
+    }
+
+    // ───────────────────────── 我的作品 (works) ─────────────────────────
+    if(hasRoute('works')){
+      plan.steps.push({ id:'s_w0_enter', name:'切换到「我的作品」', route:'works', dwell:900 });
+      plan.steps.push({
+        id:'s_w1_grid_dwell',
+        name:'作品列表停留 1.5 秒',
+        dwell:1500,
+        verify:{ exists:'#worksGrid' }
+      });
+      plan.steps.push({
+        id:'s_w2_scroll',
+        name:'向下滚动浏览作品卡片',
+        scroll:{ container:'main, body', to:'down', distance:320, smooth:true },
+        dwellAfter:1600
+      });
+      // 「↻ 刷新」真实按钮
+      if(hasId('refreshWorksBtn')){
+        plan.steps.push({
+          id:'s_w3_refresh',
+          name:'点击「↻ 刷新」重新拉取 GitHub Star / 下载量真实数据',
+          click:'#refreshWorksBtn',
+          retries:1,
+          dwellAfter:2000
+        });
+      }
+      // AI 自动选主推按钮（仅显示在 works 页）
+      if(hasId('aiPickMainToggle')){
+        plan.steps.push({
+          id:'s_w4_ai_toggle',
+          name:'点击「AI 自动选主推」按钮（仅 aria-pressed 切换）',
+          click:'#aiPickMainToggle',
+          retries:1,
+          dwellAfter:1500
+        });
+        plan.steps.push({
+          id:'s_w5_ai_toggle_back',
+          name:'再次点击恢复初始',
+          click:'#aiPickMainToggle',
+          optional:true,
+          dwellAfter:1000
+        });
+      }
+      // 真实作品详情 demo：尝试打开第一个示例 / 真实作品（仅浏览式）
+      // 安全判定：避免误点击删除；进入应使用"查看式"路径（卡片正文或首秀按钮）
+      // 当前 works 卡片只有 openWork（进入首秀）/ setAsMain（置为主推）/ delWork（删除）
+      // 我们选 setAsMain 模拟"详情查看"前的"切换关注"。这是真实且无外部副作用的本地操作。
+      plan.steps.push({
+        id:'s_w6_main_queue',
+        name:'尝试在主推队列区域浏览（如果存在）',
+        scroll:{ container:'main, body', to:'down', distance:200 },
+        dwellAfter:1200,
+        verify:{ exists:'#queueBar' },
+        optional:true
+      });
+      plan.steps.push({
+        id:'s_w7_back_top',
+        name:'回到作品列表顶部',
+        scroll:{ container:'main, body', to:'top' },
+        dwellAfter:900
+      });
+    }
+
+    // ───────────────────────── 回到首页（收尾） ─────────────────────────
+    if(hasRoute('flow')){
+      plan.steps.push({ id:'s_end_back', name:'返回「首秀向导」结束演示', route:'flow', dwell:1400 });
+    }
+
+    // v1.19：每个路由的"探索完成度"——把"已规划步骤"汇总成 inventory
+    //   - plan._inventory: { pageId: { stepsPlanned, scrolls, clicks, fills } }
+    //   - plan._controlsIndex: 跨 pageId 聚合已发现的安全控件（用于 planner 内部去重）
+    var inv = (plan._inventory = {});
+    var ctl = (plan._controlsIndex = {});
+    for(var s_i=0;s_i<plan.steps.length;s_i++){
+      var s = plan.steps[s_i] || {};
+      var pid = s.route || AI_APP_ADAPTER.dom.currentPageId() || 'unknown';
+      if(!inv[pid]) inv[pid] = { steps:0, scrolls:0, clicks:0, fills:0, dangerBlocks:0 };
+      inv[pid].steps++;
+      if(s.scroll) inv[pid].scrolls++;
+      if(s.click) inv[pid].clicks++;
+      if(s.fill) inv[pid].fills++;
+      if(s.click && AI_APP_ADAPTER.isDangerous('', s.click)) inv[pid].dangerBlocks++;
+      if(s.click && typeof s.click === 'string' && !ctl[s.click]) ctl[s.click] = { pageId:pid, danger: AI_APP_ADAPTER.isDangerous('', s.click) };
+    }
+
+    // v1.19：自适应探索 —— 如果某路由已规划步数 < 3，且当前应用界面里有 v1.18 inventory
+    //   暴露的"安全可点击控件"，补 1-2 个 click 步骤；不重复既有步骤。
+    //   兜底是让 [AI_APP_ADAPTER.dom.listControls({skipDangerous:true})] 提供候选。
+    try {
+      if(typeof AI_APP_ADAPTER !== 'undefined' && AI_APP_ADAPTER && AI_APP_ADAPTER.dom && AI_APP_ADAPTER.dom.listControls){
+        // 只看当前可见 route（plan 通常在 flow 页起步；不强制要求切到每个 tab）
+        var sec = document.querySelector('[data-route]:not([style*="display: none"])');
+        if(sec){
+          var pageId = sec.getAttribute('data-route') ? ('route:'+sec.getAttribute('data-route')) : 'unknown';
+          var inv0 = inv[pageId] || { steps:0, clicks:0 };
+          if(inv0.clicks < 2){
+            var cands = AI_APP_ADAPTER.dom.listControls({ skipDangerous:true });
+            var added = 0;
+            for(var c_i=0;c_i<cands.length && added < 2 && plan.steps.length < 28;c_i++){
+              var c = cands[c_i];
+              if(!c || !c.id) continue;
+              if(ctl[c.id]) continue; // 已规划过
+              if(c.danger) continue;
+              // 跳过已经硬编码的 4 个 anchor
+              if(c.id === '#refreshWorksBtn' || c.id === '#aiPickMainToggle' || c.id === '#chatInput') continue;
+              plan.steps.push({
+                id: 's_auto_' + pageId + '_' + c_i,
+                name: '探索发现并点击「' + (c.text||c.id).slice(0,12) + '」',
+                click: c.id,
+                retries:1,
+                dwellAfter: 1100,
+                verify: { exists: c.id }
+              });
+              ctl[c.id] = { pageId:pageId, danger:false, source:'auto-discovery' };
+              inv0.clicks = (inv0.clicks || 0) + 1;
+              inv[pageId] = inv0;
+              added++;
+            }
+          }
+        }
+      }
+    } catch(_e){ /* 自适应失败不应阻塞 planner */ }
+
+    // 总数防护：永远不超过 30 步
+    if(plan.steps.length > 30) plan.steps = plan.steps.slice(0, 30);
+    return plan;
+  }
+
+  // v1.16：单步执行器
+  async function runAiDemoStep(step, idx){
+    if(__aiDemoStopFlag) return { ok:false, stopped:true };
+    // route
+    if(step.route){
+      var r = AI_DEMO_EXECUTOR.route.set(step.route);
+      if(!r.ok) return { ok:false, error:'route-failed:'+step.route+' '+(r.error||''), danger:false, retryable:true };
+      await __aiDemoWithTimeout(AI_DEMO_EXECUTOR.waitVisible('[data-route="'+step.route+'"]', 3000), 3500);
+    }
+    // dwell
+    if(step.dwell){
+      var d = await __aiDemoSleepOrPause(step.dwell);
+      if(!d.ok && d.stopped) return d;
+    }
+    // scroll（v1.20：真平滑滚动 + 等待动画结束 + 校验 scrollTop 实际变化）
+    if(step.scroll){
+      try {
+        var sr = AI_DEMO_EXECUTOR.scroll(step.scroll.container, step.scroll);
+        // 滚动本身可能 ok=false（页面无法滚动 / 找不到容器）—— 在这里吃掉错误，让 planner 标记为 skipped
+        if(!sr || !sr.ok){
+          // 不让单个失败的 scroll 中断整段录制；标记为 skipped 即可
+          state.aiDemo.log = state.aiDemo.log || [];
+          state.aiDemo.log.push({ step:idx, scrollSkip:true, error:(sr && sr.error) || 'unknown', to:(step.scroll && step.scroll.to) || '' });
+          // 继续执行后面的步骤
+        } else if(sr.async && sr.value && typeof sr.value.verify === 'function'){
+          // 等动画结束（最多 900ms），并把校验结果落到 log / UI
+          var settled = await AI_DEMO_EXECUTOR.waitScrollSettled(sr, { maxMs: 900 });
+          if(!settled.changed){
+            state.aiDemo.log = state.aiDemo.log || [];
+            state.aiDemo.log.push({ step:idx, scrollNoEffect:true, to:(step.scroll && step.scroll.to) || '', before:settled.before, after:settled.after, element:settled.element });
+          } else {
+            state.aiDemo.log = state.aiDemo.log || [];
+            state.aiDemo.log.push({ step:idx, scrollOk:true, to:(step.scroll && step.scroll.to) || '', before:settled.before, after:settled.after, element:settled.element });
+          }
+        }
+      } catch(_e){ /* scroll 失败不应中断整段录制 */ }
+    }
+    // click
+    if(step.click){
+      var c = AI_DEMO_EXECUTOR.click(step.click);
+      if(!c.ok){
+        if(c.danger){ return { ok:false, error:'danger-blocked: '+c.error, danger:true }; }
+        // 重试
+        if(step.retries && step.retries > 0){
+          await __aiDemoSleepOrPause(400);
+          var c2 = AI_DEMO_EXECUTOR.click(step.click);
+          if(!c2.ok){ return { ok:false, error:'click-failed-after-retry: '+c2.error }; }
+        } else {
+          // 可选步骤 → 跳过；否则记失败但不终止整个录屏
+          if(step.optional){ return { ok:false, skipped:true, error:'optional-click-skipped:'+c.error }; }
+          return { ok:false, error:'click-failed: '+c.error };
+        }
+      }
+      // 点击后等元素进入稳定状态
+      await __aiDemoSleepOrPause(400);
+    }
+    // fill
+    if(step.fill && step.fill.selector){
+      var f = AI_DEMO_EXECUTOR.fill(step.fill.selector, step.fill.value);
+      if(!f.ok){ if(step.optional) return { ok:false, skipped:true, error:'optional-fill-skipped:'+f.error }; return { ok:false, error:'fill-failed: '+f.error }; }
+      await __aiDemoSleepOrPause(300);
+    }
+    // verify（v1.17 支持多类型：exists / minCount / ariaPressed / textContains）
+    if(step.verify){
+      var vErr = null;
+      if(step.verify.exists){
+        // 支持逗号分隔的多个选择器，至少一个命中即可
+        var sels = String(step.verify.exists||'').split(',').map(function(s){return s.trim();}).filter(Boolean);
+        var anyHit = false;
+        for(var s_i=0; s_i<sels.length; s_i++){
+          try {
+            var nodes = document.querySelectorAll(sels[s_i]);
+            if(nodes && nodes.length){ anyHit = true; break; }
+          } catch(_e){}
+        }
+        if(!anyHit){ vErr = 'verify-exists-miss:'+step.verify.exists; }
+      }
+      if(!vErr && typeof step.verify.minCount === 'number'){
+        // 应用于最近一次 verify.exists 的选择器集合，或者整个 step.verify.exists 数组
+        var sels2 = String(step.verify.exists||'').split(',').map(function(s){return s.trim();}).filter(Boolean);
+        var total = 0;
+        for(var s_j=0; s_j<sels2.length; s_j++){
+          try { var n = document.querySelectorAll(sels2[s_j]); if(n) total += n.length; } catch(_e){}
+        }
+        if(total < step.verify.minCount){ vErr = 'verify-minCount-miss:'+step.verify.minCount+'-actual:'+total; }
+      }
+      if(!vErr && step.verify.ariaPressed){
+        // 校验当前元素 aria-pressed 状态变更（用于切换类按钮：AI toggle / 时段筛选）
+        var sels3 = String(step.verify.exists||'').split(',').map(function(s){return s.trim();}).filter(Boolean);
+        var ariaSel = sels3[0] || '';
+        var node = null;
+        try { node = document.querySelector(ariaSel); } catch(_e){}
+        var ap = node && node.getAttribute && node.getAttribute('aria-pressed');
+        var wantAP = String(step.verify.ariaPressed);
+        if(!node || ap !== wantAP){ vErr = 'verify-ariaPressed-miss:expected-'+wantAP+'-actual-'+(ap||'null'); }
+      }
+      if(!vErr && step.verify.textContains){
+        // 在 verify.exists 命中节点（或 root body）的 textContent 中查找子串（大小写不敏感）
+        var sels4 = String(step.verify.exists||'').split(',').map(function(s){return s.trim();}).filter(Boolean);
+        var tn = null;
+        for(var s_k=0; s_k<sels4.length; s_k++){
+          try {
+            var nn = document.querySelector(sels4[s_k]);
+            if(nn){ tn = nn; break; }
+          } catch(_e){}
+        }
+        var hay = tn ? tn.textContent : document.body.textContent;
+        if(!hay || hay.toLowerCase().indexOf(String(step.verify.textContains).toLowerCase()) < 0){
+          vErr = 'verify-textContains-miss:'+step.verify.textContains;
+        }
+      }
+      if(vErr){
+        if(step.optional) return { ok:false, skipped:true, error:'optional-'+vErr };
+        return { ok:false, error:vErr };
+      }
+    }
+    // dwellAfter
+    if(step.dwellAfter){
+      var d2 = await __aiDemoSleepOrPause(step.dwellAfter);
+      if(!d2.ok && d2.stopped) return d2;
+    }
+    return { ok:true };
+  }
+
+  // v1.16：执行整个规划
+  function runAiDemoScript(plan){
+    if(!plan || !plan.steps || !plan.steps.length) return;
+    __aiDemoStopFlag = false;
+    __aiDemoPauseFlag = false;
+    __aiDemoScriptRunning = true;
+    state.aiDemo.doneSteps = 0;
+    state.aiDemo.failedSteps = 0;
+    state.aiDemo.skippedSteps = 0;
+    state.aiDemo.lastStepError = '';
+    state.aiDemo.lastStepAction = '';
+    // 安全：记录"原始文本稿"防止 evaluate 后注入
+    state.aiDemo.log = [];
+    state.aiDemo.totalPlanned = plan.steps.length;
+    // v1.17：把当前 plan 缓存到 state，便于 pause/resume 决策下一步目标 route
+    try { state.aiDemo._planCache = plan; } catch(_e){}
+    (async function(){
+      for(var i=0; i<plan.steps.length; i++){
+        if(__aiDemoStopFlag) break;
+        // 暂停等待
+        while(__aiDemoPauseFlag && !__aiDemoStopFlag){
+          await new Promise(function(r){ setTimeout(r, 200); });
+        }
+        if(__aiDemoStopFlag) break;
+        state.aiDemo.stepIdx = i;
+        state.aiDemo.lastStepAction = '';
+        var step = plan.steps[i];
+        try {
+          renderLocalVideoStage(document.getElementById('ctrlBox'));
+        } catch(_e){}
+        var r = await runAiDemoStep(step, i);
+        if(__aiDemoStopFlag) break;
+        if(r.ok){
+          state.aiDemo.doneSteps++;
+          state.aiDemo.lastStepAction = '✓ ' + step.name;
+        } else if(r.danger){
+          // 命中危险 → 标 skipped + 在 UI 顶部显示原因，但仍继续录屏
+          state.aiDemo.skippedSteps++;
+          state.aiDemo.lastStepError = '危险操作已拦截: ' + (r.error||'');
+          state.aiDemo.lastStepAction = '⛔ ' + step.name + '（已跳过：' + (r.error||'danger') + '）';
+        } else if(r.stopped){
+          break;
+        } else if(r.skipped){
+          state.aiDemo.skippedSteps++;
+          state.aiDemo.lastStepAction = '↪ 跳过（可选）: ' + step.name + ' — ' + (r.error||'');
+        } else {
+          state.aiDemo.failedSteps++;
+          state.aiDemo.lastStepError = r.error || '未知错误';
+          state.aiDemo.lastStepAction = '⚠ 失败: ' + step.name + ' — ' + (r.error||'');
+          // 失败步骤不抛出，不终止整个录屏；继续下一步
+        }
+        try { state.aiDemo.log.push({ idx:i, name:step.name, action:state.aiDemo.lastStepAction, error:state.aiDemo.lastStepError }); } catch(_e){}
+      }
+      __aiDemoScriptRunning = false;
+      if(!__aiDemoStopFlag && state.aiDemo.status === 'RECORDING'){
+        try { stopAiDemo({ silent:false, auto:true }); } catch(_e){}
+      } else {
+        try { renderLocalVideoStage(document.getElementById('ctrlBox')); } catch(_e){}
+      }
+    })();
+  }
+
+  // v1.17：根据当前 state.aiDemo 调用规划器并执行
+  //   v1.20：先用 explorer (dry run) 建立页 / 控件地图，再合并到录制定稿 plan 中执行
+  function startAiDemoPlan(){
+    if(!state.aiDemo) state.aiDemo = {};
+    state.aiDemo.demoScript = 'ai-planner-v1.20';
+    // 1) 先用 explorer 做一次 dry-run 探索（极轻量；用 probe 不真正执行 click 的版本：仅滚动 + 索引）
+    try {
+      // 这里不执行真 click，仅索引页面 / 控件 / 滚动容器
+      aiResetFunctionMap(AI_APP_ADAPTER.dom.currentPageId());
+      // 索引当前页（不切换，避免破坏录制起始画面）
+      aiIndexCurrentPage();
+      // 尝试在每个 route 上做一次 scroll 探测，验证滚动真的有效
+      try {
+        var routes = Array.prototype.slice.call(document.querySelectorAll('[data-route]'));
+        for(var r_i=0;r_i<routes.length;r_i++){
+          var r = routes[r_i].getAttribute('data-route');
+          try {
+            var sr = AI_APP_ADAPTER.act({ op:'scroll', target: '', to: 'down', distance: 240 });
+            if(sr && sr.ok){ AI_FUNCTION_MAP.pages['route:'+r] = AI_FUNCTION_MAP.pages['route:'+r] || { id:'route:'+r, scrollable: true }; }
+          } catch(_e){}
+        }
+      } catch(_e){}
+      // 重建 index（scroll 后页面里更多元素可见）
+      aiIndexCurrentPage();
+    } catch(_e){}
+    // 2) 生成最终演示 plan（基于 buildDemoPlan + explorer 的发现结果）
+    var plan = buildDemoPlan();
+    state.aiDemo.totalSteps = plan.steps.length;
+    state.aiDemo.planName = plan.name;
+    state.aiDemo._planCache = plan;
+    // 3) 执行 plan
+    runAiDemoScript(plan);
+  }
+
+  // 工作区入口
+  window.openAiDemoWorkspace = function() {
+    if(!state.aiDemo){ state.aiDemo = { active:true, status:'IDLE' }; }
+    else { state.aiDemo.active = true; }
+    // 不自动 prompt 屏幕权限；等用户点"开始"
+    renderLocalVideoStage(document.getElementById('ctrlBox'));
+  };
+
+  // 关闭工作区，回到默认"选择视频"页
+  window.closeAiDemoWorkspace = function() {
+    if(!state.aiDemo) return;
+    // 若还在录，先停
+    try { stopAiDemo({ silent: true }); } catch(_e) {}
+    state.aiDemo.active = false;
+    renderLocalVideoStage(document.getElementById('ctrlBox'));
+  };
+
+  // 渲染 AI 演示工作区
+  function renderAiDemoStage(ctrl){
+    if(!ctrl) ctrl = document.getElementById('ctrlBox');
+    if(!ctrl) return;
+    if(!state.aiDemo){ state.aiDemo = { active:true }; state.aiDemo.status='IDLE'; }
+
+    var d = state.aiDemo;
+    // v1.16：使用 Planner 实时生成的规划；不再依赖旧的静态脚本集
+    var stepTotal = d.totalSteps || 0;
+    d.totalSteps = stepTotal;
+
+    var st = d.status || 'IDLE';
+    var isRec = (st === 'RECORDING' || st === 'PAUSED');
+    var isIdle = (st === 'IDLE' || st === 'STOPPED' || st === 'FAILED' || st === 'SAVED');
+
+    var stLabel = ({
+      'IDLE':'准备就绪',
+      'REQUESTING_SCREEN':'正在申请屏幕权限',
+      'RECORDING':'录制中',
+      'PAUSED':'已暂停（录屏继续）',
+      'STOPPED':'已停止',
+      'SAVED':'已保存到本地',
+      'FAILED':'失败'
+    })[st] || st;
+    var stColor = st === 'FAILED' ? 'var(--danger)' :
+                  (st === 'RECORDING' ? 'var(--danger)' :
+                   (st === 'PAUSED' ? '#B36B00' :
+                    (st === 'SAVED' ? 'var(--success)' : 'var(--primary-dark)')));
+
+    // 实时计时：用现有全局 fmtDur（与项目内其他时长展示统一；支持 0/非数/超时输入）
+    var tm = d.durationSec || 0;
+
+    // 步骤条 + 计数（完成 / 失败 / 跳过 / 剩余）
+    var stepBars = '';
+    for(var i=0;i<Math.max(stepTotal,1);i++){ stepBars += '<i class="'+(i < (d.stepIdx||0) ? 'on' : '')+'"></i>'; }
+    var doneCount = d.doneSteps || 0;
+    var failedCount = d.failedSteps || 0;
+    var skippedCount = d.skippedSteps || 0;
+    var remaining = Math.max(0, stepTotal - (d.stepIdx||0));
+    var log = Array.isArray(d.log) ? d.log : [];
+    // 最近 5 条日志
+    var recentLog = '';
+    var lastItems = log.slice(-5);
+    for(var li=0; li<lastItems.length; li++){
+      var e = lastItems[li] || {};
+      recentLog += '<div style="font-size:11.5px;color:var(--muted);padding:1px 0">#'+ (e.idx+1) + ' ' + esc(e.action||e.name||'') + '</div>';
+    }
+
+    // 已保存产物预览
+    var savedBlock = '';
+    if(d.blob && d.objectUrl){
+      savedBlock =
+        '<div style="margin-top:14px;border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--bg)">'+
+          '<video id="aiDemoPreview" controls playsinline src="' + d.objectUrl + '" style="width:100%;max-height:340px;background:#000;border-radius:6px"></video>'+
+          '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:12.5px">'+
+            '<span style="color:var(--muted)">时长：'+ fmtDur(d.durationSec||0) +' · 大小：' + fmtSize(d.blob && d.blob.size || 0) + ' · 格式：' + (d.blob && d.blob.type || 'video/webm') + '</span>'+
+          '</div>'+
+        '</div>';
+    }
+    if(d.savedAsset){
+      var sa = d.savedAsset;
+      savedBlock +=
+        '<div style="margin-top:10px;padding:8px 10px;border-radius:8px;background:rgba(46,160,67,.08);border:1px solid rgba(46,160,67,.25);font-size:12.5px">'+
+          '✅ 已保存为 VideoAsset：<b>'+ esc(sa.fileName||'') +'</b> · ' + fmtSize(sa.fileSize||0) +
+          '<div style="margin-top:6px;color:var(--muted)">位置：<code>' + esc(sa.filePath||'') + '</code></div>'+
+        '</div>';
+    }
+    if(d.mp4OutputPath){
+      savedBlock +=
+        '<div style="margin-top:8px;padding:8px 10px;border-radius:8px;background:rgba(14,124,123,.08);border:1px solid rgba(14,124,123,.25);font-size:12.5px">'+
+          '🎞 已转换 MP4：<code>' + esc(d.mp4OutputPath) + '</code>'+
+        '</div>';
+    }
+    if(d.errorMsg){
+      savedBlock +=
+        '<div style="margin-top:10px;padding:8px 10px;border-radius:8px;background:rgba(220,53,69,.06);border:1px solid rgba(220,53,69,.25);color:#9b1c2a;font-size:12.5px">'+
+          '⚠ 错误：' + esc(d.errorMsg) + '</div>';
+    }
+
+    // 控件：根据状态切换可用性
+    var btnStart = '<button class="btn" onclick="startAiDemo()" ' + (st === 'REQUESTING_SCREEN' || isRec ? 'disabled' : '') + '>🎬 开始 AI 自动演示</button>';
+    var btnPause = '<button class="btn sm ghost" onclick="pauseAiDemo()" ' + (st === 'RECORDING' ? '' : 'disabled') + '>⏸ 暂停 AI</button>';
+    var btnResume= '<button class="btn sm ghost" onclick="resumeAiDemo()" ' + (st === 'PAUSED' ? '' : 'disabled') + '>▶ 继续演示</button>';
+    var btnStop  = '<button class="btn sm ghost" onclick="stopAiDemo()" ' + (isRec ? '' : 'disabled') + '>⏹ 停止</button>';
+    var btnSave  = '<button class="btn" onclick="saveAiDemo()" ' + (d.blob && !d.savedAsset ? '' : 'disabled') + '>💾 保存为视频样本</button>';
+    var btnMp4   = '<button class="btn sm ghost" onclick="exportAiDemoMp4()" ' + ((d.savedAsset && d.savedAsset.filePath) ? '' : 'disabled') + '>🎞 导出 MP4</button>';
+    var btnRe    = '<button class="btn sm ghost" onclick="resetAiDemoForRerecord()" ' + ((d.blob || d.savedAsset) ? '' : 'disabled') + '>↻ 重新录制</button>';
+
+    ctrl.innerHTML =
+      '<div class="rec-stage"><div class="head"><span class="st" style="color:'+stColor+'">🎬 AI 自动演示 · '+ esc(stLabel) +'</span><span class="tm" id="aiDemoTimer" style="font-family:\'Space Grotesk\',sans-serif;font-weight:600">'+ fmtDur(tm) +'</span></div>'+
+      '<div class="script">'+
+        '<div class="step-txt">Rokit 智能规划器根据<strong>当前界面真实存在</strong>的页面与控件，自动生成滚动 / 点击 / 等待 / 验证的演示步骤，全程<strong>不发任何外部内容</strong>。</div>'+
+        '<div style="margin-top:10px;padding:8px 10px;border-radius:8px;background:var(--bg);border:1px solid var(--line);font-size:12.5px">'+
+          '<b>演示规划：</b>' + esc(d.planName || 'Rokit 真实界面演示（v1.16 规划器）') + '<br/>'+
+          '<b>已规划 / 已完成 / 失败 / 跳过 / 剩余：</b>' + stepTotal + ' / ' + doneCount + ' / ' + failedCount + ' / ' + skippedCount + ' / ' + remaining + '<br/>'+
+          '<b>最近一步：</b>' + esc(d.lastStepAction || '准备') +
+        '</div>'+
+        '<div class="step-bar" style="margin-top:10px">' + stepBars + '</div>'+
+        (recentLog ? '<div style="margin-top:8px;padding:6px 8px;border-radius:6px;background:var(--card);border:1px solid var(--line)">'+ recentLog +'</div>' : '') +
+        '<div style="height:14px"></div>'+
+        '<div class="choice" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'+
+          btnStart + btnPause + btnResume + btnStop +
+          '<span style="flex:1"></span>' +
+          btnSave + btnMp4 + btnRe +
+        '</div>'+
+        '<div class="demo-note" style="margin-top:12px;padding:10px 12px;border-radius:8px;background:rgba(14,124,123,.06);border:1px solid rgba(14,124,123,.2);font-size:12px;color:#0E6E6D;line-height:1.6">'+
+          '• 点击「开始」会在系统弹窗让你选择录制屏幕（推荐选 Rokit 主窗口本身，<b>不录麦克风</b>）<br/>'+
+          '• 智能规划器会扫描当前真实的页面与控件，<b>绝不对不存在的功能做虚构操作</b>；不存在的步骤自动跳过<br/>'+
+          '• 演示中可按<b>暂停 AI</b>，AI 停手但录屏继续；你自由操作后再按<b>继续演示</b><br/>'+
+          '• 安全过滤：包含「发布 / 上传 / 删除 / OAuth / Token / 清空 / 重置」等关键词的按钮<b>自动跳过</b>，永远不会自动触达'+
+        '</div>'+
+        savedBlock +
+        '<div style="height:14px"></div>'+
+        '<div class="choice" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'+
+          '<button class="btn sm ghost" onclick="closeAiDemoWorkspace()">← 返回视频选择</button>'+
+          '<span style="flex:1"></span>'+
+          '<button class="btn" onclick="aiDemoNext()">下一步：去打通平台</button>'+
+        '</div>'+
+      '</div></div>';
+  }
+
+  // 把已保存的 AI 录制资产采用为当前视频资产（幂等）。
+  // 注意：不携带 filePath —— 与 video:pick-local 的 toRendererAsset 保持一致（路径只在 main 进程）；
+  // main 端已在 demo:save-recording 时 stash 进 video-source 内部资产表，发布链路用 videoAssetId 反查。
+  function adoptAiDemoAsset(){
+    var sa = state.aiDemo && state.aiDemo.savedAsset;
+    if(!sa || !sa.id) return;
+    if(state.videoAsset && state.videoAsset.id===sa.id) return;
+    state.videoAsset={
+      id: sa.id,
+      sourceType: sa.sourceType || 'AI_RECORDING',
+      fileName: sa.fileName || '',
+      fileSize: sa.fileSize || 0,
+      mimeType: sa.mimeType || 'video/webm',
+      duration: (state.aiDemo && state.aiDemo.durationSec) || 0,
+      createdAt: sa.createdAt || new Date().toISOString()
+    };
+    state.videoState='VIDEO_READY';
+  }
+
+  // 「AI 演示视频」阶段的下一步：校验当前视频有效后，进入独立的「打通平台」页面。
+  // 有效 = 已保存的 AI 录制（savedAsset）或已选择的本地视频（state.videoAsset）。
+  // 无效时明确提示，不静默跳转。
+  window.aiDemoNext=function(){
+    if(state.aiDemo){
+      var st=state.aiDemo.status||'IDLE';
+      if(st==='RECORDING'||st==='PAUSED'||st==='REQUESTING_SCREEN'){
+        if(typeof toast==='function') toast('录制还在进行中，请先「停止」并保存视频', true);
+        return;
+      }
+    }
+    adoptAiDemoAsset();
+    if(!state.videoAsset || !state.videoAsset.id){
+      if(typeof toast==='function') toast('还没有可用视频：请先录制并「保存为视频样本」，或返回选择一个本地视频', true);
+      return;
+    }
+    goToPlatformsStage();
+  };
+
+  // 计时器 id
+  var __aiDemoTimer = null;
+  var __aiDemoStartMs = 0;
+  var __aiDemoMediaRec = null;
+  var __aiDemoStream = null;
+  var __aiDemoChunks = [];
+  var __aiDemoScriptTimer = null;
+  var __aiDemoWindowWatchTimer = null; // v1.20：录制期间轮询 Rokit 主窗口可见性
+  var __aiDemoPauseFlag = false;     // 用户暂停：禁止任何自动点击和键盘输入
+  var __aiDemoStopFlag = false;      // 用户停止：完全终止
+  var __aiDemoScriptRunning = false;
+
+  function __aiDemoTick(){
+    if(state.aiDemo && (state.aiDemo.status === 'RECORDING' || state.aiDemo.status === 'PAUSED')){
+      state.aiDemo.durationSec = (Date.now() - __aiDemoStartMs) / 1000;
+      var el = document.getElementById('aiDemoTimer');
+      if(el){
+        var s = Math.floor(state.aiDemo.durationSec || 0);
+        var m = Math.floor(s/60);
+        el.textContent = (m<10?'0':'')+m+':' + (s%60<10?'0':'')+(s%60);
+      }
+    }
+  }
+
+  // v1.19：开始录制前的隐私与捕获协商
+  //   这一层是新增的；旧逻辑保留作为兜底，但 startAiDemo 走新的二段式 startAiDemoWithConfirm()
+  //
+  //   关键目标：
+  //   1) **优先** 用 desktopCapturer 找 Rokit 主窗口 → getUserMedia + chromeMediaSourceId
+  //      → 强制只录 Rokit 窗口本身，不出现桌面/任务栏/其他窗口
+  //   2) 启动前用红框 preview overlay 标出实际录制区，用户可取消
+  //   3) 把实际捕获参数（captureType/sourceName/region）写入 state.aiDemo.captureRegion
+  //   4) getDisplayMedia 兜底（其他用户偏好窗口）
+  window.__aiFindRokitWindowSources = async function(){
+    try {
+      // Electron renderer exposes navigator.mediaDevices.getDisplayMedia but not direct desktopCapturer.
+      // However, Electron 18+ exposes chromeMediaSource via getUserMedia's mandatory constraints
+      // only when desktopCapturer is set up via main process. We fallback gracefully.
+      if(typeof window.api === 'undefined' || !window.api.demoListSources){
+        return [];
+      }
+      var r = await window.api.demoListSources();
+      if(r && r.ok && Array.isArray(r.sources)) return r.sources;
+      return [];
+    } catch(_e){ return []; }
+  };
+
+  window.__aiTakeCaptureRegionProbe = async function(){
+    // 让主进程返回当前 Rokit 窗口的边界；用于 preview 边框与录制元数据
+    try {
+      if(typeof window.api !== 'undefined' && window.api.captureListSources){
+        var r = await window.api.captureListSources();
+        if(r && r.ok) return r;
+      }
+    } catch(_e){}
+    return null;
+  };
+
+  // 渲染层：根据可用 source 与用户偏好，询问 Electron 主进程拉一份 capture
+  //   返回值：{ stream, captureType:'window', sourceName, region, error? }
+  //   v1.20：仅允许捕获 Rokit 主窗口本身；不允许 fallback 到 getDisplayMedia（避免整屏/标签页/桌面被录）
+  window.__aiOpenCaptureStream = async function(){
+    // ────── 路径 1：让主进程通过 desktopCapturer 找 Rokit 主窗口 → 用 chromeMediaSourceId 拿流 ──────
+    try {
+      if(typeof window.api !== 'undefined' && window.api.captureListSources){
+        var srcResp = await window.api.captureListSources();
+        if(srcResp && srcResp.ok && Array.isArray(srcResp.sources) && srcResp.sources.length){
+          // v1.20：严格只允许 Rokit 主窗口；其他窗口一律拒绝
+          var pick = srcResp.sources.find(function(s){return s.isRokitWindow;});
+          if(!pick){
+            window.__aiCaptureLastError = 'no-rokit-window-source:found ' + srcResp.sources.length + ' window(s) but none is Rokit';
+            return { error: 'no-rokit-window-source', errorMsg: '找不到 Rokit 主窗口的捕获源（只有 Rokit 自身会被录制）' };
+          }
+          if(pick.isRokitWindow && pick.region && pick.region.isMinimized){
+            window.__aiCaptureLastError = 'rokit-window-minimized';
+            return { error: 'rokit-window-minimized', errorMsg: 'Rokit 主窗口已最小化，无法安全录制。请先把窗口恢复后再开始。' };
+          }
+          if(pick.id && navigator.mediaDevices && navigator.mediaDevices.getUserMedia){
+            try {
+              var s = await navigator.mediaDevices.getUserMedia({
+                video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: pick.id } },
+                audio: false
+              });
+              if(s){
+                // 实时校验主窗口边界还在（防止用户中途切屏/移动窗口导致录制画面漂移）
+                var liveBounds = null;
+                try {
+                  if(typeof window.api.captureGetRokitBounds === 'function'){
+                    var lb = await window.api.captureGetRokitBounds();
+                    if(lb && lb.ok){ liveBounds = lb; }
+                  }
+                } catch(_e){}
+                if(liveBounds && liveBounds.isMinimized){
+                  try { s.getTracks().forEach(function(t){ try{ t.stop(); }catch(_e){} }); } catch(_e){}
+                  return { error: 'rokit-window-minimized-during-capture', errorMsg: 'Rokit 主窗口在捕获过程中被最小化。' };
+                }
+                var region = (pick.region && typeof pick.region.width === 'number')
+                  ? pick.region
+                  : (liveBounds && liveBounds.contentBounds ? liveBounds.contentBounds : null);
+                if(!region){
+                  try {
+                    if(typeof window.api.captureProbe === 'function'){
+                      var probe = await window.api.captureProbe({ sourceId: pick.id });
+                      if(probe && probe.region){ region = probe.region; }
+                    }
+                  } catch(_e){}
+                }
+                return {
+                  stream: s,
+                  captureType: 'window',
+                  sourceName: pick.name || 'rokit-window',
+                  region: region,
+                  liveBounds: liveBounds
+                };
+              }
+            } catch(innerErr){
+              window.__aiCaptureLastError = 'chromeMediaSourceId-failed:' + (innerErr && innerErr.message || innerErr);
+              return { error: 'chromeMediaSourceId-failed', errorMsg: 'desktopCapturer 拉流失败：' + (innerErr && innerErr.message || innerErr) };
+            }
+          }
+        } else {
+          window.__aiCaptureLastError = 'desktopCapturer-empty-list';
+        }
+      } else {
+        window.__aiCaptureLastError = 'no-captureListSources-ipc';
+      }
+    } catch(_e){
+      window.__aiCaptureLastError = String(_e && _e.message || _e);
+    }
+    // v1.20：不再 fallback 到 getDisplayMedia / 屏幕 / 标签页 / 整屏。
+    //        如果 desktopCapturer 失败，必须**直接告诉用户失败原因**，不允许悄悄退回全屏录制。
+    return { error: 'no-window-source', errorMsg: '无法只捕获 Rokit 主窗口：' + (window.__aiCaptureLastError || 'desktopCapturer 不可用') };
+  };
+
+  // 预录制预览 banner：让用户看到录制来源 / 区域信息。
+  //   设计原则（v1.20）：
+  //     1) 不在 Rokit 主窗口里画"红色虚线框"——避免被录进成片，也避免视觉污染。
+  //     2) 改用一个**右下角悬浮小条**展示来源信息 + 开始/取消按钮。
+  //     3) 该 banner 在 MediaRecorder.start() 之前一定会被销毁，**绝不进入录制画面**。
+  //     4) 如果无法定位真实可录区域（既无 desktopCapturer 又无 getDisplayMedia），
+  //        此函数返回 null，由上层直接放弃录制并提示用户。
+  window.__aiShowCapturePreview = function(opts){
+    opts = opts || {};
+    // 移除旧 banner
+    var old = document.getElementById('aiDemoCaptureOverlay');
+    if(old){ try{ old.remove(); }catch(_e){} }
+
+    // 计算预览范围（仅用作元数据 / 文字描述，不画框）
+    var region = opts.region;
+    if(!region){
+      var targetEl = document.querySelector('main .shell') || document.querySelector('main') || document.body;
+      var rect = targetEl.getBoundingClientRect();
+      region = { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
+    }
+
+    // 右下角悬浮小条（无虚线框、不占大块面积、不进入成片）
+    var ov = document.createElement('div');
+    ov.id = 'aiDemoCaptureOverlay';
+    ov.style.cssText =
+      'position:fixed;z-index:999998;pointer-events:auto;' +
+      'right:18px;bottom:18px;max-width:340px;min-width:240px;' +
+      'background:#FFFFFF;color:#203134;' +
+      'border:1px solid #BFE0DC;border-radius:10px;' +
+      'box-shadow:0 6px 24px rgba(0,0,0,.18);' +
+      'padding:10px 12px;font:13px/1.45 "Noto Sans SC","Microsoft YaHei",system-ui,sans-serif;' +
+      'box-sizing:border-box;display:flex;flex-direction:column;gap:8px;';
+    var captureTypeLabel = (opts.captureType === 'window') ? '窗口捕获'
+      : (opts.captureType === 'screen') ? '屏幕捕获'
+      : (opts.captureType === 'screen-or-tab' ? '屏幕/标签页' : '捕获源');
+    var sourceLabel = opts.sourceName ? esc(opts.sourceName) : '未命名';
+    ov.innerHTML =
+      '<div style="font-weight:700;font-size:13px;color:#0E7C7B">录制预览</div>'+
+      '<div style="color:#435557;font-size:12px;line-height:1.5">'+
+        '来源：'+ captureTypeLabel +' · '+ sourceLabel +'<br/>'+
+        '范围：约 '+ Math.round(region.width||0) +'×'+ Math.round(region.height||0) +' px（仅录 Rokit 窗口）'+
+      '</div>'+
+      '<div style="display:flex;gap:8px;justify-content:flex-end">'+
+        '<button id="aiDemoPreviewStop" style="background:#fff;color:#0b3a3a;border:1px solid #BFE0DC;border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;font-family:inherit;">取消</button>'+
+        '<button id="aiDemoPreviewRec" style="background:#0E7C7B;color:#fff;border:none;border-radius:8px;padding:6px 14px;font-size:12px;cursor:pointer;font-weight:600;font-family:inherit;">开始录制</button>'+
+      '</div>';
+    document.body.appendChild(ov);
+    var dismissed = { v: false };
+    function destroy(){ try{ ov.remove(); }catch(_e){} document.removeEventListener('keydown', onKey, true); }
+    function onKey(e){
+      if(!e) return;
+      if(e.key === 'Escape'){ dismissed.v = 'cancel'; destroy(); }
+      else if(e.key === 'Enter'){ dismissed.v = 'start'; destroy(); }
+    }
+    document.addEventListener('keydown', onKey, true);
+    document.getElementById('aiDemoPreviewStop').onclick = function(){ dismissed.v = 'cancel'; destroy(); };
+    document.getElementById('aiDemoPreviewRec').onclick = function(){ dismissed.v = 'start'; destroy(); };
+    return {
+      region: region,
+      isDismissed: function(){ return dismissed.v; },
+      // 暴露 destroy()，让外部保证"开始录制"前 banner 一定被销毁
+      destroy: destroy
+    };
+  };
+
+  // 主入口 v1.20：二段式（先 preview → 才正式录制）
+  //   严格只录 Rokit 主窗口；任一阶段失败都直接告诉用户具体原因，不退到全屏。
+  window.startAiDemo = async function() {
+    if(!state.aiDemo) state.aiDemo = { active:true };
+    state.aiDemo.errorMsg = '';
+    state.aiDemo.captureRegion = null;
+    state.aiDemo.captureType = '';
+    // 若已有未保存的产物，友好提示
+    if(state.aiDemo.blob && !state.aiDemo.savedAsset){
+      if(!confirm('当前有一段未保存的录屏，开始新录制会替换它。继续？')) return;
+    }
+    if(typeof window.api === 'undefined' || !window.api.captureListSources){
+      state.aiDemo.status = 'FAILED';
+      state.aiDemo.errorMsg = '当前环境不支持「只录 Rokit 窗口」的能力（需要 Rokit 主进程 / Electron 桌面版）。';
+      if(typeof toast==='function') toast(state.aiDemo.errorMsg, true);
+      renderLocalVideoStage(document.getElementById('ctrlBox'));
+      return;
+    }
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      state.aiDemo.status = 'FAILED';
+      state.aiDemo.errorMsg = '当前环境不支持 getUserMedia（需要 Electron / Chrome 桌面版）';
+      if(typeof toast==='function') toast(state.aiDemo.errorMsg, true);
+      renderLocalVideoStage(document.getElementById('ctrlBox'));
+      return;
+    }
+    state.aiDemo.status = 'REQUESTING_SCREEN';
+    __aiDemoStopFlag = false;
+    __aiDemoPauseFlag = false;
+    renderLocalVideoStage(document.getElementById('ctrlBox'));
+    // 第一段：拿到 stream + 捕获源信息
+    let capture;
+    try {
+      capture = await window.__aiOpenCaptureStream();
+    } catch(err){
+      capture = { error: 'open-capture:'+((err&&err.message)||String(err)) };
+    }
+    if(!capture || !capture.stream){
+      // v1.20：精确错误提示，绝不退回 getDisplayMedia/全屏
+      var reason = (capture && capture.errorMsg) || (capture && capture.error) || 'no-stream';
+      var last = window.__aiCaptureLastError ? (' · ' + window.__aiCaptureLastError) : '';
+      state.aiDemo.status = 'FAILED';
+      state.aiDemo.errorMsg = '无法只录 Rokit 窗口：' + reason + last;
+      if(typeof toast==='function') toast('无法开始录制：' + state.aiDemo.errorMsg, true);
+      renderLocalVideoStage(document.getElementById('ctrlBox'));
+      return;
+    }
+    state.aiDemo.captureType = capture.captureType || 'window';
+    state.aiDemo.captureSource = capture.sourceName || 'unknown';
+    state.aiDemo.captureRegion = capture.region || null;
+    // 第二段：显示预览 banner
+    var prev = window.__aiShowCapturePreview({ captureType: capture.captureType, sourceName: capture.sourceName, region: capture.region });
+    if(prev && prev.region){ state.aiDemo.captureRegion = prev.region; }
+    // 等用户点「开始录制」或「取消」（含点空白暂没事件，超时 8 秒则自动开始）
+    var waited = 0;
+    while(prev && prev.isDismissed && prev.isDismissed() === false && waited < 8000){
+      await new Promise(function(r){ setTimeout(r, 100); });
+      waited += 100;
+      if(__aiDemoStopFlag) break;
+    }
+    var decision = prev && prev.isDismissed ? prev.isDismissed() : 'start';
+    if(decision === 'cancel'){
+      try { capture.stream.getTracks().forEach(function(t){ try{ t.stop(); }catch(_e){} }); } catch(_e){}
+      state.aiDemo.status = 'IDLE';
+      state.aiDemo.errorMsg = '用户取消录制';
+      if(typeof toast==='function') toast('已取消录制', false);
+      renderLocalVideoStage(document.getElementById('ctrlBox'));
+      return;
+    }
+    if(__aiDemoStopFlag) return;
+    // 录制开始前再次校验 Rokit 主窗口仍在屏、未最小化
+    try {
+      if(typeof window.api.captureGetRokitBounds === 'function'){
+        var liveCheck = await window.api.captureGetRokitBounds();
+        if(!liveCheck || !liveCheck.ok || liveCheck.isMinimized){
+          try { capture.stream.getTracks().forEach(function(t){ try{ t.stop(); }catch(_e){} }); } catch(_e){}
+          state.aiDemo.status = 'FAILED';
+          state.aiDemo.errorMsg = 'Rokit 主窗口在开始录制前已不可见 / 已最小化。已放弃录制，未退回全屏。';
+          if(typeof toast==='function') toast(state.aiDemo.errorMsg, true);
+          renderLocalVideoStage(document.getElementById('ctrlBox'));
+          return;
+        }
+        // 用最新的真实坐标更新 captureRegion（防止用户中途移动窗口）
+        if(liveCheck.contentBounds){
+          state.aiDemo.captureRegion = liveCheck.contentBounds;
+        }
+      }
+    } catch(_e){}
+    // v1.20：保险起见，正式开始录制前再强制销毁一次 preview banner，
+    //   确保没有任何预览元素会被录进成片（包括按下"开始录制"按钮的瞬间）。
+    try { if(prev && typeof prev.destroy === 'function') prev.destroy(); } catch(_e){}
+    // 正式启动录制
+    await __aiDemoStartRecorder(capture.stream);
+  };
+
+  // 真正开始 recorder（被主入口调用）
+  async function __aiDemoStartRecorder(stream){
+    __aiDemoStream = stream;
+    __aiDemoChunks = [];
+    __aiDemoStartMs = Date.now();
+    var mime = '';
+    try {
+      if(typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported){
+        var cand = ['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'];
+        for(var i=0;i<cand.length;i++){ if(MediaRecorder.isTypeSupported(cand[i])){ mime = cand[i]; break; } }
+      }
+    } catch(_e){}
+    try { __aiDemoMediaRec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream); }
+    catch(err){
+      try { stream.getTracks().forEach(function(t){ t.stop(); }); } catch(_e){}
+      state.aiDemo.status = 'FAILED';
+      state.aiDemo.errorMsg = 'MediaRecorder 不可用：' + ((err && err.message) || String(err));
+      renderLocalVideoStage(document.getElementById('ctrlBox'));
+      return;
+    }
+    __aiDemoMediaRec.ondataavailable = function(ev){ if(ev && ev.data && ev.data.size) __aiDemoChunks.push(ev.data); };
+    __aiDemoMediaRec.onstop = __aiDemoOnMediaStop;
+    __aiDemoMediaRec.onerror = function(ev){
+      state.aiDemo.status = 'FAILED';
+      state.aiDemo.errorMsg = '录制异常：' + ((ev && ev.error && ev.error.message) || 'unknown');
+      renderLocalVideoStage(document.getElementById('ctrlBox'));
+    };
+    try { __aiDemoMediaRec.start(1000); } catch(err){
+      try { stream.getTracks().forEach(function(t){ t.stop(); }); } catch(_e){}
+      state.aiDemo.status = 'FAILED';
+      state.aiDemo.errorMsg = '启动录制失败：' + ((err && err.message) || String(err));
+      renderLocalVideoStage(document.getElementById('ctrlBox'));
+      return;
+    }
+    if(__aiDemoTimer) clearInterval(__aiDemoTimer);
+    __aiDemoTimer = setInterval(__aiDemoTick, 250);
+
+    // v1.20：录制期间持续校验 Rokit 主窗口可见性 / 未最小化
+    //   - 主窗口被最小化 / 失去焦点但仍在屏 → 暂停录制（不切换到其他源）
+    //   - 主窗口被关闭 → 安全停止（不悄悄退回全屏）
+    if(__aiDemoWindowWatchTimer) clearInterval(__aiDemoWindowWatchTimer);
+    __aiDemoWindowWatchTimer = setInterval(function(){
+      if(state.aiDemo && state.aiDemo.status === 'RECORDING' && typeof window.api !== 'undefined' && typeof window.api.captureGetRokitBounds === 'function'){
+        window.api.captureGetRokitBounds().then(function(lb){
+          if(!lb || !lb.ok) return;
+          if(lb.isMinimized){
+            if(!__aiDemoPauseFlag){
+              try { pauseAiDemo(); } catch(_e){}
+              if(typeof toast==='function') toast('Rokit 主窗口已最小化，已自动暂停录制', true);
+            }
+          }
+        }).catch(function(_e){});
+      }
+    }, 1500);
+
+    state.aiDemo.status = 'RECORDING';
+    state.aiDemo.stepIdx = 0;
+    state.aiDemo.durationSec = 0;
+    state.aiDemo.blob = null;
+    if(state.aiDemo.objectUrl){ try{ URL.revokeObjectURL(state.aiDemo.objectUrl); }catch(_e){} }
+    state.aiDemo.objectUrl = '';
+    state.aiDemo.savedAsset = null;
+    state.aiDemo.mp4OutputPath = '';
+    renderLocalVideoStage(document.getElementById('ctrlBox'));
+
+    // 触发演示脚本（v1.16：调用 Planner → Executor）
+    try { startAiDemoPlan(); } catch(_e) {
+      if(typeof toast==='function') toast('启动 AI 演示失败：'+((_e&&_e.message)||_e), true);
+    }
+
+    if(typeof toast==='function') toast('AI 自动演示已开始；可随时「暂停 AI」', false);
+  }
+
+  function __aiDemoResetAfterCancel(){
+    state.aiDemo.status = 'IDLE';
+    state.aiDemo.errorMsg = '';
+  }
+
+  // 演示脚本驱动：v1.16 已重写为 Planner + Executor，详见上方的 runAiDemoScript(plan) /
+  // startAiDemoPlan() / runAiDemoStep()。v1.15 的旧版本已删除，避免双重定义冲突。
+
+  function __aiDemoOnMediaStop(){
+    // 分两段 try：第一段（核心 IO）失败 → 标 FAILED；
+    //                第二段（渲染 / toast）失败 → 只记 errorMsg，不影响已成功保存的 blob / status。
+    try {
+      if(__aiDemoStream){ __aiDemoStream.getTracks().forEach(function(t){ try{t.stop();}catch(_e){} }); }
+      var blob = new Blob(__aiDemoChunks, { type: (__aiDemoMediaRec && __aiDemoMediaRec.mimeType) || 'video/webm' });
+      state.aiDemo.blob = blob;
+      if(state.aiDemo.objectUrl){ try{ URL.revokeObjectURL(state.aiDemo.objectUrl); }catch(_e){} }
+      try { state.aiDemo.objectUrl = URL.createObjectURL(blob); } catch(_e){ state.aiDemo.objectUrl = ''; }
+      // 时长：取最后一次 tick（start-based）
+      state.aiDemo.status = 'STOPPED';
+      if(__aiDemoTimer){ clearInterval(__aiDemoTimer); __aiDemoTimer = null; }
+    } catch(err){
+      state.aiDemo.status = 'FAILED';
+      state.aiDemo.errorMsg = '完成录制失败：' + ((err && err.message) || String(err));
+      try { renderLocalVideoStage(document.getElementById('ctrlBox')); } catch(__e){}
+      return;
+    }
+    // 第二段（仅 UI 渲染）：即便失败也不影响已生成的 blob
+    try {
+      renderLocalVideoStage(document.getElementById('ctrlBox'));
+    } catch(renderErr){
+      // 渲染失败 → blob / objectUrl / status='STOPPED' 都保留；只记一条提示
+      console.warn('[ai-demo] render on stop failed:', renderErr);
+      state.aiDemo.errorMsg = '渲染停止面板失败（视频数据已保留）：' + ((renderErr && renderErr.message) || String(renderErr));
+    }
+    try {
+      if(!__suppressStopToast && typeof toast==='function'){
+        toast('录制完成 · ' + fmtDur(state.aiDemo.durationSec || 0) + ' · ' + fmtSize(state.aiDemo.blob && state.aiDemo.blob.size || 0), false);
+      }
+    } catch(toastErr){
+      console.warn('[ai-demo] toast on stop failed:', toastErr);
+    }
+  }
+  var __suppressStopToast = false;
+
+  window.pauseAiDemo = function(){
+    if(!state.aiDemo) return;
+    if(state.aiDemo.status !== 'RECORDING') return;
+    __aiDemoPauseFlag = true;
+    state.aiDemo.status = 'PAUSED';
+    // 记录"接下来该恢复到的目标路由"：让恢复时回到计划步骤要的页面，再回原 user 路由
+    try {
+      var plan = state.aiDemo && state.aiDemo._planCache;
+      state.aiDemo._preemptedRoute = (state.route || '');
+      state.aiDemo._resumeTargetRoute = (plan && plan.steps && plan.steps[state.aiDemo.stepIdx || 0] && plan.steps[state.aiDemo.stepIdx || 0].route) || state.route || 'flow';
+    } catch(_e){}
+    renderLocalVideoStage(document.getElementById('ctrlBox'));
+    if(typeof toast==='function') toast('AI 已暂停；你可以自由操作当前页面', false);
+  };
+
+  window.resumeAiDemo = function(){
+    if(!state.aiDemo) return;
+    if(state.aiDemo.status !== 'PAUSED') return;
+    // 校验当前页面：是 Rokit 路由的 tab 才允许恢复；否则提示用户选择
+    var cur = state.route || 'flow';
+    var okRoutes = ['flow','dashboard','channels','works'];
+    if(okRoutes.indexOf(cur) < 0){
+      if(typeof toast==='function') toast('当前页面不是 Rokit 内置 tab（你在 '+ esc(cur) +'）。请切回 Rokit 主页再继续，或「停止」', true);
+      // 不自动恢复，需要用户决策
+      return;
+    }
+    // v1.17：如果用户当前所在 route 与计划下一步的 route 不同 → 用 toast 提示后切回
+    var wantRoute = state.aiDemo._resumeTargetRoute || cur;
+    try {
+      if(wantRoute && wantRoute !== cur && okRoutes.indexOf(wantRoute) >= 0){
+        if(typeof toast==='function') toast('已从「'+ esc(cur) +'」切回计划中的「'+ esc(wantRoute) +'」继续演示', false);
+        try { if(typeof AI_DEMO_EXECUTOR !== 'undefined' && AI_DEMO_EXECUTOR.route && AI_DEMO_EXECUTOR.route.set){ AI_DEMO_EXECUTOR.route.set(wantRoute); } else if(typeof go === 'function'){ go(wantRoute); } } catch(_e){}
+      }
+    } catch(_e){}
+    __aiDemoPauseFlag = false;
+    state.aiDemo.status = 'RECORDING';
+    renderLocalVideoStage(document.getElementById('ctrlBox'));
+    if(typeof toast==='function') toast('AI 已恢复继续演示', false);
+  };
+
+  window.stopAiDemo = function(opts){
+    opts = opts || {};
+    __suppressStopToast = !!opts.silent;
+    __aiDemoStopFlag = true;
+    __aiDemoPauseFlag = false;
+    if(__aiDemoScriptTimer){ clearTimeout(__aiDemoScriptTimer); __aiDemoScriptTimer = null; }
+    if(__aiDemoWindowWatchTimer){ clearInterval(__aiDemoWindowWatchTimer); __aiDemoWindowWatchTimer = null; }
+    if(__aiDemoMediaRec){
+      try {
+        if(__aiDemoMediaRec.state !== 'inactive') __aiDemoMediaRec.stop();
+      } catch(_e){}
+    } else if(__aiDemoStream){
+      // 没有 MediaRecorder 但有 stream：也释放
+      try { __aiDemoStream.getTracks().forEach(function(t){ try{t.stop();}catch(_e){} }); } catch(_e){}
+      state.aiDemo.status = 'STOPPED';
+      if(__aiDemoTimer){ clearInterval(__aiDemoTimer); __aiDemoTimer = null; }
+      renderLocalVideoStage(document.getElementById('ctrlBox'));
+    }
+    __suppressStopToast = false;
+    if(!opts.silent && typeof toast==='function'){
+      if(opts.auto) toast('脚本演示已自动结束；录屏可在下方保存', false);
+      else toast('已停止录屏', false);
+    }
+  };
+
+  // 保存：用 IPC 把已产生的临时 WebM 转移到 userData/videos（v1.15 用 blob 转 base64 → 主进程写盘）
+  window.saveAiDemo = async function(){
+    if(!state.aiDemo || !state.aiDemo.blob){
+      if(typeof toast==='function') toast('没有可保存的录屏，请先录制', true);
+      return;
+    }
+    if(typeof window.api === 'undefined' || !window.api.demoSaveRecording){
+      state.aiDemo.errorMsg = 'AI 演示 IPC 不可用（请重启 Rokit 主进程）';
+      renderLocalVideoStage(document.getElementById('ctrlBox'));
+      return;
+    }
+    var b64 = await (function(blob){
+      return new Promise(function(res, rej){
+        var fr = new FileReader();
+        fr.onload = function(){ res(String(fr.result || '').split(',')[1] || ''); };
+        fr.onerror = function(){ rej(new Error('blob-read-failed')); };
+        fr.readAsDataURL(blob);
+      });
+    })(state.aiDemo.blob);
+    try {
+      // 主进程按照 blobBase64 / ext 写盘到 userData/videos/<id>.<ext>
+      var ext = (state.aiDemo.blob.type && /video\/(\w+)/i.exec(state.aiDemo.blob.type)[1]) || 'webm';
+      var r = await window.api.demoSaveRecording({
+        ext: ext, blobBase64: b64,
+        // v1.19：把 capture 元信息也送到主进程，写到同名 .meta.json sidecar
+        captureType: state.aiDemo.captureType || '',
+        captureSource: state.aiDemo.captureSource || '',
+        captureRegion: state.aiDemo.captureRegion || null,
+        captureSize: (state.aiDemo.captureRegion ? { width: state.aiDemo.captureRegion.width, height: state.aiDemo.captureRegion.height } : null)
+      });
+      if(!r || !r.ok){ throw new Error((r && r.error) || 'save-failed'); }
+      state.aiDemo.savedAsset = r.asset;
+      state.aiDemo.status = 'SAVED';
+      // 保存成功后自动采用为当前视频资产，「下一步」可直接进入打通平台，无需重选/重存
+      adoptAiDemoAsset();
+      if(typeof toast==='function') toast('已保存到 ' + (r.asset && r.asset.filePath || '本地'), false);
+      renderLocalVideoStage(document.getElementById('ctrlBox'));
+    } catch(err){
+      state.aiDemo.errorMsg = '保存失败：' + ((err && err.message) || String(err));
+      renderLocalVideoStage(document.getElementById('ctrlBox'));
+    }
+  };
+
+  window.resetAiDemoForRerecord = function(){
+    if(!state.aiDemo) return;
+    if(state.aiDemo.blob && !state.aiDemo.savedAsset){
+      if(!confirm('当前有未保存的录制，确定重新录制？')) return;
+    }
+    if(state.aiDemo.objectUrl){ try{ URL.revokeObjectURL(state.aiDemo.objectUrl); }catch(_e){} }
+    state.aiDemo.blob = null;
+    state.aiDemo.objectUrl = '';
+    state.aiDemo.durationSec = 0;
+    state.aiDemo.savedAsset = null;
+    state.aiDemo.mp4OutputPath = '';
+    state.aiDemo.errorMsg = '';
+    state.aiDemo.status = 'IDLE';
+    state.aiDemo.stepIdx = 0;
+    renderLocalVideoStage(document.getElementById('ctrlBox'));
+  };
+
+  window.exportAiDemoMp4 = async function(){
+    if(!state.aiDemo || !state.aiDemo.savedAsset){
+      if(typeof toast==='function') toast('请先保存 WebM，再转 MP4', true);
+      return;
+    }
+    if(typeof window.api === 'undefined' || !window.api.demoExportMp4){
+      state.aiDemo.errorMsg = 'demoExportMp4 IPC 不可用';
+      renderLocalVideoStage(document.getElementById('ctrlBox'));
+      return;
+    }
+    try {
+      var r = await window.api.demoExportMp4({ inputPath: state.aiDemo.savedAsset.filePath });
+      if(!r || !r.ok){ throw new Error((r && r.error) || 'export-failed'); }
+      state.aiDemo.mp4OutputPath = r.outputPath;
+      if(typeof toast==='function') toast('MP4 已生成', false);
+      renderLocalVideoStage(document.getElementById('ctrlBox'));
+    } catch(err){
+      // v1.20.1：主进程错误已带完整诊断（ffmpeg-unavailable:... | tried=...），直接透传
+      state.aiDemo.errorMsg = 'MP4 导出失败：' + ((err && err.message) || String(err));
+      renderLocalVideoStage(document.getElementById('ctrlBox'));
+    }
+  };
+
+  // 释放所有 AI 演示占用的资源（卸载 / 关页面时调用）
+  window.__disposeAiDemo = function(){
+    try { stopAiDemo({ silent: true }); } catch(_e){}
+    try { if(state.aiDemo && state.aiDemo.objectUrl) URL.revokeObjectURL(state.aiDemo.objectUrl); } catch(_e){}
+    __aiDemoMediaRec = null;
+    __aiDemoStream = null;
+    __aiDemoChunks = [];
+    if(__aiDemoTimer){ clearInterval(__aiDemoTimer); __aiDemoTimer = null; }
+  };
+  window.addEventListener('beforeunload', function(){ try{ window.__disposeAiDemo(); }catch(_e){} });
+
 
 
 
@@ -4244,6 +6554,16 @@
 
   };
 
+  // 在首秀向导内跳到「打通平台」步骤（首秀计划 / 录屏流程 / AI 演示视频保存后的下一步）。
+  // 留在 flow 路由内，由 renderStep(s===11) 渲染授权与连接 + 平台网格。
+  // 不切换 data-route，避免平台连接内容脱离首秀发射轨道。
+  window.goToPlatformsStage=function(){
+    stopDemo();
+    state.step=11;
+    renderRail();
+    renderFlow();
+  };
+
   window.submitName=function(e){stopDemo();
 
     e.preventDefault();
@@ -4277,6 +6597,8 @@
       if(/^https?:\/\//i.test(url))state.project.url=url;
       else if(!intro)state.project.intro=url;
     }
+    // 注意：YouTube 视频链接不再在此处手动填写。
+    // 作品发布到 YouTube 成功后，由发布流程自动回写 yt_url（见 launch() 的 youtube 分支）。
 
     pushAI('收到。它属于哪一类作品？');
 
@@ -4432,7 +6754,7 @@
 
   function selCount(){var n=0;for(var k in state.sel){if(state.sel[k])n++;}return n;}
 
-  var DIR_NEED={douyin:'竖屏',xhs:'竖屏',xiaohongshu:'竖屏',jike:'竖屏',bili:'任意',github:'横屏',ph:'横屏',v2ex:'横屏',juejin:'横屏',zhihu:'横屏',wechat:'横屏',facebook:'任意',youtube:'横屏',x:'任意'};
+  var DIR_NEED={douyin:'竖屏',xiaohongshu:'竖屏',jike:'竖屏',bili:'任意',github:'横屏',ph:'横屏',v2ex:'横屏',juejin:'横屏',zhihu:'横屏',wechat:'横屏',facebook:'任意',youtube:'横屏',x:'任意'};
 
   function autoPubStatus(pid){
 
@@ -4466,7 +6788,11 @@
 
   function renderPlatforms(){
 
-    var g=document.getElementById('platGrid'),html='';
+    // 同一份卡片 HTML 渲染到两个容器：
+    //   platGrid     —— 首秀向导 step 11 内（聊天流中的平台选择）
+    //   platGridPage —— 独立「打通平台」页（channels 路由 platforms 子视图）
+    // 二者共用 PLATFORMS 与 state.sel，禁止再复制一份平台配置。
+    var html='';
 
     [['cn','国内媒体平台'],['global','国外媒体平台']].forEach(function(rg){
 
@@ -4478,11 +6804,26 @@
 
     });
 
-    g.innerHTML=html;
+    var g=document.getElementById('platGrid');if(g)g.innerHTML=html;
+    var gp=document.getElementById('platGridPage');if(gp)gp.innerHTML=html;
+
+    // 独立页主按钮：与向导内 step 11 的 genAll 按钮状态保持一致
+    var bn=document.getElementById('platPageNext');
+    if(bn){var n=selCount();bn.disabled=(n<1);bn.textContent='生成发布文案（已选 '+n+'）';}
 
   }
 
-  window.toggleSel=function(id){state.sel[id]=!state.sel[id];renderFlow();};
+  window.toggleSel=function(id){state.sel[id]=!state.sel[id];renderPlatforms();renderFlow();};
+
+  // 「生成发布文案」按钮：复用向导现有 genAll 发布队列流程。
+  // 留在 flow 路由内推进到 step 12（发布清单），不切换 data-route。
+  window.platPageNext=function(){
+    if(selCount()<1){if(typeof toast==='function')toast('请先点选至少一个平台',true);return;}
+    state.step=12;
+    renderRail();
+    renderFlow();
+    genAll();
+  };
 
   window.genAll=function(){stopDemo();
 
@@ -4698,6 +7039,31 @@
     if(!/^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/.test(owner))return null;
     if(!/^[A-Za-z0-9._-]+$/.test(repo))return null;
     return { owner:owner, repo:repo, isRepo:true, url:'https://github.com/'+owner+'/'+repo };
+  }
+  // v5：YouTube 视频 ID 解析（与主进程 main.js 规则保持一致）
+  //   支持 watch?v= / youtu.be/ / shorts/ / embed/ 四种格式；host 精确匹配，
+  //   GitHub 等其他域名一律返回 null，不会误判。
+  function parseYoutubeVideoId(rawUrl){
+    if(!rawUrl) return null;
+    var s = String(rawUrl).trim();
+    if(!s) return null;
+    if(!/^https?:\/\//i.test(s)) s = 'https://' + s;
+    var u;
+    try { u = new URL(s); } catch (_e) { return null; }
+    var host = String(u.hostname || '').toLowerCase();
+    var id = null;
+    if (host === 'youtu.be') {
+      id = u.pathname.split('/').filter(Boolean)[0] || null;
+    } else if (host === 'youtube.com' || host === 'www.youtube.com' || host === 'm.youtube.com') {
+      var p = u.pathname;
+      if (p === '/watch') id = u.searchParams.get('v');
+      else {
+        var m = p.match(/^\/(shorts|embed|live)\/([^/?#]+)/);
+        if (m) id = m[2];
+      }
+    }
+    if (id && /^[A-Za-z0-9_-]{11}$/.test(id)) return id;
+    return null;
   }
   function blobToBase64(blob){
     return new Promise(function(resolve,reject){
@@ -5358,14 +7724,26 @@
           var u=r.url || ('https://www.youtube.com/watch?v='+r.videoId);
           toast('✓ YouTube 发布成功 · '+r.videoId);
           markPub(id);
+          // v5：发布成功后自动回写 YouTube 视频链接到当前作品，用于「我的作品」播放量统计
+          // 优先使用发布接口返回的完整 URL；否则用 videoId 拼接标准 watch URL。
+          // 不覆盖已有有效链接（仅当当前无链接或链接无法解析出视频 ID 时才写入）。
+          try {
+            var curYt = state.project.ytUrl || '';
+            var shouldWrite = !curYt || (typeof parseYoutubeVideoId==='function' && !parseYoutubeVideoId(curYt));
+            if(shouldWrite && typeof parseYoutubeVideoId==='function' && parseYoutubeVideoId(u)){
+              state.project.ytUrl = u;
+              if(typeof persistCurrentWork==='function') persistCurrentWork();
+            }
+          } catch(_e){ /* 回写失败不影响发布成功提示 */ }
           if(window.confirm('发布成功！\n\n视频链接：'+u+'\n\n点「确定」在浏览器打开查看。')){
             window.api.openExternal(u);
           }
         } else if(r && (r.status==='need_login' || r.error==='NOT_CONNECTED' || r.error==='YOUTUBE_REAUTH_REQUIRED')){
           toast('YouTube 授权问题：'+(r.note||r.error||'请重新授权'));
           if(r.hint==='reauth' || r.error==='YOUTUBE_REAUTH_REQUIRED'){
-            if(window.confirm('YouTube 授权已失效，是否立即前往推广渠道重新授权？')){
-              document.getElementById('openChannelsBtn') && document.getElementById('openChannelsBtn').click();
+            if(window.confirm('YouTube 授权已失效，是否立即前往「打通平台」重新授权？')){
+              // 留在首秀向导内，推进到 step 11 触发 renderStep 内嵌平台面板。
+              goToPlatformsStage();
             }
           }
         } else if(r && r.status==='need_file'){
@@ -5521,6 +7899,7 @@
         type:state.project.type||'',
         intro:state.project.intro||'',
         url:state.project.url||'',
+        yt_url:state.project.ytUrl||'',
         status:'首秀中',
         color:STATUS_COLOR['首秀中']||'#F59E0B',
         queue:'主推',
@@ -5540,6 +7919,7 @@
       if(state.project.type) w.type=state.project.type;
       if(state.project.intro) w.intro=state.project.intro;
       if(state.project.url) w.url=state.project.url;
+      if('ytUrl' in state.project) w.yt_url=state.project.ytUrl||'';
       w.status=(w.status==='待启动'||!w.status)?'首秀中':w.status;
       w.color=STATUS_COLOR[w.status]||w.color;
     }
@@ -5804,7 +8184,7 @@
 
   /* ===== 推广渠道管理（增删改 + 连通性测试） =====
      kind 取值：
-       - 13 个内置平台 id（github/ph/v2ex/juejin/jike/bili/xhs/douyin/zhihu/wechat/facebook/youtube/x）
+       - 12 个内置平台 id（github/ph/v2ex/juejin/jike/bili/douyin/zhihu/wechat/facebook/youtube/x）
        - 'custom'（自定义 webhook / API）
   */
 
@@ -6631,7 +9011,7 @@
                   return '<span class="wstatus '+_chipClass+'" title="'+esc(_s)+'">'+esc(_chipLabel)+'</span>';
                 })()+
         '<span class="wq" style="background:'+(w.queue==='主推'?'#0E7C7B':'#E4ECEB')+';color:'+(w.queue==='主推'?'#fff':'#5A6B72')+'">'+w.queue+'</span>'+
-        '<div class="wm" onclick="openWork(\''+w.id+'\')"><div class="wv">Star<b>'+(w.star||0).toLocaleString()+'</b></div><div class="wv">下载<b>'+(w.dl||0).toLocaleString()+'</b></div><div class="wv">访客<b>'+(w.visitors==null?'--':(w.visitors||0).toLocaleString())+'</b></div></div>'+
+        '<div class="wm" onclick="openWork(\''+w.id+'\')"><div class="wv">Star<b>'+(w.star||0).toLocaleString()+'</b></div><div class="wv">下载<b>'+(w.dl||0).toLocaleString()+'</b></div><div class="wv"'+(function(){var _noYt=!(w.yt_url&&String(w.yt_url).trim())&&!(w.url&&/(?:youtube\.com|youtu\.be)/i.test(String(w.url)));return _noYt?' title="未配置 YouTube 视频链接，播放量无法统计"':'';})()+'>播放<b>'+(w.yt_views==null?'--':(w.yt_views||0).toLocaleString())+'</b></div></div>'+
         '<div class="wnx" onclick="openWork(\''+w.id+'\')">下一步：'+esc(w.next||'登记推广')+'</div></div>';
 
     });
@@ -6670,11 +9050,12 @@
   var __ghs = { isRefreshing:false, worksFirstLoaded:false, lastRefreshAt:0 };
   window.__ghs = __ghs;
 
-  window.refreshWorksGithubStats = async function(){
+  window.refreshWorksGithubStats = async function(opts){
     if(__ghs.isRefreshing){
       try{ console.log('[GitHubStats] refresh already in progress, skip'); }catch(_e){}
       return;
     }
+    var force = !!(opts && opts.force); // 手动点「↻ 刷新」= true；首次进入自动触发 = false（用缓存）
     var real = (state.works||[]).filter(function(w){return w && !w.isSample;});
     if(!real.length){
       try{ toast('还没有真实作品，先点「+ 登记新作品」', 'warn'); }catch(_e){}
@@ -6686,7 +9067,22 @@
     // 卡片 loading 视觉（淡灰 + 不响应点击）；数字不清空
     document.querySelectorAll('.wcard:not(.wsample)').forEach(function(c){ c.classList.add('ghs-loading'); });
     try{
-      var payload = real.map(function(w){ return { id:w.id, url:w.url||'' }; });
+      // YouTube 播放量缓存策略：6 小时内视为新鲜；无缓存 / 过期 / 手动刷新时才重新请求
+      var YT_CACHE_TTL = 6*3600*1000;
+      var nowTs = Date.now();
+      var payload = real.map(function(w){
+        var hasYtLink = !!(w.yt_url && String(w.yt_url).trim()) || /(?:youtube\.com|youtu\.be)/i.test(String(w.url||''));
+        var wantYt = false;
+        if (hasYtLink) {
+          if (force) wantYt = true;
+          else if (w.yt_views == null) wantYt = true;
+          else {
+            var ts = w.yt_updated_at ? new Date(w.yt_updated_at).getTime() : 0;
+            if (!ts || (nowTs - ts) > YT_CACHE_TTL) wantYt = true;
+          }
+        }
+        return { id:w.id, url:w.url||'', yt_url:w.yt_url||'', name:w.name||'', wantYt:wantYt };
+      });
       var res = await window.api.refreshGithubStats(payload);
       if(!res || !res.ok){
         var em = (res && res.error) || 'IPC 调用失败';
@@ -6698,9 +9094,22 @@
       var updated = 0, failed = 0;
       // 收集首个真实错误（用于 toast 显示，避免统一"刷新失败"）
       var firstFailDetail = null;
+      var ytNoKey = false, ytOkCount = 0, ytFailCount = 0;
       updates.forEach(function(u){
         var w = findWork(u.id);
         if(!w) return;
+        // v5：YouTube 播放量（与 GitHub 字段完全独立；失败保留旧缓存，绝不显示 0）
+        if (typeof u.yt_views === 'number') {
+          w.yt_views = u.yt_views;
+          w.yt_updated_at = u.yt_updated_at || new Date().toISOString();
+          ytOkCount++;
+          try{ window.api.saveWork({ id: w.id, yt_views: w.yt_views, yt_updated_at: w.yt_updated_at }).catch(function(){}); }catch(_e){}
+        } else if (u.yt_views_error) {
+          ytFailCount++;
+          try{ console.warn('[YouTubeStats]', w.name||w.id, 'views failed:', u.yt_views_error, 'reason=' + (u.yt_reason||'?'), 'http=' + (u.yt_http_status==null?'-':u.yt_http_status)); }catch(_e){}
+          if (u.yt_reason === 'no-api-key') ytNoKey = true;
+        }
+        if (u.ytOnly) return; // 仅 YouTube 更新的条目不参与 GitHub 成败计数
         if(u.ok){
           // 成功：按字段回写（null 表示该指标本次失败 → 保留旧值，不清零）
           var changed = false;
@@ -6746,15 +9155,22 @@
         }
       });
       __ghs.lastRefreshAt = Date.now();
-      // 局部刷新每个真实作品卡片上的 Star / 下载 / 访客 三栏（其它字段保留）
+      // 局部刷新每个真实作品卡片上的 Star / 下载 / 播放 三栏（其它字段保留）
       real.forEach(function(w){
         var card = document.querySelector('[data-work-id="'+w.id+'"]');
         if(!card) return;
         var boxes = card.querySelectorAll('.wm .wv b');
         if (boxes[0]) boxes[0].textContent = (w.star || 0).toLocaleString();
         if (boxes[1]) boxes[1].textContent = (w.dl   || 0).toLocaleString();
-        if (boxes[2]) boxes[2].textContent = (w.visitors == null ? '--' : (w.visitors || 0).toLocaleString());
+        if (boxes[2]) boxes[2].textContent = (w.yt_views == null ? '--' : (w.yt_views || 0).toLocaleString());
       });
+      // YouTube 播放量结果提示（独立于 GitHub 提示；失败已保留旧缓存）
+      if (ytNoKey) {
+        try{ toast('未配置 YouTube Data API Key，播放量未更新；请到「设置」中配置', 'warn', 4200); }catch(_e){}
+      } else if (ytFailCount && !ytOkCount && !updated && !failed) {
+        // 仅 YouTube 刷新且全部失败时才单独提示（GitHub 提示逻辑在下方）
+        try{ toast('YouTube 播放量获取失败，已保留上次数据', 'warn', 3000); }catch(_e){}
+      }
       if(updated && !failed)      try{ toast('GitHub 数据刷新完成', 'ok', 1800); }catch(_e){}
       else if(updated && failed)  try{ toast('部分 GitHub 数据刷新失败（'+failed+' 个保留旧数据）', 'warn', 2600); }catch(_e){}
       else if(firstFailDetail){
@@ -6849,7 +9265,7 @@
 
     state.curWork=id;
 
-    state.project={name:w.name,type:w.type,intro:w.intro,url:w.url||''};
+    state.project={name:w.name,type:w.type,intro:w.intro,url:w.url||'',ytUrl:w.yt_url||''};
 
     state.rec={running:false,blob:null,url:null,dur:0,stepIdx:0};state.videoAsset=null;state.videoState='NO_VIDEO';
 
@@ -6915,7 +9331,7 @@
     while(exists.indexOf('w'+n)>=0||SAMPLE_WORK_IDS.indexOf('w'+n)>=0)n++;
     var id='w'+n;
 
-    state.works.push({id:id,name:'新作品',type:'效率工具',status:'待启动',color:'#9CA3AF',queue:'排队',star:0,dl:0,play:'0',next:'登记推广',intro:'',url:''});
+    state.works.push({id:id,name:'新作品',type:'效率工具',status:'待启动',color:'#9CA3AF',queue:'排队',star:0,dl:0,play:'0',next:'登记推广',intro:'',url:'',yt_url:''});
 
     state.curWork=id;
 
@@ -6989,6 +9405,11 @@
     // 示例作品保留 isSample 标记；其他字段正常标准化
     var out={id:w.id,name:w.name||'未命名',type:w.type||'效率工具',status:status,color:STATUS_COLOR[status]||'#9CA3AF',queue:w.queue||'排队',star:Number(w.star)||0,dl:Number(w.dl)||0,play:(w.play||'0').toString(),next:w.next||'登记推广',intro:w.intro||'',url:w.url||''};
 
+    // v5：YouTube 播放量字段透传（yt_views 保持 null/数字原值，用于区分「从未获取」与「0 播放」）
+    out.yt_url = w.yt_url || '';
+    out.yt_views = (w.yt_views === null || w.yt_views === undefined) ? null : (Number(w.yt_views) || 0);
+    out.yt_updated_at = w.yt_updated_at || null;
+
     if(w.isSample)out.isSample=true;
 
     return out;
@@ -7009,6 +9430,9 @@
     if(state.project.intro)w.intro=state.project.intro;
 
     if(state.project.url)w.url=state.project.url;
+
+    // v5：YouTube 视频链接（key 存在即同步；空字符串 = 用户主动清空，播放量恢复显示 --）
+    if('ytUrl' in state.project){ w.yt_url = state.project.ytUrl || ''; }
 
     // v1.9：保存时二次校验 — 如果用户填的 url 含 github.com 但格式不是仓库，
     //   给出 console.warn 提示（避免用户误以为填了 GitHub 就能拉 Stats）。
@@ -7334,214 +9758,6 @@
     }
   }
   initWindowControls();
-
-  // ---- v1.7：通用浏览器框架（v1.7 调试入口） ----
-  // 这些函数只调用 window.api.browser*，不会把任何 Node API / BrowserWindow
-  // 句柄带回渲染进程；遵守 contextIsolation + sandbox 默认安全设置。
-  function _bfSetResult(text, cls){
-    var el = document.getElementById('bfResult');
-    if(!el) return;
-    el.className = 'status ' + (cls || '');
-    el.textContent = text;
-  }
-  function _bfPretty(obj){
-    try { return JSON.stringify(obj, null, 2); }
-    catch(_){ return String(obj); }
-  }
-  window.browserFrameworkOpen = async function(platformId){
-    if(!window.api || !window.api.browserOpen){ _bfSetResult('window.api.browserOpen 不可用', 'err'); return; }
-    _bfSetResult('正在打开 ' + platformId + ' …');
-    try{
-      var r = await window.api.browserOpen(platformId);
-      _bfSetResult('打开成功\n' + _bfPretty(r), r && r.ok ? 'ok' : 'err');
-    }catch(e){ _bfSetResult('打开失败：' + String(e && e.message || e), 'err'); }
-  };
-  window.browserFrameworkClose = async function(platformId){
-    if(!window.api || !window.api.browserClose){ _bfSetResult('window.api.browserClose 不可用', 'err'); return; }
-    try{
-      var r = await window.api.browserClose(platformId);
-      _bfSetResult('关闭结果：' + _bfPretty(r), r && r.ok ? 'ok' : 'err');
-    }catch(e){ _bfSetResult('关闭失败：' + String(e && e.message || e), 'err'); }
-  };
-  window.browserFrameworkStatus = async function(){
-    if(!window.api || !window.api.browserStatus){ _bfSetResult('window.api.browserStatus 不可用', 'err'); return; }
-    try{
-      var r = await window.api.browserStatus();
-      _bfSetResult('窗口状态：\n' + _bfPretty(r), r && r.ok ? 'ok' : 'err');
-    }catch(e){ _bfSetResult('查询失败：' + String(e && e.message || e), 'err'); }
-  };
-  window.browserFrameworkLoginStatus = async function(platformId){
-    if(!window.api || !window.api.browserLoginStatus){ _bfSetResult('window.api.browserLoginStatus 不可用', 'err'); return; }
-    _bfSetResult('正在检测登录态 …');
-    try{
-      var r = await window.api.browserLoginStatus(platformId);
-      _bfSetResult('登录态：\n' + _bfPretty(r), r && r.ok ? 'ok' : 'err');
-    }catch(e){ _bfSetResult('检测失败：' + String(e && e.message || e), 'err'); }
-  };
-  window.browserFrameworkFill = async function(platformId){
-    if(!window.api || !window.api.browserFill){ _bfSetResult('window.api.browserFill 不可用', 'err'); return; }
-    _bfSetResult('正在自动填充 …（不会点击提交按钮）');
-    try{
-      var r = await window.api.browserFill(platformId, {
-        title: 'Electron 自动填充测试',
-        content: '这是 Electron 内置浏览器自动填充功能测试。'
-      });
-      _bfSetResult('填充结果：\n' + _bfPretty(r), r && r.ok ? 'ok' : 'err');
-    }catch(e){ _bfSetResult('填充失败：' + String(e && e.message || e), 'err'); }
-  };
-  window.browserFrameworkPublish = async function(platformId){
-    if(!window.api || !window.api.browserPublish){ _bfSetResult('window.api.browserPublish 不可用', 'err'); return; }
-    _bfSetResult('正在执行完整流程（open → 登录检测 → 等待登录 → 打开 publish 页 → 自动填充 → 停止） …');
-    try{
-      var r = await window.api.browserPublish(platformId, {
-        title: 'Electron 自动填充测试',
-        content: '这是 Electron 内置浏览器自动填充功能测试。'
-      });
-      _bfSetResult('流程结果：\n' + _bfPretty(r), r && r.ok ? 'ok' : 'err');
-    }catch(e){ _bfSetResult('流程失败：' + String(e && e.message || e), 'err'); }
-  };
-  window.browserFrameworkDestroy = async function(platformId){
-    if(!window.api || !window.api.browserDestroySession){ _bfSetResult('window.api.browserDestroySession 不可用', 'err'); return; }
-    if(!confirm('确认销毁平台 ' + platformId + ' 的登录态？\n（关闭窗口并清空该 partition 的 Cookie / LocalStorage）')) return;
-    try{
-      var r = await window.api.browserDestroySession(platformId);
-      _bfSetResult('销毁结果：' + _bfPretty(r), r && r.ok ? 'ok' : 'err');
-    }catch(e){ _bfSetResult('销毁失败：' + String(e && e.message || e), 'err'); }
-  };
-
-  // ---- v1.8：知乎真实平台调试（独立结果区 #bfZhihuResult） ----
-  function _bfZhSetResult(text, cls){
-    var el = document.getElementById('bfZhihuResult');
-    if(!el) return;
-    el.className = 'status ' + (cls || '');
-    el.textContent = text;
-  }
-  window.browserFrameworkZhihuOpen = async function(){
-    if(!window.api || !window.api.browserOpen){ _bfZhSetResult('window.api.browserOpen 不可用', 'err'); return; }
-    _bfZhSetResult('正在打开知乎 BrowserWindow …\n（首次使用：会跳转到 https://www.zhihu.com/signin，请在窗口内登录）');
-    try{
-      var r = await window.api.browserOpen('zhihu');
-      _bfZhSetResult('已打开知乎窗口\n' + _bfPretty(r), r && r.ok ? 'ok' : 'err');
-    }catch(e){ _bfZhSetResult('打开失败：' + String(e && e.message || e), 'err'); }
-  };
-  window.browserFrameworkZhihuLogin = async function(){
-    if(!window.api || !window.api.browserLoginStatus){ _bfZhSetResult('window.api.browserLoginStatus 不可用', 'err'); return; }
-    try{
-      var r = await window.api.browserLoginStatus('zhihu');
-      _bfZhSetResult('知乎登录态：' + (r && r.status) + '\n' + _bfPretty(r), r && r.ok ? 'ok' : 'err');
-    }catch(e){ _bfZhSetResult('查询失败：' + String(e && e.message || e), 'err'); }
-  };
-  window.browserFrameworkZhihuFill = async function(){
-    if(!window.api || !window.api.browserFill){ _bfZhSetResult('window.api.browserFill 不可用', 'err'); return; }
-    _bfZhSetResult('正在知乎页面里自动填充 …\n（不会点击「发布」按钮）');
-    try{
-      var r = await window.api.browserFill('zhihu', {
-        title: 'Electron 知乎自动填充测试',
-        content: '这是一篇由 Electron 自动填充的测试文章。\n\n第一段内容。\n\n第二段内容。'
-      });
-      _bfZhSetResult('填充结果：\n' + _bfPretty(r), r && r.ok ? 'ok' : 'err');
-    }catch(e){ _bfZhSetResult('填充失败：' + String(e && e.message || e), 'err'); }
-  };
-  window.browserFrameworkZhihuPublish = async function(){
-    if(!window.api || !window.api.browserPublish){ _bfZhSetResult('window.api.browserPublish 不可用', 'err'); return; }
-    _bfZhSetResult('正在执行知乎完整流程（open → 登录检测 → 等待登录 → 打开写文章页 → 自动填充 → 停止） …\n（不会点击最终「发布」按钮）');
-    try{
-      var r = await window.api.browserPublish('zhihu', {
-        title: 'Electron 知乎自动填充测试',
-        content: '这是一篇由 Electron 自动填充的测试文章。\n\n第一段内容。\n\n第二段内容。'
-      });
-      _bfZhSetResult('流程结果：\n' + _bfPretty(r), r && r.ok ? 'ok' : 'err');
-    }catch(e){ _bfZhSetResult('流程失败：' + String(e && e.message || e), 'err'); }
-  };
-  window.browserFrameworkZhihuClose = async function(){
-    if(!window.api || !window.api.browserClose){ _bfZhSetResult('window.api.browserClose 不可用', 'err'); return; }
-    try{
-      var r = await window.api.browserClose('zhihu');
-      _bfZhSetResult('已关闭知乎窗口\n' + _bfPretty(r), r && r.ok ? 'ok' : 'err');
-    }catch(e){ _bfZhSetResult('关闭失败：' + String(e && e.message || e), 'err'); }
-  };
-
-  // ---- v1.9：V2EX 真实平台调试（独立结果区 #bfV2exResult / #bfV2exDiagResult） ----
-  function _bfVxSetResult(text, cls){
-    var el = document.getElementById('bfV2exResult');
-    if(!el) return;
-    el.className = 'status ' + (cls || '');
-    el.textContent = text;
-  }
-  function _bfVxSetDiag(text, cls){
-    var el = document.getElementById('bfV2exDiagResult');
-    if(!el) return;
-    el.className = 'status ' + (cls || '');
-    el.textContent = text;
-  }
-  window.browserFrameworkDiagnostics = async function(platformId){
-    if(!window.api || !window.api.browserDiagnostics){
-      _bfVxSetDiag('window.api.browserDiagnostics 不可用', 'err');
-      return;
-    }
-    try{
-      var r = await window.api.browserDiagnostics(platformId);
-      var s = r && r.summary ? r.summary : {};
-      var evs = r && r.events ? r.events : [];
-      var head = '【' + (r && r.platformId) + '】 alive=' + (r && r.alive) +
-        '  ready=' + !!s.isReady +
-        '\n当前 URL: ' + (s.url || '(空)') +
-        '\n当前 title: ' + (s.title || '(空)') +
-        '\n事件总数: ' + (s.total || 0) +
-        '  info=' + (s.info || 0) + ' warn=' + (s.warn || 0) + ' error=' + (s.error || 0);
-      var last = s.lastError ? ('\n最近一次 warn/error: [' + (new Date(s.lastError.t).toISOString()) + '] ' + s.lastError.message + '\n  url=' + s.lastError.url) : '';
-      var lines = evs.slice(-50).map(function(e){
-        var ts = (new Date(e.t)).toISOString().replace('T', ' ').replace('Z','');
-        return '[' + ts + '] [' + e.level + '] ' + e.message + '\n  url=' + (e.url || '');
-      });
-      var out = head + last + '\n--- 最近 ' + lines.length + ' 条事件 ---\n' + lines.join('\n');
-      _bfVxSetDiag(out, r && r.ok ? 'ok' : 'err');
-    }catch(e){ _bfVxSetDiag('诊断失败：' + String(e && e.message || e), 'err'); }
-  };
-  // 清除 V2EX 本地数据（仅开发者调试用，会退出登录态）
-  window.browserFrameworkClearV2exData = async function(){
-    if(!window.api || !window.api.browserDestroySession){
-      _bfVxSetResult('window.api.browserDestroySession 不可用', 'err');
-      return;
-    }
-    if(!confirm('确认清除 V2EX 本地数据？\n\n将关闭 V2EX 窗口并清空该 partition 的所有 Storage / Cookie / Cache。\n\n⚠ 这会同时退出 V2EX 登录态（下次需要重新登录）。\n\n建议仅在怀疑 Session 损坏导致白屏时调用。')){
-      return;
-    }
-    try{
-      var r = await window.api.browserDestroySession('v2ex');
-      _bfVxSetResult('清除完成。V2EX 本地数据已销毁，下次需要重新登录。\n' + _bfPretty(r), r && r.ok ? 'ok' : 'err');
-      _bfVxSetDiag('已清除 V2EX 本地数据', 'ok');
-    }catch(e){ _bfVxSetResult('清除失败：' + String(e && e.message || e), 'err'); }
-  };
-
-  // ---- v1.11：掘金真实平台调试（独立结果区 #bfJuejinResult / #bfJuejinDiagResult） ----
-  function _bfJjSetResult(text, cls){
-    var el = document.getElementById('bfJuejinResult');
-    if(!el) return;
-    el.className = 'status ' + (cls || '');
-    el.textContent = text;
-  }
-  function _bfJjSetDiag(text, cls){
-    var el = document.getElementById('bfJuejinDiagResult');
-    if(!el) return;
-    el.className = 'status ' + (cls || '');
-    el.textContent = text;
-  }
-  // 清除掘金本地数据（仅开发者调试用，会退出登录态）
-  window.browserFrameworkClearJuejinData = async function(){
-    if(!window.api || !window.api.browserDestroySession){
-      _bfJjSetResult('window.api.browserDestroySession 不可用', 'err');
-      return;
-    }
-    if(!confirm('确认清除掘金本地数据？\n\n将关闭掘金窗口并清空该 partition 的所有 Storage / Cookie / Cache。\n\n⚠ 这会同时退出掘金登录态（下次需要重新登录）。\n\n建议仅在怀疑 Session 损坏导致白屏时调用。')){
-      return;
-    }
-    try{
-      var r = await window.api.browserDestroySession('juejin');
-      _bfJjSetResult('清除完成。掘金本地数据已销毁，下次需要重新登录。\n' + _bfPretty(r), r && r.ok ? 'ok' : 'err');
-      _bfJjSetDiag('已清除掘金本地数据', 'ok');
-    }catch(e){ _bfJjSetResult('清除失败：' + String(e && e.message || e), 'err'); }
-  };
 
   loadStored().then(seedWorks).then(loadPubs).then(loadChannels).then(function(){
 

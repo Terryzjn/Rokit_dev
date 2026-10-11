@@ -22,7 +22,13 @@ require('./juejin/JuejinPublisher');
 // 第四个真实平台：即刻（v1.12）
 require('./jike/JikePublisher');
 
-// 预留：未来真正接入 B站、小红书、Product Hunt 时
+// 第五个真实平台：Product Hunt（v1）
+require('./producthunt/ProductHuntPublisher');
+
+// 第六个真实平台：X (Twitter)（v1.0 phase 1：登录 + 跳转 + 找编辑器，不填表）
+require('./x/XPublisher');
+
+// 预留：未来真正接入 B站、小红书、知乎、掘金、即刻、Product Hunt 等时
 //       在这里 require 一次即可，例如：
 // require('./bilibili/BilibiliPublisher');
 
