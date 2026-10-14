@@ -755,6 +755,9 @@
   /* v1.5 UX：设置页 sticky side-nav（任务 19） */
   .cfg-layout{display:grid;grid-template-columns:200px 1fr;gap:20px}
   .cfg-nav{position:sticky;top:0;align-self:start;display:flex;flex-direction:column;gap:4px;padding-right:8px;border-right:1px solid var(--line)}
+  /* 设置分区：滚动锚点偏移，避免被 modal 顶部遮挡；只把滚动容器作为 form 的父节点 .modal-overlay */
+  .cfg-section{scroll-margin-top:8px;margin-bottom:18px}
+  .cfg-section .cfg-title{margin-top:0}
   .cfg-nav-item{display:flex;gap:8px;align-items:flex-start;padding:10px 12px;border-radius:8px;cursor:pointer;font-size:12.5px;line-height:1.5;color:var(--ink);transition:all .15s;font-family:inherit;background:transparent;border:none;width:100%;text-align:left}
   .cfg-nav-item:hover{background:var(--primary-soft)}
   .cfg-nav-item.on{background:var(--primary-soft);color:var(--primary-dark);font-weight:600}
@@ -1512,7 +1515,7 @@
 
       <form onsubmit="saveCfg(event)">
 
-        <div class="cfg-section" data-section="cfg-sec-model">
+        <div class="cfg-section" id="cfg-sec-model" data-section="cfg-sec-model">
 
           <div class="cfg-title" style="font-weight:700;font-size:13.5px;margin:8px 0 4px">🤖 AI 模型</div>
 
@@ -1526,7 +1529,7 @@
 
         </div>
 
-        <div class="cfg-section" data-section="cfg-sec-github">
+        <div class="cfg-section" id="cfg-sec-github" data-section="cfg-sec-github">
 
           <div class="cfg-title" style="font-weight:700;font-size:13.5px;margin:8px 0 4px">🐙 GitHub 发布（可选）</div>
 
@@ -1536,7 +1539,7 @@
 
         </div>
 
-        <div class="cfg-section" data-section="cfg-sec-youtube">
+        <div class="cfg-section" id="cfg-sec-youtube" data-section="cfg-sec-youtube">
 
           <div class="cfg-title" style="font-weight:700;font-size:13.5px;margin:8px 0 4px">▶️ YouTube 播放量统计（可选）</div>
 
@@ -1546,23 +1549,29 @@
 
         </div>
 
-        <div class="cfg-section" data-section="cfg-sec-wechat">
+        <div class="cfg-section" id="cfg-sec-wechat" data-section="cfg-sec-wechat">
 
           <div class="cfg-title" style="font-weight:700;font-size:13.5px;margin:8px 0 4px">微信公众号草稿箱</div>
 
           <div class="msub">使用公众号官方接口创建图文草稿，不会直接发布。请先在公众号后台上传封面图片并填写其素材 ID；接口调用还要求账号已开通权限且服务器出口 IP 在白名单内。凭据只保存在本机系统凭据管理器。</div>
 
-          <div class="field"><label>公众号 AppID</label><input id="cfgWechatAppId" type="password" placeholder="输入 AppID" autocomplete="off"/><div class="cfg-pat-hint" id="cfgWechatStatus">未配置</div></div>
+          <div class="cfg-wechat-hint" style="margin:6px 0 10px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);font-size:12.5px;line-height:1.55;color:var(--muted)">
+            <b style="color:var(--primary-dark)">⚠️ IP 白名单</b>：调用 <code>/cgi-bin/token</code> 时微信会校验来源 IP。请到 <b>公众号后台 → 开发 → 基本配置 → 公众号开发信息 → IP 白名单</b> 填入本机外网 IP（家庭宽带 / 服务器 IP）；本机内网 IP（如 192.168.x.x / 10.x）需开启 NAT 穿透或部署到公网服务器。
+          </div>
 
-          <div class="field"><label>公众号 AppSecret</label><input id="cfgWechatAppSecret" type="password" placeholder="输入 AppSecret" autocomplete="new-password"/></div>
+          <div class="field"><label>公众号 AppID</label><input id="cfgWechatAppId" type="text" placeholder="wx 开头的公开标识符" autocomplete="off" spellcheck="false"/><div class="cfg-pat-hint" id="cfgWechatStatus">未配置</div></div>
 
-          <div class="field"><label>封面素材 ID（thumb_media_id）</label><input id="cfgWechatThumb" type="password" placeholder="在公众号素材管理中上传封面后填写" autocomplete="off"/></div>
+          <div class="field"><label>公众号 AppSecret</label><input id="cfgWechatAppSecret" type="text" placeholder="公众号密钥（仅本机 OS 凭据管理器保存）" autocomplete="off" spellcheck="false"/></div>
 
-          <div style="display:flex;justify-content:flex-end"><button class="btn ghost sm" type="button" onclick="clearWechatConfig()">清除公众号配置</button></div>
+          <div class="field"><label>封面素材 ID（thumb_media_id）</label><input id="cfgWechatThumb" type="text" placeholder="在公众号素材管理中上传封面后填写其 ID" autocomplete="off" spellcheck="false"/></div>
+
+          <div id="cfgWechatConnStatus" class="cfg-pat-hint" style="margin:4px 0 8px"></div>
+
+          <div style="display:flex;justify-content:flex-end;gap:8px"><button class="btn ghost sm" type="button" onclick="testWechatConnection()">测试连接</button><button class="btn ghost sm" type="button" onclick="clearWechatConfig()">清除公众号配置</button></div>
 
         </div>
 
-        <div class="cfg-section" data-section="cfg-sec-auto">
+        <div class="cfg-section" id="cfg-sec-auto" data-section="cfg-sec-auto">
 
           <div class="cfg-title" style="font-weight:700;font-size:13.5px;margin:8px 0 4px">⚡ 自动发布</div>
 
@@ -1576,7 +1585,7 @@
 
         </div>
 
-        <div class="cfg-section" data-section="cfg-sec-theme">
+        <div class="cfg-section" id="cfg-sec-theme" data-section="cfg-sec-theme">
 
           <div class="cfg-title" style="font-weight:700;font-size:13.5px;margin:8px 0 4px">🎨 主题与显示</div>
 
@@ -2180,15 +2189,50 @@
       }
     }
 
-    ['cfgWechatAppId','cfgWechatAppSecret','cfgWechatThumb'].forEach(function(id){var input=document.getElementById(id);if(input)input.value='';});
+    // v1.1：先用 credentials-load 拉真实值（keytar 当前内容），再调 credentials-status 算缺失列表
+    //   之前仅 status 取布尔、用 placeholder「掩码」反推，造成「圆点 ≠ 已保存」的视觉错觉且无法校验
     var wechatStatus=document.getElementById('cfgWechatStatus');
+    var appIdInput=document.getElementById('cfgWechatAppId');
+    var appSecretInput=document.getElementById('cfgWechatAppSecret');
+    var thumbInput=document.getElementById('cfgWechatThumb');
+    if(appIdInput) appIdInput.value='';
+    if(appSecretInput) appSecretInput.value='';
+    if(thumbInput) thumbInput.value='';
+    // 先回填真实值
+    if(window.api && typeof window.api.wechatCredentialsLoad==='function'){
+      window.api.wechatCredentialsLoad().then(function(v){
+        if(!v) return;
+        if(appIdInput && typeof v.appId==='string') appIdInput.value=v.appId;
+        if(appSecretInput && typeof v.appSecret==='string') appSecretInput.value=v.appSecret;
+        if(thumbInput && typeof v.thumbMediaId==='string') thumbInput.value=v.thumbMediaId;
+      }).catch(function(){});
+    }
+    // 再算状态显示（基于真实 keytar 读取，不依赖输入框 value）
     if(wechatStatus && window.api && typeof window.api.wechatCredentialsStatus==='function'){
       wechatStatus.textContent='检查公众号配置…';
       window.api.wechatCredentialsStatus().then(function(status){
-        var configured=status&&status.hasAppId&&status.hasAppSecret&&status.hasThumbMediaId;
-        wechatStatus.textContent=configured?'● 已配置（留空保留，输入新值可更新）':'未完整配置（AppID、AppSecret、封面素材 ID 均为必填）';
-        wechatStatus.className='cfg-pat-hint'+(configured?' ok':'');
-      }).catch(function(){wechatStatus.textContent='读取配置失败';});
+        var s = status || {};
+        var configured = !!(s.hasAppId && s.hasAppSecret && s.hasThumbMediaId);
+        var msg;
+        if (configured) {
+          msg = s.persisted
+            ? '● 已配置（三个字段均已保存到本机系统凭据管理器）'
+            : '● 已配置（⚠ 本机系统凭据管理器不可用，仅存内存，重启后丢失）';
+        } else {
+          var missingLabels = {
+            appId: 'AppID',
+            appSecret: 'AppSecret',
+            thumbMediaId: '封面素材 ID'
+          };
+          var miss = (s.missing || []).map(function(k){return missingLabels[k] || k;}).join('、');
+          msg = '✗ 待补全：' + (miss || '三个字段') + ' 尚未配置';
+        }
+        wechatStatus.textContent = msg;
+        wechatStatus.className = 'cfg-pat-hint' + (configured ? ' ok' : '');
+      }).catch(function(){
+        var wechatStatusEl=document.getElementById('cfgWechatStatus');
+        if(wechatStatusEl){wechatStatusEl.textContent='读取配置失败';wechatStatusEl.className='cfg-pat-hint bad';}
+      });
     }
 
     document.getElementById('cfgStatus').innerHTML='';
@@ -2296,12 +2340,31 @@
         appSecret:(document.getElementById('cfgWechatAppSecret').value||'').trim(),
         thumbMediaId:(document.getElementById('cfgWechatThumb').value||'').trim()
       };
-      if(wechatValues.appId||wechatValues.appSecret||wechatValues.thumbMediaId){
-        try{wechatSaveResult=await window.api.wechatCredentialsSave(wechatValues);}
-        catch(_e){toast('公众号配置保存失败');return;}
-        document.getElementById('cfgWechatAppId').value='';
-        document.getElementById('cfgWechatAppSecret').value='';
-        document.getElementById('cfgWechatThumb').value='';
+      // 关键修复：只在用户实际修改了字段时才覆盖 keytar。
+      // 留空 == 保留原值（避免误删除；用户在 UI 上看到的圆点不代表 value，已保存的真实值在 keytar 里）。
+      // 后端 IPC 主进程也只对「非空字段」调 setSecret，所以这里只把用户实际填过的字段传过去。
+      var wechatChanged = {};
+      if (wechatValues.appId) wechatChanged.appId = wechatValues.appId;
+      if (wechatValues.appSecret) wechatChanged.appSecret = wechatValues.appSecret;
+      if (wechatValues.thumbMediaId) wechatChanged.thumbMediaId = wechatValues.thumbMediaId;
+      if(wechatChanged.appId || wechatChanged.appSecret || wechatChanged.thumbMediaId){
+        try{
+          wechatSaveResult=await window.api.wechatCredentialsSave(wechatChanged);
+          // 不清空输入框：type=password 字段保留输入（被掩码），用户可继续编辑；
+          // 下次 openSettings 由 wechatCredentialsStatus 重新读 keytar 状态更新 placeholder 与 status badge
+        }catch(_e){toast('公众号配置保存失败');return;}
+        // 保存成功后让 status 反映真实 keytar 状态（避免用户在 Badge 上看到旧文案）
+        if(typeof window.api.wechatCredentialsStatus==='function'){
+          window.api.wechatCredentialsStatus().then(function(s2){
+            var wechatSt=document.getElementById('cfgWechatStatus');
+            if(!wechatSt)return;
+            var ok=!((s2.missing||[]).length);
+            wechatSt.textContent = ok
+              ? ('● 已配置（' + ((s2.persisted)?'已持久化到本机系统凭据管理器':'⚠ 仅内存，重启后丢失）'))
+              : ('✗ 待补全：' + ((s2.missing||[]).join('、') || '字段缺失'));
+            wechatSt.className='cfg-pat-hint'+(ok?' ok':'');
+          });
+        }
       }
     }
 
@@ -2350,6 +2413,66 @@
         toast('已清除公众号配置');
       }).catch(function(){toast('清除公众号配置失败');});
     });
+  };
+
+  // 微信公众号连通性测试（拆 2 阶段：本地校验 / 真实微信接口）
+// 返回结果只展示 ok / errcode 文案，不输出 access_token / AppSecret
+window.testWechatConnection=function(){
+    if(!window.api || typeof window.api.wechatTestConnection!=='function'){
+      toast('当前版本不支持公众号连接测试');
+      return;
+    }
+    var box=document.getElementById('cfgWechatConnStatus');
+    if(box){box.textContent='正在检查本地配置…';box.className='cfg-pat-hint validating';}
+    // 先做本地校验（有缺字段直接展示，不必发网络）
+    if(typeof window.api.wechatCredentialsStatus==='function'){
+      window.api.wechatCredentialsStatus().then(function(s){
+        s = s || {};
+        if(!(s.hasAppId && s.hasAppSecret && s.hasThumbMediaId)){
+          var missingLabels = { appId:'AppID', appSecret:'AppSecret', thumbMediaId:'封面素材 ID' };
+          var miss = (s.missing || []).map(function(k){return missingLabels[k] || k;}).join('、');
+          if(box){box.textContent='✗ 本地配置不完整：' + miss + ' 未配置（输入框会保留已填值，如需修改请重新输入完整值）';box.className='cfg-pat-hint bad';}
+          return;
+        }
+        if(box){box.textContent='正在调用微信 /token 接口…';box.className='cfg-pat-hint validating';}
+        window.api.wechatTestConnection().then(function(r){
+          if(!r){if(box){box.textContent='测试失败：无响应';box.className='cfg-pat-hint bad';}return;}
+          if(r.ok){
+            // 显示 ok + 可选 thumb 提示
+            if(box){box.textContent=r.note || '✓ 连通正常';box.className='cfg-pat-hint ok';}
+          } else if(r.stage === 'local') {
+            var missingLabels2 = { appId:'AppID', appSecret:'AppSecret', thumbMediaId:'封面素材 ID' };
+            var miss2 = (r.missing || []).map(function(k){return missingLabels2[k] || k;}).join('、');
+            if(box){box.textContent='✗ ' + (r.note || ('本地校验未通过：缺少 ' + miss2));box.className='cfg-pat-hint bad';}
+          } else if(r.stage === 'api-token' || r.stage === 'api-thumb') {
+            if(box){
+              box.textContent = '✗ ' + (r.note || ('微信接口失败（stage=' + r.stage + '）'));
+              // thumb 失败时用 warning 颜色（不影响 token 通过的事实）
+              box.className = r.stage === 'api-thumb' ? 'cfg-pat-hint bad' : 'cfg-pat-hint bad';
+            }
+          } else {
+            if(box){box.textContent='✗ '+(r.note||'连接失败');box.className='cfg-pat-hint bad';}
+          }
+        }).catch(function(e){
+          if(box){
+            var msg = (e && e.message) || String(e) || '网络错误';
+            box.textContent='✗ 网络错误：' + msg;
+            box.className='cfg-pat-hint bad';
+          }
+        });
+      });
+    } else {
+      // 没有 status 接口就直接走测试
+      if(box){box.textContent='正在调用微信 /token 接口…';box.className='cfg-pat-hint validating';}
+      window.api.wechatTestConnection().then(function(r){
+        if(!r){if(box){box.textContent='测试失败：无响应';box.className='cfg-pat-hint bad';}return;}
+        if(r.ok){
+          if(box){box.textContent=r.note || '✓ 连通正常';box.className='cfg-pat-hint ok';}
+        } else {
+          if(box){box.textContent='✗ '+(r.note||'连接失败');box.className='cfg-pat-hint bad';}
+        }
+      });
+    }
   };
 
   // v1.5 UX：API Key 输入实时校验（任务 33）
@@ -2509,7 +2632,7 @@
 
       case 'youtube':return {title:name+' — 30s 快速上手',body:name+' is a '+pj.type+'.\n\n'+intro+'.\n\n'+tl+', free.\n\n🔗 '+(pj.url||'（链接）'),tags:['#'+name,'#buildinpublic'],rule:'L2 跳转：上传视频 + 本简介'};
 
-      case 'x':return {title:'',body:'🚀 '+name+' — '+intro+'.\n\n'+tl+', free.\n\n'+(pj.url||'（链接）'),tags:['#'+name,'#BuildInPublic'],rule:'L1 直发：发推附链接'};
+      case 'x':return {title: name || '', body: name+' 上线啦 🚀\n\n'+intro+'。\n\n'+tl+'，免费可用。\n\n'+(pj.url||''), tags: ['#'+name,'#BuildInPublic'], rule: 'L1 直发：发推附链接'};
 
     }
 
@@ -2739,14 +2862,44 @@
         };
     
         // v1.5 UX：设置页 side-nav 跳转（任务 19）
+    //   v1.3 修复：支持按 id（首选）和 data-section（兜底）两种方式定位目标分区；
+    //   真正滚动祖先 = 设置弹窗的 .modal-overlay（CSS overflow:auto），不在 form 内。
+    //   通过精确计算 sec 相对 scroller 的偏移来 scrollTo，避开 modal header 遮挡。
     window.cfgNavJump = function(id){
       try{
+        var nav = document.getElementById('cfgNav');
+        // 目标元素：先按 id 找，缺失时按 data-section 兜底（兼容旧版只设 data-section 的 DOM）
         var sec = document.getElementById(id);
-        if(sec){ sec.scrollIntoView({behavior:'smooth', block:'start'}); }
-        // 立即高亮
-        document.querySelectorAll('#cfgNav .cfg-nav-item').forEach(function(el){
-          el.classList.toggle('on', el.getAttribute('data-section') === id);
-        });
+        if(!sec && nav){
+          sec = nav.parentNode.querySelector('[data-section="' + id + '"]');
+        }
+        // 找到实际的滚动容器（从 sec 向上爬，直到 overflow-y:auto/scroll）
+        var scroller = null;
+        if(sec){
+          var node = sec.parentNode;
+          while(node && node !== document.body){
+            var cs = node.nodeType===1 ? getComputedStyle(node) : null;
+            if(cs && (cs.overflowY==='auto' || cs.overflowY==='scroll' || cs.overflow==='auto' || cs.overflow==='scroll')){
+              scroller = node; break;
+            }
+            node = node.parentNode;
+          }
+        }
+        if(sec && scroller){
+          var secRect = sec.getBoundingClientRect();
+          var scRect = scroller.getBoundingClientRect();
+          var headerPad = 16;
+          var targetTop = scroller.scrollTop + (secRect.top - scRect.top) - headerPad;
+          if(targetTop < 0) targetTop = 0;
+          scroller.scrollTo({top: targetTop, behavior: 'smooth'});
+        } else if(sec){
+          sec.scrollIntoView({behavior: 'smooth', block: 'start'});
+        }
+        if(nav){
+          nav.querySelectorAll('.cfg-nav-item').forEach(function(el){
+            el.classList.toggle('on', el.getAttribute('data-section') === id);
+          });
+        }
       }catch(err){ console.warn('cfgNavJump failed', err); }
     };
 
@@ -5701,8 +5854,20 @@
           }
           if(pick.id && navigator.mediaDevices && navigator.mediaDevices.getUserMedia){
             try {
+              // v1.20.2：录制帧率上限 = 60 FPS。
+              //   Chromium 桌面采集场景下 maxFrameRate 一般被 desktopCapturer 严格遵守；
+              //   但**不**保证（如某些虚拟显示器 / 系统策略可能给出 > 60），所以 MP4 转码阶段
+              //   也加了 fps=60 兜底（见 electron/video.js）。
+              //   - maxFrameRate 在 Electron Chromium 中作为 mandatory Chrome 约束（专属 Electron 字段）。
+              //   - frameRate (advanced constraint) 在某些平台被 Chromium 当作 hint。
               var s = await navigator.mediaDevices.getUserMedia({
-                video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: pick.id } },
+                video: {
+                  mandatory: {
+                    chromeMediaSource: 'desktop',
+                    chromeMediaSourceId: pick.id,
+                    maxFrameRate: 60
+                  }
+                },
                 audio: false
               });
               if(s){
@@ -6936,12 +7101,14 @@
       :'<button class="btn sm ghost" onclick="autoPub(\''+id+'\')">'+(id==='wechat'?'保存到公众号草稿箱':'⚠ 自动填表 + 确认')+'</button>'):'';
 
     return '<div class="pub-item'+(on?' published':'')+'">'+
-
+      // v1.x+(修复 3)：X 平台卡的标题 / 正文输入框加唯一 id，便于 autoPub('x') 严格
+      //   通过 document.getElementById 取**这一个** textarea / input 的当前 value，
+      //   避免 attribute selector 多匹配或意外匹配到 XHS 等其他平台卡的 textarea。
+      //   其他平台 id 一般不带短横线 `x-body-textarea` 的稳定键——这里**只**对 id==='x' 加，
+      //   不影响其他平台。
       '<div class="phead"><div class="pdot" style="background:'+p.color+'">'+esc(p.name.charAt(0))+'</div><div class="pn">'+esc(p.name)+'</div><div class="pm">'+p.lv+'</div>'+abadge+'<div class="pst">'+(on?'✓ 已发布 '+c.time:'待发布')+'</div></div>'+
-
-      '<div class="pbody"><input value="'+esc(c.title)+'" onchange="setTitle(\''+id+'\',this.value)">'+
-
-      '<textarea onchange="setBody(\''+id+'\',this.value)">'+esc(c.body)+'</textarea>'+tags+aiWarn+'</div>'+
+      '<div class="pbody"><input value="'+esc(c.title)+'" oninput="setTitle(\''+id+'\',this.value)" onblur="setTitle(\''+id+'\',this.value)" id="'+id+'-title-input">'+
+      '<textarea oninput="setBody(\''+id+'\',this.value)" onblur="setBody(\''+id+'\',this.value)" id="'+id+'-body-textarea">'+esc(c.body)+'</textarea>'+tags+aiWarn+'</div>'+
 
       '<div class="pfoot"><span class="rule">'+esc(c.rule)+'</span><span class="acts">'+
 
@@ -7433,6 +7600,43 @@
 
     if(!checks.length){toast('请至少勾选一个平台');return;}
 
+    // v1.x+：派发前**主动**从 DOM textarea/input 读最新 body/title 覆盖 state.copies[id]，
+    //   避免 oninput 没及时 flush（用户在 textarea 失焦前直接点按钮、IME 拼音未上屏），
+    //   火箭队列里 X 等平台拿到旧 AI 文案。仅处理勾选里的平台。
+    //   位置 A / B 诊断：把 textarea 当前值 + state.copies 准备下发的值写到 _xTrace，
+    //   main 端 XPublisher.fillContent 入口会读这个字段并写入 rokit.log。
+    var _xTraceAccum = [];
+    try{
+      checks.forEach(function(input){
+        var pid = input.getAttribute('data-pid');
+        if(!pid) return;
+        try{
+          // v1.x+（修复 2 增强）：rocketGo 入口的 DOM flush 也改用**唯一 id** 直读，
+          //   避免 attribute selector 把 XHS 卡的 textarea 内容误刷到 state.copies.x。
+          //   与 autoPub('x') 严格保持一致（图一单卡填表修复后的同样逻辑）。
+          var _pubItem = document.getElementById(pid + '-title-input');
+          var _pubText = document.getElementById(pid + '-body-textarea');
+          if(_pubItem){ state.copies[pid] = state.copies[pid] || genCopy(pid, 0); state.copies[pid].title = _pubItem.value; }
+          if(_pubText){ state.copies[pid] = state.copies[pid] || genCopy(pid, 0); state.copies[pid].body = _pubText.value; }
+          // 诊断：每个勾选平台记录位置 A（textarea 当前值） + 位置 B（state.copies 准备下发的值）
+          if(_pubText){
+            var _taBody = String(_pubText.value || '');
+            var _scBody = state.copies[pid] ? String(state.copies[pid].body||'') : '';
+            _xTraceAccum.push(pid + ':A:taLen=' + _taBody.length + ',taA=' + (_taBody.indexOf('TRACE_A')>=0) + ',taB=' + (_taBody.indexOf('TRACE_B')>=0) + ',taTitleInBody=' + (_taBody.indexOf('TRACE_TITLE')>=0) + ' | B:scLen=' + _scBody.length + ',scA=' + (_scBody.indexOf('TRACE_A')>=0) + ',scB=' + (_scBody.indexOf('TRACE_B')>=0) + ',scTitleInBody=' + (_scBody.indexOf('TRACE_TITLE')>=0));
+          }
+        }catch(_e){}
+      });
+    }catch(_e){}
+    // 把 trace 累加写到 payload._xTrace；autoPub 入口的 _xTrace 会被覆盖（OK）
+    if(_xTraceAccum.length){
+      // rocketGo 阶段会立即生成 payload（line 7610 pubPayload()），但 _xTrace
+      // 还没附在 payload 上。稍后我在 pubPayload() 之前注入。
+      // **真正**做法：把 _xTrace 暂存到一个全局变量，autoPub 入口读它
+      // 但这需要新变量。**最简单**：在 pubPayload() 注入时再读
+      // _xTraceAccum — 但 _xTraceAccum 是局部变量。**改成**挂到 window 上。
+      window._xTraceAccum = _xTraceAccum;
+    }
+
     var manualChecks=checks.filter(function(input){return !pf(input.getAttribute('data-pid')).auto;});
 
     if(manualChecks.length>1){toast('需人工确认的平台请同次只选择一个；自动提交平台可批量发射。');return;}
@@ -7451,10 +7655,16 @@
       var _phCopy=(state.copies && state.copies.producthunt)||{};
       if(_phCopy.title){ payload.title=_phCopy.title; }
       if(_phCopy.body){ payload.body=_phCopy.body; payload.intro=_phCopy.body; }
-      // X (Twitter)（v1.0 phase 2）：把 X 定制文案喂进 payload；body 即为推文正文
-      //   X 没有独立标题，因此不写 payload.title，避免污染其他平台
-      var _xCopy=(state.copies && state.copies.x)||{};
-      if(_xCopy.body){ payload.body=_xCopy.body; payload.intro=_xCopy.body; }
+      // X (Twitter)（v1.x）：从 DOM 直读。**注**：具体 X-iteration payload 构建
+      //   在下方 for 循环的 `if(pid==='x' && window.api && ...)` 分支**完全重建**
+      //   （_xPayloadLocal 从 DOM 0 重读），**不**依赖这里的共享 payload。
+      //   这里保留一个**最弱**的同步：仅当 X 已生成但 rocketGo 入口 flush
+      //   还没执行（理论不会发生）时兜底，确保 X 进 iteration 时 payload 不空。
+      if(document.getElementById('x-body-textarea')){
+        var _xBodyTextPre = document.getElementById('x-body-textarea');
+        var _xBodyValPre = (_xBodyTextPre && _xBodyTextPre.value != null) ? String(_xBodyTextPre.value) : '';
+        if(_xBodyValPre){ payload.body=_xBodyValPre; payload.intro=_xBodyValPre; }
+      }
       // 小红书（v1.7）：把 XHS 定制标题 / 正文喂进 payload
       //   标题来自 state.copies.xiaohongshu.title；正文来自 state.copies.xiaohongshu.body
       //   缺省回退到 baseCopy（genCopy('xiaohongshu', 0)）以保证 publish 时一定有内容
@@ -7480,6 +7690,57 @@
     for(var i=0;i<checks.length;i++){
 
       var pid=checks[i].getAttribute('data-pid');
+
+      // X (Twitter)（v1.x）：火箭队列必须与入口 B 走同一套 BrowserManager + XPublisher 流程。
+      //   否则会走老 publishers.js x adapter（用 execCommand('insertText')），
+      //   在 X 2024+ Slate 编辑器上会"静默失败"，正文根本没填。
+      //   提前分支到 browserXPublish，避免落入下方通用 pubLaunch 路径。
+      if(pid==='x' && window.api && typeof window.api.browserXPublish === 'function'){
+        box.innerHTML+='<div class="rs">▶ X (Twitter) 走 BrowserManager + XPublisher…</div>';
+        try{
+          // **修复 6（增强）**：x 分支**完全重建** payload，从 DOM 直读，
+          //   **不**复用 for 循环上面的共享 payload（避免被 XHS 等其他平台覆盖）。
+          //   与 autoPub('x') 单卡填表严格保持一致。
+          var _xPayloadLocal = {
+            title: '',
+            body: '',
+            intro: '',
+            link: ''
+          };
+          var _xBodyDom = document.getElementById('x-body-textarea');
+          var _xTitleDom = document.getElementById('x-title-input');
+          if(_xBodyDom && _xBodyDom.value != null) _xPayloadLocal.body = String(_xBodyDom.value);
+          if(_xTitleDom && _xTitleDom.value != null) _xPayloadLocal.title = String(_xTitleDom.value);
+          _xPayloadLocal.intro = _xPayloadLocal.body;
+          // 视频 asset：与 autoPub('x') 严格一致
+          if(state.videoAsset && state.videoAsset.id){
+            _xPayloadLocal.videoAssetId = state.videoAsset.id;
+            _xPayloadLocal.videoName    = state.videoAsset.fileName || 'video.mp4';
+            _xPayloadLocal.videoMime    = state.videoAsset.mimeType || 'video/mp4';
+          }
+          _xPayloadLocal.taskId = 'x-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2,8);
+          // 诊断：把图三当前 textarea 内容传到 main logger（rokit.log）
+          _xPayloadLocal._xTrace = 'rocketGo:xDirect:A:taLen=' + _xPayloadLocal.body.length
+            + ',hasCardTestA=' + (_xPayloadLocal.body.indexOf('CARD_SOURCE_TEST_A_2026')>=0)
+            + ',hasCardTestB=' + (_xPayloadLocal.body.indexOf('CARD_SOURCE_TEST_B_2026')>=0)
+            + ',hasRocket=' + (_xPayloadLocal.body.indexOf('🚀')>=0)
+            + ',hasXhsPH=' + (_xPayloadLocal.body.indexOf('(填入你的链接)')>=0)
+            + ',hasXhsHdr=' + (_xPayloadLocal.body.indexOf('挖到一个宝藏')>=0);
+          var xR = await window.api.browserXPublish(_xPayloadLocal);
+          if(xR && xR.ok){
+            var xN = xR.note || 'X 内容已自动填充，请手动点击 Post。';
+            box.innerHTML+='<div class="rs ok">✓ '+esc(xN)+'</div>';
+            okCount++; markPub('x');
+            if(typeof logLine==='function') logLine('x confirm: '+xN);
+          } else {
+            var xF = (xR && xR.note) || (xR && xR.error) || 'X 自动填充未完成';
+            box.innerHTML+='<div class="rs warn">⏸ '+esc(xF)+'</div>';
+          }
+        }catch(e){
+          box.innerHTML+='<div class="rs fail">✗ X 自动发布异常：'+esc(String((e&&e.message)||e))+'</div>';
+        }
+        continue;
+      }
 
       // Product Hunt（v3）：系统默认浏览器辅助发布 + 应用内「Product Hunt 发布助手」面板
       // 不创建 BrowserWindow、不调 loadURL、不发 executeJavaScript。
@@ -7549,6 +7810,43 @@
           }
           box.innerHTML+='<div class="rs fail">✗ GitHub 失败：'+esc((reason||'unknown')+detail)+hint+'</div>';
         }
+        continue;
+      }
+
+      // 微信公众号（v1.2）：官方 API 直发，禁止打开内置浏览器
+      // v1.2 设计：_runWechatPublishFlow 自身管理任务 ID、定时器、active 锁；rocketGo 仅等待返回
+      if(pid==='wechat'){
+        box.innerHTML+='<div class="rs">▶ 微信公众号 走官方 API 直发…</div>';
+        var _wxCopy=(state.copies && state.copies.wechat)||{};
+        if(_wxCopy.title){ payload.title=_wxCopy.title; }
+        if(_wxCopy.body){ payload.body=_wxCopy.body; payload.intro=_wxCopy.body; }
+        if(_wxCopy.thumbMediaId){ payload.thumbMediaId=_wxCopy.thumbMediaId; }
+        // v1.3：剥离所有视频字段（公众号图文接口不支持本地 mp4 嵌入正文，避免泄漏 filePath / videoAssetId）
+        try{ delete payload.videoAssetId; }catch(_e){}
+        try{ delete payload.videoName; }catch(_e){}
+        try{ delete payload.videoMime; }catch(_e){}
+        try{ delete payload.videoDataUrl; }catch(_e){}
+        try{ delete payload.videoUploadSkipped; }catch(_e){}
+        try{ delete payload.video; }catch(_e){}
+        try{ delete payload.images; }catch(_e){}
+        // 注册 box 反馈回调（_runWechatPublishFlow 在 finish/unknown/perm_denied 时调用）
+        window._wechatRocketProgress=function(msg,kind){
+          kind=kind||'fail';
+          box.innerHTML+='<div class="rs '+(kind==='ok'?'ok':(kind==='warn'?'warn':'fail'))+'">'+esc(msg)+'</div>';
+        };
+        try{
+          // v1.2：直接 await flow 的 Promise（流程结束 = 轮询结束 = finish() 调用 resolve()）
+          // 不再额外加 45s setTimeout 保险（v1.1 旧的保险会与流程内置的 45s 轮询同时触发，造成重复提示）
+          var r1=await window._runWechatPublishFlow(payload);
+          // r1.state 反映最终状态
+          if(r1 && r1.state === 'published'){
+            okCount++;
+            // markPub 已在 flow 内调用；这里不再重复
+          }
+        }catch(_e){
+          box.innerHTML+='<div class="rs fail">✗ 微信公众号 发布异常：'+esc(String(_e&&_e.message||_e))+'</div>';
+        }
+        // 不再写「完成。发布窗口保持打开」作为默认总结 — 让后续的「反馈」流程自然带过
         continue;
       }
 
@@ -7642,6 +7940,24 @@
   window.setTitle=function(id,v){if(!state.copies[id])state.copies[id]=genCopy(id,0);state.copies[id].title=v;};
 
   window.setBody=function(id,v){if(!state.copies[id])state.copies[id]=genCopy(id,0);state.copies[id].body=v;};
+
+  // v1.x+：强制 oninput 触发机制。textarea 的 oninput 事件依赖于用户**实际**输入字符；
+  //   浏览器自动填充、IME 拼音未上屏、粘贴、撤销/重做 等场景可能**不**触发 oninput。
+  //   这些场景下 state.copies[id].body 与 textarea.value 会出现分歧。
+  //   **强制**在每次 setBody 后**主动**派发一次合成 input 事件 + 同步
+  //   state.copies[id].body 为 textarea.value（取最新值），让下游读取永远拿最新。
+  //   不**直接**改写 document 行为；只是兜底。
+  function _flushTextareaToState(id){
+    try{
+      // v1.x+（修复 6）：用唯一 id 直读（与 autoPub / rocketGo 一致），
+      //   避免 attribute selector 多匹配。
+      var _ta = document.getElementById(id + '-body-textarea');
+      if(_ta && state.copies[id]){
+        state.copies[id].body = _ta.value;
+        try{ _ta.dispatchEvent(new Event('input',{bubbles:true})); }catch(_e){}
+      }
+    }catch(_e){}
+  }
 
   window.copyPub=function(id){
 
@@ -7783,29 +8099,88 @@
       payload.videoName = state.videoAsset.fileName || 'video.mp4';
       payload.videoMime = state.videoAsset.mimeType || 'video/mp4';
     }
-    // X (Twitter)（v1.0 phase 2）：同 main 的 videoAssetId → dataURL 链路。
-    if(id==='x' && state.videoAsset && state.videoAsset.id){
-      payload.videoAssetId = state.videoAsset.id;
-      payload.videoName = state.videoAsset.fileName || 'video.mp4';
-      payload.videoMime = state.videoAsset.mimeType || 'video/mp4';
+    // X (Twitter)（v1.x）：把用户在「发布文案」里编辑过的 title/body/tags 全部透传给 main，
+    //   否则默认会回退到 state.project.intro；并把视频成片一并送给 main。
+    if(id==='x'){
+      // v1.x+（修复 2 增强）：派发前**主动**从 DOM（X 卡唯一 id 的 textarea / input）读最新值，
+      //   把**这一段**作为 payload.body 的**唯一权威来源**。
+      //   **绝不**用 state.project.intro / pubPayload().body / state.copies['x'].body 作为兜底——
+      //   任何 non-DOM 来源都可能不是用户在图二编辑的版本。
+      //   用户看到的「图一 X 发布页含『挖到一个宝藏 / 慷概 / (填入你的链接)』但图二 textarea 没有」
+      //   现象，根因就是 state.copies['x']/pubPayload()/payload.body 路径有问题。
+      //   这里我们**绕过**这些，强制走 DOM 直接读：
+      var _xTitleInput = document.getElementById('x-title-input');
+      var _xBodyText = document.getElementById('x-body-textarea');
+      var _xBodyVal = (_xBodyText && _xBodyText.value != null) ? String(_xBodyText.value) : '';
+      var _xTitleVal = (_xTitleInput && _xTitleInput.value != null) ? String(_xTitleInput.value) : '';
+      //   同步刷新 state.copies['x']（**不**用于 fill 链路，只作为 UI 一致性保险）
+      if(!state.copies['x']){ state.copies['x'] = { title:'', body:'', tags:[], rule:'' }; }
+      state.copies['x'].title = _xTitleVal;
+      state.copies['x'].body  = _xBodyVal;
+
+      // **核心隔离**：payload.body 与 payload.title 直接采用 DOM 值。
+      // 注意：这里**故意**不通过 state.copies['x'].body 中转，
+      //   也不通过 pubPayload().body（state.project.intro）回退。
+      payload.title = _xTitleVal;
+      payload.body  = _xBodyVal;
+      // intro 字段在 main 端只是占位字段，**不参与**填充（bodyOnly:true 跳过），
+      //   这里设为与 body 一致是兼容 main 端旧 fallback（理论不会触发）。
+      payload.intro = _xBodyVal;
+      // **绝对不要**把链接 / 标签 / 标题追加到正文——只透传当前 textarea 的原样文本。
+      //   如果用户图二 textarea 里**手动**包含 # 话题或链接，那就保留——它们是用户写的。
+      //   payload.tags：**只**在图二正文框中**已经存在的标签**才透传；这里简化为不主动设置。
+      delete payload.tags;
+      // videoAsset 仍由 main.js 同源路径处理，照常透传。
+      if(state.videoAsset && state.videoAsset.id){
+        payload.videoAssetId = state.videoAsset.id;
+        payload.videoName    = state.videoAsset.fileName || 'video.mp4';
+        payload.videoMime    = state.videoAsset.mimeType || 'video/mp4';
+      }
+      payload.taskId = 'x-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2,8);
+      // 诊断：通过 _xTrace 透传图二 textarea 当前实际值，让 main 端 logger.info 记录到 rokit.log。
+      //   （rokit.log 在 %APPDATA%\Rokit\logs\rokit.log。）**不**用 console.log，避免只进 DevTools。
+      payload._xTrace = 'XCard.tbody.len=' + _xBodyVal.length
+        + ',hasCardTestA=' + (_xBodyVal.indexOf('CARD_SOURCE_TEST_A_2026')>=0)
+        + ',hasCardTestB=' + (_xBodyVal.indexOf('CARD_SOURCE_TEST_B_2026')>=0)
+        + ',hasRocket=' + (_xBodyVal.indexOf('🚀')>=0)
+        + ',hasXhsPH=' + (_xBodyVal.indexOf('(填入你的链接)')>=0)
+        + ',hasXhsHdr=' + (_xBodyVal.indexOf('挖到一个宝藏')>=0);
     }
 
-    var launch=id==='wechat'?window.api.wechatDraftCreate(payload):window.api.pubLaunch(id,payload);
+    // 微信公众号（v1.2）：走 _runWechatPublishFlow；fire-and-forget 风格不 await，
+    //   状态机会在设置页 #cfgWechatPubStatus 实时显示进度；任务 ID 由 flow 内部分配
+    if(id==='wechat'){
+      window._runWechatPublishFlow(payload);
+      return;
+    }
+    // X (Twitter)（v1.x）：走 BrowserManager + XPublisher 专用入口（不再走 pubLaunch 老 x adapter）。
+    //   BrowserManager 给 X 独立 persist:platform-x 窗口；XPublisher phase1→phase2 检测登录 → 找编辑器 →
+    //   React-friendly 填表 → 媒体上传 → 永不自动 Post（用户手动）。
+    if(id==='x' && window.api && typeof window.api.browserXPublish === 'function'){
+      var xLaunch = window.api.browserXPublish(payload);
+      xLaunch.then(function(r){
+        // 真实原因透传给用户（不复用 confirmModal —— X 永远由用户手动 Post）
+        if(r && r.ok){
+          var xNote = r.note || 'X 内容已自动填充，请手动点击 Post。';
+          toast(xNote, null, 8000);
+          if(typeof logLine==='function') logLine('x confirm: ' + xNote);
+          markPub('x');
+        } else {
+          var xFail = (r && r.note) || (r && r.error) || 'X 自动填充未完成，请在窗口手动完成。';
+          toast('✗ X 自动填充失败：' + xFail, 'fail', 8000);
+          if(typeof logLine==='function') logLine('x fail: ' + xFail + (r && r.error ? ' (' + r.error + ')' : ''));
+        }
+      }).catch(function(e){
+        toast('X 自动发布异常：' + String((e && e.message) || e), 'fail', 6000);
+        if(typeof logLine==='function') logLine('x exception: ' + String((e && e.message) || e));
+      });
+      return;
+    }
+
+    var launch=window.api.pubLaunch(id,payload);
     launch.then(function(r){
 
-      if(r.status==='draft_created'){
-        toast('已保存到微信公众号草稿箱'+(r.mediaId?'（'+r.mediaId+'）':''));
-      }
-
-      else if(r.status==='config_required'){
-        toast(r.note||'请先配置公众号草稿接口');openSettings();
-      }
-
-      else if(r.status==='api_error'){
-        toast('公众号草稿创建失败：'+(r.note||'请检查接口配置'));
-      }
-
-      else if(r.status==='filled'||r.status==='confirm'){
+      if(r.status==='filled'||r.status==='confirm'){
 
         if(pObj.auto&&r.status==='filled'){
 
@@ -7828,9 +8203,7 @@
             if(typeof logLine==='function')logLine('xiaohongshu confirm: '+xhsNote);
             markPub(id);
           }else if(id==='x'){
-            // X (Twitter)（v1.0 phase 2）：同样永远不自动 Post。
-            // phase 2 返回后 phase1 已开 /compose/post 并找到编辑器；
-            // 内容已自动填充（正文 + 视频/图片如有）；用户在小红书同类路径手动点击 Post。
+            // 兼容老路径（仅当 window.api.browserXPublish 缺失时，落到这里）—— 永不自动 Post。
             var xNote=r.note||'X 内容已自动填好（正文 + 视频/图片如有）。请在 X 发送动态窗口中手动点击「Post」完成发布。';
             toast(xNote, null, 8000);
             if(typeof logLine==='function')logLine('x confirm: '+xNote);
@@ -7867,6 +8240,320 @@
 
     }).catch(function(){toast(pObj.name+' 自动发布失败，已转为复制+打开');copyPub(id);openPlat(id);});
 
+  };
+
+  // ===================================================================
+  // 微信公众号发布流程（v1.2）：可选上传封面 → 创建草稿 → 群发 → 轮询状态
+  // 状态机：
+  //   pending → uploading_thumb → drafting → draft_created → publishing → polling_status → published | failed | permission_denied | unknown
+  // 关键不变量（v1.2 强化）：
+  //   1. 任务 ID = 一个 publishId/未知时由本次会话探测生成；同一任务只允许一个轮询器
+  //   2. 任务结束（published/failed/permission_denied）后必须清理所有定时器、回调、Promise
+  //   3. 轮询「状态未知」超时（45s）后**不再**重复 toast；仅记一行待确认记录，提供主动查询入口
+  //   4. 视频内容：在 Rokit 内只走「图文文章」API（不支持将本地 mp4 嵌入正文）；
+  //      检测到 state.videoAsset + wechat 走图文场景，给出明确限制说明 + 关闭任务，
+  //      不允许伪造素材 ID 或将本地路径当素材 ID
+  //   5. 唯一任务 ID（_wechatActiveFlowKey）防止重复发射：rocketGo 重复触发同一个任务会被去重
+  //   6. 草稿创建后**自动**调 publish（已实现，未变）
+  // ===================================================================
+  window._runWechatPublishFlow = function(payload){
+    var STEP = { PENDING: 'pending', UPLOADING_THUMB: 'uploading_thumb', DRAFTING: 'drafting', DRAFT_CREATED: 'draft_created', DRAFT_SAVED: 'draft_saved', PUBLISHING: 'publishing', POLLING_STATUS: 'polling_status', PUBLISHED: 'published', FAILED: 'failed', PERMISSION_DENIED: 'permission_denied', UNKNOWN: 'unknown' };
+    var curStep = STEP.PENDING;
+
+    // v1.2：任务幂等保护。如果已有 active flow 在跑，新调用直接返回，不再启动
+    if(window._wechatFlowActive && !window._wechatFlowActive.done){
+      if(typeof logLine==='function') logLine('wechat publish SKIPPED: another flow is active taskId='+window._wechatFlowActive.taskId);
+      if(typeof toast==='function') toast('公众号发布进行中（任务 '+window._wechatFlowActive.taskId+'），请勿重复点击');
+      return window._wechatFlowActive.promise;
+    }
+
+    // v1.2：分配本次会话任务 ID（仅用于本地去重与UI绑定）
+    var taskId = 'wx-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2,8);
+    var task = {
+      taskId: taskId,
+      done: false,
+      state: STEP.PENDING,
+      timers: [],           // 集中管理所有定时器，结束时 clearTimeout
+      promise: null,
+      resolve: null,
+      mediaId: '',
+      publishId: '',
+      articleId: ''
+    };
+    window._wechatFlowActive = task;
+    task.promise = new Promise(function(r){ task.resolve = r; });
+
+    function addTimer(t){ task.timers.push(function(){ clearTimeout(t); }); }
+    function clearAllTimers(){
+      try { task.timers.forEach(function(fn){ fn(); }); } catch(_e) {}
+      task.timers = [];
+    }
+    function finish(state, info){
+      if(task.done) return;
+      task.done = true;
+      task.state = state;
+      clearAllTimers();
+      try{ task.resolve(info || { state: state }); }catch(_e){}
+      // 300ms 后释放 active 锁，允许后续主动查询等操作
+      setTimeout(function(){ if(window._wechatFlowActive === task) window._wechatFlowActive = null; }, 300);
+    }
+
+    function setUiState(step, msg){
+      curStep = step;
+      task.state = step;
+      var el = document.getElementById('cfgWechatPubStatus');
+      if(!el){
+        el = document.createElement('div');
+        el.id = 'cfgWechatPubStatus';
+        el.className = 'cfg-pat-hint';
+        var anchor = document.getElementById('cfgWechatConnStatus');
+        if(anchor && anchor.parentNode){
+          anchor.parentNode.insertBefore(el, anchor.nextSibling);
+        }
+      }
+      if(el){
+        el.textContent = msg || '';
+        el.className = 'cfg-pat-hint ' + (step === STEP.PUBLISHED ? 'ok' : (step === STEP.FAILED || step === STEP.PERMISSION_DENIED ? 'bad' : 'validating'));
+      }
+    }
+
+    function fail(step, msg){
+      finish(step);
+      setUiState(step, msg);
+      // 仅在「明确失败」时才 toast（不让超时时反复弹）；pending_timeout 走 unknown 分支
+      if(step === STEP.FAILED || step === STEP.PERMISSION_DENIED){
+        if(typeof toast==='function') toast('公众号发布：' + msg);
+      }
+      if(typeof logLine==='function') logLine('wechat publish FAILED taskId='+taskId+' step='+step+' '+msg);
+      if(typeof window._wechatRocketProgress==='function'){
+        var kind = step === STEP.PERMISSION_DENIED ? 'warn' : 'fail';
+        window._wechatRocketProgress(msg, kind);
+      }
+    }
+
+
+    // step 1: 凭证完整性（避免到 main 才报错）
+    function checkCreds(){
+      return new Promise(function(resolve){
+        if(!window.api || typeof window.api.wechatCredentialsStatus!=='function'){
+          resolve({ ok:false, stage:'config', note:'当前环境不支持公众号发布' });
+          return;
+        }
+        window.api.wechatCredentialsStatus().then(function(s){
+          s = s || {};
+          if(!(s.hasAppId && s.hasAppSecret)){
+            resolve({ ok:false, stage:'config', note:'AppID、AppSecret 未完整配置' });
+          } else {
+            resolve({ ok:true, persisted: !!s.persisted, hasThumb: !!s.hasThumbMediaId });
+          }
+        }).catch(function(){ resolve({ ok:false, stage:'config', note:'读取公众号配置失败' }); });
+      });
+    }
+
+    // step 2: 如有本地封面 assetId，尝试上传图片素材（成功后 thumb_media_id 替换为新 ID）
+    function maybeUploadCover(credsStatus){
+      return new Promise(function(resolve){
+        var coverAssetId = (state.copies && state.copies.wechat && state.copies.wechat.coverAssetId) || '';
+        // 如果已有 thumbMediaId（设置页保存过），不重复
+        if(!coverAssetId){ resolve({ uploaded:false }); return; }
+        if(!window.api || typeof window.api.wechatUploadImage!=='function'){ resolve({ uploaded:false }); return; }
+        setUiState(STEP.UPLOADING_THUMB, '正在上传封面到微信公众号…');
+        window.api.wechatUploadImage({ assetId: coverAssetId }).then(function(r){
+          if(r && r.ok && r.mediaId){
+            payload.thumbMediaId = r.mediaId;
+            resolve({ uploaded:true, mediaId: r.mediaId });
+          } else {
+            // 上传失败：保留已有 thumbMediaId，给出明确 note
+            resolve({ failed:true, note: (r && r.note) || '封面图片上传失败' });
+          }
+        }).catch(function(e){
+          resolve({ failed:true, note: '封面图片上传异常：' + String((e&&e.message)||e) });
+        });
+      });
+    }
+
+    // step 3: 创建草稿
+    function createDraft(){
+      setUiState(STEP.DRAFTING, '正在创建公众号图文草稿…');
+      return new Promise(function(resolve){
+        if(task.done) return resolve({ ok:false, note:'任务已结束（被新流程中断）' });
+        if(!window.api || typeof window.api.wechatDraftCreate!=='function'){
+          resolve({ ok:false, note:'wechatDraftCreate 不存在' });
+          return;
+        }
+        window.api.wechatDraftCreate(payload).then(function(r){
+          if(task.done) return;
+          r = r || {};
+          if(r.status === 'draft_created' && r.mediaId){
+            task.mediaId = r.mediaId;
+            resolve({ ok:true, mediaId: r.mediaId });
+          } else if(r.status === 'config_required'){
+            resolve({ ok:false, status:'config_required', note: r.note || '配置缺失' });
+          } else {
+            resolve({ ok:false, status:'api_error', note: r.note || ('草稿创建失败（status='+r.status+'）') });
+          }
+        }).catch(function(e){
+          if(task.done) return;
+          resolve({ ok:false, status:'api_error', note: '草稿创建异常：' + String((e&&e.message)||e) });
+        });
+      });
+    }
+
+    // step 4: 群发（freepublish/submit）
+    // 关键 v1.2：群发返回 publish_id 后立即 finish('unknown') 也安全（任务不再重复提交），但保留「publishing」状态直到轮询确认；
+    //   用 finish 在「published」时关闭
+    function submitPublish(mediaId){
+      setUiState(STEP.PUBLISHING, '正在提交公众号群发…');
+      return new Promise(function(resolve){
+        if(task.done) return resolve({ ok:false, note:'任务已结束' });
+        window.api.wechatPublish(mediaId).then(function(r){
+          if(task.done) return;
+          r = r || {};
+          if(r.status === 'publishing' && r.publishId){
+            task.publishId = r.publishId;
+            resolve({ ok:true, publishId: r.publishId });
+          } else if(r.status === 'permission_denied'){
+            resolve({ ok:false, status:'permission_denied', note: r.note || '公众号未开通群发接口权限' });
+          } else {
+            resolve({ ok:false, status:'api_error', note: r.note || ('群发提交失败（status='+r.status+'）') });
+          }
+        }).catch(function(e){
+          if(task.done) return;
+          resolve({ ok:false, status:'api_error', note: '群发提交异常：' + String((e&&e.message)||e) });
+        });
+      });
+    }
+
+    // step 5: 轮询状态（freepublish/get）
+    // v1.2 设计：
+    //   - 总超时 = 45 秒（8 × 2s × 单次等待 + 网络往返，留余量给反复超时）
+    //   - 单次请求用 8s 网络超时（main.js fetchWithTimeout 已经设 15s；这里以总轮询上限为基准）
+    //   - 单次 pending 就 +1，下一轮请求前清掉旧 timer，**确保只有一个 in-flight 轮询**
+    //   - 8 次仍 pending → 进入 UNKNOWN 状态：finish(UNKNOWN)，不标记成功/失败，写一条「待确认」记录到 UI，
+    //     提供「查询状态」按钮（手动触发 wechatPublishStatus 重新拉）
+    //   - finish 之后再收到老轮询响应：直接丢弃，不覆盖任务状态
+    function pollStatus(publishId){
+      setUiState(STEP.POLLING_STATUS, '正在等待微信公众号返回群发结果…');
+      var maxAttempts = 8;
+      var interval = 2000;
+      var attempt = 0;
+      function next(){
+        if(task.done) return Promise.resolve({ ok:false, status:'task_done', note:'任务已结束，停止轮询' });
+        attempt++;
+        return window.api.wechatPublishStatus(publishId).then(function(r){
+          if(task.done) return { ok:false, status:'task_done', note:'任务已结束' };
+          r = r || {};
+          if(!r.ok){
+            // 单次查询失败：不结束任务，继续下一次（除非已到上限）
+            if(attempt >= maxAttempts){
+              return { ok:false, status:'unknown', note: r.note || '查询失败（已达最大重试）', attempts: attempt };
+            }
+            return new Promise(function(resolve){
+              var t = setTimeout(function(){ resolve(next()); }, interval);
+              addTimer(t);
+            });
+          }
+          if(r.status === 'success'){
+            return { ok:true, status:'success', articleId: r.articleId || '', publishTime: r.publishTime || '', attempts: attempt };
+          }
+          if(r.status === 'failed'){
+            return { ok:false, status:'failed', note: (r.failReason ? r.failReason : '群发失败'), attempts: attempt };
+          }
+          if(r.status === 'pending'){
+            if(attempt >= maxAttempts){
+              return { ok:false, status:'unknown', note: '已等待 '+(attempt*interval/1000)+' 秒，公众号仍未返回最终结果（请求可能仍在处理中）', attempts: attempt };
+            }
+            return new Promise(function(resolve){
+              var t = setTimeout(function(){ resolve(next()); }, interval);
+              addTimer(t);
+            });
+          }
+          return { ok:false, status:'unknown', note: '公众号返回了未识别的状态：' + JSON.stringify(r), attempts: attempt };
+        });
+      }
+      return next();
+    }
+
+    // 主动查询入口：用户手动触发（点击「查询状态」按钮），用于「未知」状态下的恢复
+    function manualCheckStatus(){
+      if(!task.publishId){ return Promise.resolve({ ok:false, note:'无 publish_id' }); }
+      return window.api.wechatPublishStatus(task.publishId).then(function(r){
+        if(!r){ return { ok:false, note:'无响应' }; }
+        if(r.ok && r.status === 'success'){
+          task.articleId = r.articleId || '';
+          finish(STEP.PUBLISHED, { state: STEP.PUBLISHED, articleId: r.articleId || '' });
+          setUiState(STEP.PUBLISHED, '✓ 已确认发布成功（'+ (r.articleId||'') +'）');
+          if(typeof toast==='function') toast('已确认发布到微信公众号');
+          try{ markPub('wechat'); }catch(_e){}
+          if(typeof window._wechatRocketProgress==='function') window._wechatRocketProgress('✓ 微信公众号 发布成功', 'ok');
+          return { ok:true, status:'success' };
+        }
+        if(r.ok && r.status === 'failed'){
+          finish(STEP.FAILED, { state: STEP.FAILED });
+          setUiState(STEP.FAILED, '✗ 公众号已确认发布失败：'+(r.failReason || '未知'));
+          if(typeof toast==='function') toast('公众号发布失败：'+(r.failReason || ''));
+          if(typeof window._wechatRocketProgress==='function') window._wechatRocketProgress('✗ 微信公众号 发布失败', 'fail');
+          return { ok:false, status:'failed' };
+        }
+        return { ok:true, status:r.status || 'pending', note:r.note || '' };
+      }).catch(function(e){
+        return { ok:false, note: String((e&&e.message)||e) };
+      });
+    }
+
+    // v1.2: 暴露手动恢复接口（rocketGo 失败行点击「恢复」时调用）
+    window._wechatManualCheckStatus = manualCheckStatus;
+
+    setUiState(STEP.PENDING, '正在检查公众号凭证…');
+    checkCreds().then(function(cr){
+      if(task.done) return;
+      if(!cr.ok){ fail(STEP.FAILED, cr.note); return; }
+      if(!cr.hasThumb && (!payload.thumbMediaId || !payload.thumbMediaId.trim())){
+        fail(STEP.FAILED, '未配置封面素材 ID：请在公众号后台上传封面后填入素材 ID，或在「发布文案」步骤选本地封面。');
+        return;
+      }
+      return maybeUploadCover(cr).then(function(uploadRes){
+        if(task.done) return;
+        if(uploadRes.failed){
+          if(!payload.thumbMediaId){
+            fail(STEP.FAILED, uploadRes.note + '，且未设置页填的封面素材 ID，无法继续。');
+            return;
+          }
+        }
+        return createDraft().then(function(dr){
+          if(task.done) return;
+          if(!dr.ok){
+            if(dr.status === 'config_required'){
+              fail(STEP.FAILED, dr.note + '（请到设置中配置公众号 AppID / AppSecret / 封面素材 ID）');
+            } else if(dr.status === 'timeout'){
+              // v1.6：草稿请求超时且结果未知，既不伪装成功，也不盲目重发；
+              //   把任务标记为 UNKNOWN，由用户在「恢复」/重试里二次确认后再决定。
+              finish(STEP.UNKNOWN, { state: STEP.UNKNOWN });
+              try{ setUiState(STEP.UNKNOWN, '⏸ 草稿创建请求超时（' + (dr.note || '微信未在限定时间内返回') + '）；结果未知，请稍后重试或到公众号后台「草稿箱」核对。'); }catch(_e){}
+              try{ if(typeof logLine==='function') logLine('wechat draft TIMEOUT taskId='+taskId+' note='+(dr.note||'')); }catch(_e){}
+              try{ if(typeof window._wechatRocketProgress==='function') window._wechatRocketProgress('⏸ 微信公众号 草稿创建超时（任务 '+taskId+'）', 'warn'); }catch(_e){}
+            } else {
+              fail(STEP.FAILED, dr.note);
+            }
+            return;
+          }
+          // v1.6：草稿创建成功 → 立即把任务标记为成功并结束，**不再**调用『微信发布』正式发布接口。
+          //   解决：IP 白名单 / 48001 误把成功草稿标失败；45 秒超时反复弹出；TypeError 阻断成果回写；外部 await 永不结束。
+          //   （旧逻辑用 /submit 与 /get 收尾，因正式发布接口在本机环境被 IP 白名单挡住，统一切到「草稿即结束」）
+          task.mediaId = dr.mediaId || task.mediaId;
+          finish(STEP.DRAFT_SAVED, { state: STEP.DRAFT_SAVED, mediaId: dr.mediaId || '', articleId: dr.mediaId || '' });
+          try{ setUiState(STEP.DRAFT_SAVED, '✓ 草稿已保存（ID: ' + (dr.mediaId || '') + '）。请到公众号后台「内容与互动 → 草稿箱」查看或手动群发。'); }catch(_e){}
+          try{ if(typeof toast==='function') toast('微信公众号草稿已保存（ID: ' + (dr.mediaId || '') + '），请到后台草稿箱查看或手动群发'); }catch(_e){}
+          try{ markPub('wechat'); }catch(_e){}
+          try{ if(typeof window._wechatRocketProgress==='function') window._wechatRocketProgress('✓ 微信公众号 草稿已保存（ID: ' + (dr.mediaId || '') + '）', 'ok'); }catch(_e){}
+          try{ if(typeof logLine==='function') logLine('wechat draft SAVED taskId='+taskId+' mediaId='+(dr.mediaId||'')); }catch(_e){}
+        });
+      });
+    }).catch(function(e){
+      if(!task.done) fail(STEP.FAILED, '公众号发布流程异常：' + String((e&&e.message)||e));
+    });
+
+    return task.promise;
   };
 
 

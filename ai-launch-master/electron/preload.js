@@ -113,9 +113,17 @@ contextBridge.exposeInMainWorld('api', {
     return function () { ipcRenderer.removeListener('youtube:upload-progress', listener); };
   },
   wechatCredentialsStatus: () => ipcRenderer.invoke('wechat:credentials-status'),
+  wechatCredentialsLoad: () => ipcRenderer.invoke('wechat:credentials-load'),
   wechatCredentialsSave: (values) => ipcRenderer.invoke('wechat:credentials-save', values),
   wechatCredentialsClear: () => ipcRenderer.invoke('wechat:credentials-clear'),
   wechatDraftCreate: (payload) => ipcRenderer.invoke('wechat:draft-create', payload),
+  wechatTestConnection: () => ipcRenderer.invoke('wechat:test-connection'),
+  wechatDraftGet: (mediaId) => ipcRenderer.invoke('wechat:draft-get', mediaId),
+  wechatUploadImage: (payload) => ipcRenderer.invoke('wechat:upload-image', payload),
+  wechatUploadVideo: (payload) => ipcRenderer.invoke('wechat:upload-video', payload),
+  wechatPublishVideo: (payload) => ipcRenderer.invoke('wechat:publish-video', payload),
+  wechatPublish: (mediaId) => ipcRenderer.invoke('wechat:publish', mediaId),
+  wechatPublishStatus: (publishId) => ipcRenderer.invoke('wechat:publish-status', publishId),
   // 抖音开放平台 OAuth + Token + API
   douyinSaveCredentials: (p) => ipcRenderer.invoke('douyin:save-credentials', p),
   douyinStartAuth: () => ipcRenderer.invoke('douyin:start-auth'),
@@ -151,5 +159,10 @@ contextBridge.exposeInMainWorld('api', {
   browserFill: (platformId, fillData) => ipcRenderer.invoke('browser:fill', platformId, fillData),
   browserPublish: (platformId, fillData) => ipcRenderer.invoke('browser:publish', platformId, fillData),
   browserDestroySession: (platformId) => ipcRenderer.invoke('browser:destroy-session', platformId),
-  browserDiagnostics: (platformId) => ipcRenderer.invoke('browser:diagnostics', platformId)
+  browserDiagnostics: (platformId) => ipcRenderer.invoke('browser:diagnostics', platformId),
+  // v1.X: X (Twitter) 专用发布入口（走 BrowserManager + XPublisher phase1+phase2）。
+  //   与 pubLaunch 分离 —— 避免老 publishers.js x adapter 的简单 `paste` 路径被错误调用。
+  browserXPublish: (payload) => ipcRenderer.invoke('browser:x-publish', payload),
+  // v1.x: 仅诊断 X 编辑器（不开 fill）—— 用于用户在不开填表时定位光标错位
+  browserXDiag: (payload) => ipcRenderer.invoke('browser:x-diag', payload)
 });

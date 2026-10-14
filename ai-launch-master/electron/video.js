@@ -17,7 +17,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const { app } = require('electron');
 const ffmpegResolver = require('./ffmpeg-resolver');
 
@@ -139,6 +139,14 @@ function transcodeWebmToMp4(input, opts) {
   opts = opts || {};
   if (!input || !fs.existsSync(input)) return Promise.reject(new Error('input-not-found'));
   if (!ffmpegAvailable()) return Promise.reject(ffmpegUnavailableError());
+  // v1.20.2：限制**导出 MP4**的最大帧率为 60 FPS（与"保存为视频样本"统一）。
+  //   - maxFps=60 是上限；若源 WebM 帧率 ≤ 60，保留源帧率（不复制帧）。
+  //     探测源 fps 走 ffmpeg -i stderr 解析（grep "Stream.*Video.*([0-9.]+ fps)"）。
+  //     解析失败时按"源 ≤ 60"假设（最保守）。
+  //   - opts.maxFps 可被调用方覆盖（测试 / 转码其他不相关场景）；默认 60。
+  //   - fps 滤镜 ffmpeg 内部 drop 帧而非复制帧，故不增加文件体积。
+  const MAX_FPS_DEFAULT = 60;
+  const maxFps = (typeof opts.maxFps === 'number' && opts.maxFps > 0 && opts.maxFps <= 240) ? opts.maxFps : MAX_FPS_DEFAULT;
   let out;
   if (opts.outputPath && typeof opts.outputPath === 'string') {
     out = opts.outputPath;
@@ -151,9 +159,19 @@ function transcodeWebmToMp4(input, opts) {
   }
   const crf = typeof opts.crf === 'number' ? String(opts.crf) : '23';
   const preset = opts.preset || 'veryfast';
+  // v1.20.2：固定把**导出 MP4** 的帧率上限锁为 maxFps（默认 60）。
+  //   - 永远强制 `-vf fps=N` + `-r N` —— 不论探测源 fps 多少。
+  //     原因：用户实测 120 fps webm → 导出 mp4 仍是 120 fps；
+  //     探测 -i stderr 的 `Stream ... fps=...` 在某些 webm/vp9 容器里**报为静默 fps=60 / 30 / 59.94**
+  //     但**实际**时间戳序列可达 100+ fps（NV12 120Hz 高刷屏录制），条件式判断不可靠。
+  //     ffmpeg `fps` filter + output `-r N` 双重保险：drop 帧 + 重写输出 fps 标签。
+  //   - 源帧率本身 ≤ N 时，`fps=N` 是**恒等**映射（没有任何 drop），**不**复制帧。
+  //   - 音频不动：`-c:a aac -b:a 128k` 保持。
+  const fpsArgs = ['-vf', 'fps=' + maxFps, '-r', String(maxFps)];
   const args = [
     '-y',
     '-i', input,
+    ...fpsArgs,
     '-c:v', 'libx264',
     '-preset', preset,
     '-crf', crf,
@@ -256,9 +274,37 @@ function getMetadata(input) {
       if (vcm) out.videoCodec = vcm[1];
       const acm = /Audio:\s*([\w]+)/i.exec(stderr);
       if (acm) out.audioCodec = acm[1];
+      // v1.20.2：从 ffmpeg -i stderr 末尾 Stream 标签的 `(TAG:language=...)` 之前
+      //   抓 `(\d+(?:\.\d+)?)\s*fps`（ffmpeg 输出 "29.97 fps" 或 "60 fps"）。
+      //   多视频流时取第一条。
+      const fm = /Stream\b[^\n]*?\b(\d+(?:\.\d+)?)\s*fps\b/i.exec(stderr);
+      if (fm) {
+        const fpsNum = parseFloat(fm[1]);
+        if (isFinite(fpsNum) && fpsNum > 0 && fpsNum <= 1000) out.fps = fpsNum;
+      }
       resolve(out);
     });
   });
+}
+
+// v1.20.2：同步探测 fps（仅在 transcodeWebmToMp4 内部用，不暴露给其他模块）。
+//   用 spawnSync + timeout 防止 ffmpeg 卡住整个转码队列。
+function getMetadataSync(input) {
+  const exe = ffmpegPath();
+  if (!exe || !fs.existsSync(input)) return null;
+  let stderr = '';
+  let proc;
+  try {
+    proc = spawnSync(exe, ['-i', input], { stdio: ['ignore', 'ignore', 'pipe'], timeout: 4000 });
+  } catch (_e) { return null; }
+  if (!proc) return null;
+  stderr = String((proc.stderr && proc.stderr.toString && proc.stderr.toString()) || (proc[2] || ''));
+  const fm = /Stream\b[^\n]*?\b(\d+(?:\.\d+)?)\s*fps\b/i.exec(stderr);
+  if (fm) {
+    const fpsNum = parseFloat(fm[1]);
+    if (isFinite(fpsNum) && fpsNum > 0 && fpsNum <= 1000) return { fps: fpsNum };
+  }
+  return null;
 }
 
 // 一站式：把 WebM 产物转 MP4 + 抽封面 + 读元数据

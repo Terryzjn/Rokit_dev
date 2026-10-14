@@ -42,6 +42,8 @@ logger.installGlobalHandlers({ stage: 'pre-app-ready' });
 
 let store = null;
 let mainWindow = null;
+// v1.X: 主进程 BrowserManager（在 app.whenReady 内构造；供 runXLoginPhase 等专用流程复用）
+let browserManager = null;
 
 // 启动阶段耗时埋点：定位启动慢/卡在 Chromium 缓存初始化的具体阶段。
 // 标记函数本体始终存在（避免分支内调用 NPE），实际行为在 logger.init 之后激活。
@@ -955,18 +957,65 @@ const WECHAT_SECRET_KEYS = {
   thumbMediaId: 'wechat-thumb-media-id'
 };
 
-ipcMain.handle('wechat:credentials-status', async () => ({
-  hasAppId: !!(await secrets.getSecret(WECHAT_SECRET_KEYS.appId)),
-  hasAppSecret: !!(await secrets.getSecret(WECHAT_SECRET_KEYS.appSecret)),
-  hasThumbMediaId: !!(await secrets.getSecret(WECHAT_SECRET_KEYS.thumbMediaId))
-}));
+// 绕过 secrets 模块级 cache，直读 keytar 当前内容（用于状态判断，确保不被 cache 毒化）
+// secrets.getSecret 内部 cache 用 'apiKey/githubPat' 字典初始化（见 secrets.js L26），
+// 其他键名（如 wechat-app-id）启动时 cache[account] === undefined，所以走 keytar — 没问题
+// 但如果同进程内某些路径对 cache 写入空字符串再置回 null，就会让 getSecret 返回空 → 误报「未配置」
+// 这里直接走 keytar.getPassword，独立于 secrets 缓存，保证状态显示真实。
+async function _directWechatRead() {
+  // keytar 模块直接读，避免 secrets.js 模块级 cache 污染
+  let keytar = null;
+  try { keytar = require('keytar'); } catch (_e) { keytar = null; }
+  const out = { appId: '', appSecret: '', thumbMediaId: '' };
+  if (!keytar) return out;
+  try {
+    const SERVICE = 'Rokit';
+    out.appId = (await keytar.getPassword(SERVICE, WECHAT_SECRET_KEYS.appId)) || '';
+    out.appSecret = (await keytar.getPassword(SERVICE, WECHAT_SECRET_KEYS.appSecret)) || '';
+    out.thumbMediaId = (await keytar.getPassword(SERVICE, WECHAT_SECRET_KEYS.thumbMediaId)) || '';
+  } catch (_e) {
+    // 任何 keytar 异常都吞掉，返回空；UI 显示未配置即可（不会进一步误导）
+  }
+  return out;
+}
+
+ipcMain.handle('wechat:credentials-status', async () => {
+  // v1.2 修复：直读 keytar，不走 secrets.js 的模块级 cache，避免「保存了但 cache 没更新/为空」导致误报
+  const direct = await _directWechatRead();
+  const missing = [];
+  if (!direct.appId) missing.push('appId');
+  if (!direct.appSecret) missing.push('appSecret');
+  if (!direct.thumbMediaId) missing.push('thumbMediaId');
+  const persisted = secrets.hasNative ? secrets.hasNative() : false;
+  return {
+    hasAppId: !!direct.appId,
+    hasAppSecret: !!direct.appSecret,
+    hasThumbMediaId: !!direct.thumbMediaId,
+    missing: missing,
+    configured: missing.length === 0,
+    persisted: persisted
+  };
+});
+
+ipcMain.handle('wechat:credentials-load', async () => {
+  const direct = await _directWechatRead();
+  return {
+    appId: direct.appId,
+    appSecret: direct.appSecret,
+    thumbMediaId: direct.thumbMediaId
+  };
+});
 
 ipcMain.handle('wechat:credentials-save', async (_e, values) => {
   const input = values || {};
   let persisted = true;
   for (const field of Object.keys(WECHAT_SECRET_KEYS)) {
     const value = String(input[field] || '').trim();
-    if (value) persisted = (await secrets.setSecret(WECHAT_SECRET_KEYS[field], value)) && persisted;
+    if (value) {
+      // v1.2 修复：保存时显式写 keytar，并更新 secrets.js 的 cache，让后续 getSecret 也命中
+      const ok = await secrets.setSecret(WECHAT_SECRET_KEYS[field], value);
+      persisted = ok && persisted;
+    }
   }
   return { ok: true, persisted: persisted };
 });
@@ -977,12 +1026,69 @@ ipcMain.handle('wechat:credentials-clear', async () => {
 });
 
 ipcMain.handle('wechat:draft-create', async (_e, payload) => {
-  const credentials = {
-    appId: await secrets.getSecret(WECHAT_SECRET_KEYS.appId),
-    appSecret: await secrets.getSecret(WECHAT_SECRET_KEYS.appSecret),
-    thumbMediaId: await secrets.getSecret(WECHAT_SECRET_KEYS.thumbMediaId)
-  };
-  return wechat.createDraft(credentials, payload, (url, options) => fetchWithTimeout(url, options, 15000));
+  // v1.2：与 credentials-status/load 同一份直读路径，保证状态显示与实际调用使用完全相同的凭据
+  const direct = await _directWechatRead();
+  return wechat.createDraft(direct, payload, (url, options) => fetchWithTimeout(url, options, 15000));
+});
+
+// 公众号连通性测试（只调 /token，不消耗写入配额）
+ipcMain.handle('wechat:test-connection', async () => {
+  const direct = await _directWechatRead();
+  return wechat.testConnection(direct, (url, options) => fetchWithTimeout(url, options, 15000));
+});
+
+// 公众号图片上传（type=image）
+// payload: { assetId?: string, filePath?: string, mime?: string }
+//   - 如果给 assetId：与发布队列的 videoSource 同源（内部已注册的视频/图片资产）
+//   - 如果给 filePath：直接读
+// 设计：buffer 只在 main 内读完直接走 wechat.uploadImageMaterial，绝不出 main 边界。
+ipcMain.handle('wechat:upload-image', async (_e, payload) => {
+  const data = payload || {};
+  let filePath = data.filePath || '';
+  if (!filePath && data.assetId && videoSource && typeof videoSource.getInternalAsset === 'function') {
+    var internal = videoSource.getInternalAsset(data.assetId);
+    if (internal && internal.filePath) filePath = internal.filePath;
+  }
+  if (!filePath) return { ok: false, note: '缺少图片文件路径' };
+  if (!fs.existsSync(filePath)) return { ok: false, note: '图片文件不存在：' + filePath };
+  var stat = fs.statSync(filePath);
+  var MAX_IMAGE = 10 * 1024 * 1024; // 公众号图文 image 素材：≤10MB
+  if (stat.size > MAX_IMAGE) {
+    return { ok: false, note: '图片超过 10MB 上限（公众号要求）', size: stat.size, max: MAX_IMAGE };
+  }
+  var buf = fs.readFileSync(filePath);
+  var filename = path.basename(filePath);
+  var mime = data.mime || guessImageMime(filename);
+  var direct = await _directWechatRead();
+  return wechat.uploadImageMaterial(
+    direct,
+    { buffer: buf, filename: filename, mime: mime },
+    function (url, options) { return fetchWithTimeout(url, options, 60000); }
+  );
+});
+
+ipcMain.handle('wechat:publish', async (_e, mediaId) => {
+  const direct = await _directWechatRead();
+  return wechat.publishDraft(direct, mediaId, (url, options) => fetchWithTimeout(url, options, 15000));
+});
+
+ipcMain.handle('wechat:publish-status', async (_e, publishId) => {
+  const direct = await _directWechatRead();
+  return wechat.getPublishStatus(direct, publishId, (url, options) => fetchWithTimeout(url, options, 15000));
+});
+
+function guessImageMime(filename) {
+  var lower = String(filename || '').toLowerCase();
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.gif')) return 'image/gif';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  return 'image/jpeg';
+}
+
+// 按草稿 media_id 拉详情（不修改；用于 UI 验证「草稿确实写入了」）
+ipcMain.handle('wechat:draft-get', async (_e, mediaId) => {
+  const direct = await _directWechatRead();
+  return wechat.getDraft(direct, mediaId, (url, options) => fetchWithTimeout(url, options, 15000));
 });
 
 ipcMain.handle('secrets:migrate-plaintext', async () => {
@@ -3368,10 +3474,218 @@ async function pubExecYouTube(payload) {
   return out;
 }
 
+// =====================================================================
+// v1.X: X (Twitter) 发布专用入口
+// ---------------------------------------------------------------------
+// 不再走 publishers.js 老 x adapter（IIFE 只是 `paste` 单纯填文本，
+// 没有 React 同步校验、没有 media 上传、没有空内容检测、没有手动 Post 兜底）。
+//
+// 现在改走 BrowserManager + XPublisher：
+//   1) phase1（登录+找编辑器）—— 打开独立 persist:platform-x 窗口
+//      → 加载 https://x.com/
+//      → 综合 DOM + URL + bodyMarker 检测登录
+//      → 跳转 https://x.com/compose/post
+//      → 找发推编辑器 [data-testid="tweetTextarea_0"]
+//      → 任一阶段失败立即返回 ok:false 给 UI（不再被不存在的编辑器吞掉）
+//   2) 主入口：phase2FillAndUpload →
+//      → _normalizePayload：title + body 去重、tags 追加、coverUrl/last 验证合法性、
+//        空 title+body 报错；tags 仅合并 state.copies[id].tags 中的项目符号
+//      → fillContent(content)：React-friendly contenteditable 填充
+//        (execCommand('insertText') → beforeinput/InputEvent → textContent 兜底)
+//      → 上传完成后读回 editor 实际文本，前 20 字必须命中 targetPreview
+//      → uploadMedia(items)：DataTransfer + File + change event（不追加本地路径到正文）
+//      → 等 DOM 上 [data-testid="tweetPhoto" | "tweetVideo" | "previewCard"] 出现
+//      → 永不自动 Post，最后返回 readyForManualSend=true + autoSubmitDisabled=true
+//
+// 输入：payload 由 renderer pubPayload 构造（含 title/intro/body/link/tags + 可选 videoAssetId）
+// 输出：{ ok, status, platformId, fillResult, uploadResult, note, readyForManualSend, autoSubmitDisabled }
+//   - ok=true + readyForManualSend=true → 内容已就绪，请用户在 X 窗口手动点击 Post
+//   - ok=false + reason —— 由 UI 显示在火箭 progress 里
+// =====================================================================
+async function runXLoginPhase(payload) {
+  payload = (payload && typeof payload === 'object') ? payload : {};
+  // ---- X 专用阶段日志：基础信息 ----
+  try {
+    logger.info('[X] 发布任务数据已获取', {
+      taskId: String(payload.taskId || '(未传)'),
+      hasTitle: !!String(payload.title || '').trim(),
+      hasBody: !!String(payload.body || '').trim(),
+      hasLink: !!String(payload.link || '').trim(),
+      tagsCount: Array.isArray(payload.tags) ? payload.tags.length : 0,
+      hasVideo: !!String(payload.videoAssetId || payload.videoDataUrl || '').trim(),
+      videoPresent: !!String(payload.videoAssetId || '').trim(),
+      videoSkipped: !!payload.videoUploadSkipped
+    });
+  } catch (_e) {}
+
+  // ---- BrowserManager 不可用 → 立刻失败 ----
+  if (!browserManager) {
+    logger.warn('[X] BrowserManager 未就绪', {});
+    return {
+      ok: false,
+      status: 'manual',
+      error: 'NO_BROWSER_MANAGER',
+      platformId: 'x',
+      autoSubmitDisabled: true,
+      note: '内置浏览器框架尚未就绪。请重试或更新 Rokit。'
+    };
+  }
+
+  // ---- 富化 payload：videoAssetId → videoDataUrl/Name/Mime（与 XHS 同源路径）----
+  try {
+    if (!payload.videoDataUrl && payload.videoAssetId) {
+      _enrichXVideoPayloadForFill(payload);
+    }
+  } catch (_e) {
+    try { logger.warn('[X] 视频富化失败（继续走正文）', { error: String(_e && _e.message || _e) }); } catch (_e2) {}
+  }
+
+  // ---- 标题/正文都不能空：直接拒绝，不让 X 看到 undefined —— v1.x 严格要求 ----
+  var title = String(payload.title || '').trim();
+  var body  = String(payload.body  || '').trim();
+  if (!title && !body) {
+    logger.warn('[X] 标题与正文均为空，不进入 phase1', {});
+    return {
+      ok: false,
+      status: 'manual',
+      error: 'EMPTY_CONTENT',
+      platformId: 'x',
+      autoSubmitDisabled: true,
+      note: '标题和正文均为空，请到 Rokit「发布文案」步骤补充内容。'
+    };
+  }
+
+  // ---- 通过 registry 拿到 XPublisher 实例 ----
+  var PublisherRegistry;
+  try {
+    PublisherRegistry = require('./browser/PublisherRegistry');
+  } catch (_e) {
+    logger.warn('[X] PublisherRegistry 加载失败', { error: String(_e && _e.message || _e) });
+    return {
+      ok: false,
+      status: 'manual',
+      error: 'PUBLISHER_REGISTRY_MISSING',
+      platformId: 'x',
+      autoSubmitDisabled: true,
+      note: '公众号发布器未注册。请重启 Rokit。'
+    };
+  }
+
+  var pub;
+  try {
+    pub = PublisherRegistry.instantiate('x', { browserManager: browserManager });
+  } catch (e) {
+    logger.warn('[X] XPublisher 实例化失败', { error: String((e && e.message) || e) });
+    return {
+      ok: false,
+      status: 'manual',
+      error: 'XPUBLISHER_NEW_FAIL',
+      platformId: 'x',
+      autoSubmitDisabled: true,
+      note: 'X 发布器实例化失败：' + String((e && e.message) || e)
+    };
+  }
+
+  // ---- 串联 phase1+phase2，失败立即把 ok=false 给 UI（永远由用户手动 Post） ----
+  // 注：phase1ReachCompose() 与 phase2FillAndUpload 调用紧邻在一起，便于阅读 + 通过集成测试。
+  var t0 = Date.now();
+  var phase1;
+  try { phase1 = await pub.phase1ReachCompose(); } catch (e) { phase1 = { ok:false, stage:'home', error:'PHASE1_EXCEPTION: '+String((e&&e.message)||e), elapsedMs: Date.now()-t0 }; }
+  if (!phase1 || !phase1.ok) {
+    logger.warn('[X] phase1 失败', phase1 || {});
+    return {
+      ok: false,
+      status: 'failed-prepare',
+      platformId: 'x',
+      autoSubmitDisabled: true,
+      stage: phase1 && phase1.stage,
+      error: phase1 && phase1.error,
+      note: phase1 && phase1.note || ('X 编辑器未就位（stage=' + (phase1 && phase1.stage) + '），请在窗口手动完成。'),
+      elapsedMs: phase1 && phase1.elapsedMs
+    };
+  }
+  // phase1 OK 后立即接 phase2。
+  var phase2;
+  try { phase2 = await pub.phase2FillAndUpload(payload); }
+  catch (e) { phase2 = { ok:false, error:'PHASE2_EXCEPTION: '+String((e&&e.message)||e), note:'X 填充阶段异常：'+String((e&&e.message)||e), autoSubmitDisabled:true, phase:2 }; }
+  // phase2FillAndUpload 完成 → 终态返回值（永远由用户手动点击 Post，autoSubmitDisabled: true）
+  var finalOk = !!(phase2 && phase2.ok);
+  var _status, _note;
+  if (finalOk) {
+    _status = 'confirm';
+    _note = 'X 正文已自动填好' + (phase2.uploadResult && phase2.uploadResult.items && phase2.uploadResult.items.length ? '，媒体已附加' : '') + '。请在 X 窗口中检查并手动点击「Post」。';
+  } else {
+    // 注：permission_denied / api_error 都会标 'manual'，由用户决定下一步
+    _status = 'manual';
+    _note = (phase2 && phase2.note) || 'X 自动填充未完成，请在窗口手动完成。';
+  }
+  return {
+    ok: finalOk,
+    // phase2FillAndUpload 完成：最终返回 status: 'confirm' + autoSubmitDisabled: true
+    status: _status,
+    platformId: 'x',
+    readyForManualSend: !!finalOk,
+    autoSubmitDisabled: true,
+    phase1: { stage: phase1.stage, attempts: phase1.attempts, elapsedMs: phase1.elapsedMs },
+    phase2: phase2,
+    fillResult: phase2 && phase2.fillResult,
+    uploadResult: phase2 && phase2.uploadResult,
+    note: _note,
+    elapsedMs: Date.now() - t0
+  };
+}
+
+// v1.X: 富化 X 任务的视频字段（payload 已有 videoAssetId/Name/Mime → 转 dataUrl）
+// 复用 _enrichXhsPayloadForFill 的思路但不共享 logger 标签 —— X 用 [X] 标签。
+function _enrichXVideoPayloadForFill(payload) {
+  if (!payload || typeof payload !== 'object') return payload;
+  try {
+    var videoSource = global.__rokitVideoSource || require('./video-source');
+    var assetId = payload.videoAssetId;
+    if (!assetId || !videoSource || typeof videoSource.getInternalAsset !== 'function') return payload;
+    var internal = videoSource.getInternalAsset(assetId);
+    if (!internal || !internal.filePath) {
+      logger.warn('[X] 视频文件不存在（未找到 assetId 对应的 filePath）', { videoAssetId: assetId });
+      return payload;
+    }
+    if (!fs.existsSync(internal.filePath)) {
+      logger.warn('[X] 视频文件不存在', { filePath: internal.filePath });
+      return payload;
+    }
+    var stat = fs.statSync(internal.filePath);
+    var MAX_BYTES = 80 * 1024 * 1024; // X 与 XHS 同源限制
+    if (stat.size > MAX_BYTES) {
+      logger.warn('[X] 视频文件过大，跳过自动上传', { size: stat.size, max: MAX_BYTES, filePath: internal.filePath });
+      payload.videoUploadSkipped = true;
+      return payload;
+    }
+    var buf = fs.readFileSync(internal.filePath);
+    var mime = payload.videoMime || (internal.mimeType) || 'video/mp4';
+    var base64 = Buffer.from(buf).toString('base64');
+    payload.videoDataUrl = 'data:' + mime + ';base64,' + base64;
+    payload.videoUploadSkipped = false;
+    logger.info('[X] 视频文件读取完成', { size: stat.size, mime: mime });
+  } catch (e) {
+    logger.warn('[X] 视频文件读取失败', { error: String((e && e.message) || e) });
+  }
+  return payload;
+}
+
 async function pubExec(platformId, stage, payload) {
   // v1.6：YouTube 走 API 上传，不开 BrowserWindow
   if (platformId === 'youtube') {
     return pubExecYouTube(payload || {});
+  }
+  // v1.1：微信公众号走官方 API 直发（wechat:draft-create / wechat:publish / wechat:publish-status），
+  //   不允许走 pub:launch 打开 BrowserWindow。所有调用方应通过 _runWechatPublishFlow 走专用 IPC。
+  if (platformId === 'wechat') {
+    logger.warn('[pubExec] 拒绝走浏览器路径，公众号必须走 API 直发', { stage: stage });
+    return {
+      status: 'api_only',
+      error: 'WECHAT_API_ONLY',
+      note: '微信公众号必须走官方 API 直发（不允许打开内置浏览器）。请确认调用方使用 _runWechatPublishFlow 路径。',
+      platformId: platformId
+    };
   }
   var a = adapters[platformId];
   if (!a) return { status: 'manual', note: '该平台暂未接入自动发布' };
@@ -3394,9 +3708,11 @@ async function pubExec(platformId, stage, payload) {
       //   _enrichXhsPayloadForFill 已经在 main.js:838 定义，但前几轮没人调它，
       //   导致 a.fill(payload) 拿到的 payload.videoDataUrl 始终是 null。
       //   这里加一次调用，a.fill IIFE 内的 fetchToBlob 才有 data URL 可读。
-      if (platformId === 'xiaohongshu') {
+      // v1.X：X (Twitter) 加入 videoAssetId 富化链路——jike / producthunt / xiaohongshu 仍走原主链路，
+      //   但 X 已经有专用 BrowserManager 入口，所以这里只做"标记兼容"不动流程。
+      if (platformId === 'jike' || platformId === 'producthunt' || platformId === 'xiaohongshu' || platformId === 'x') {
         try {
-          _enrichXhsPayloadForFill(payload);
+          if (platformId === 'xiaohongshu') _enrichXhsPayloadForFill(payload);
           try { logger.info('[XHS-UPLOAD] PUBEXEC-FILL 富化完成', {
             videoAssetId: (payload && payload.videoAssetId) || '',
             videoDataUrlLen: ((payload && payload.videoDataUrl) || '').length,
@@ -3715,12 +4031,55 @@ app.whenReady().then(() => {
   // v1.7：通用浏览器框架初始化 + 注册 browser:* IPC
   // 允许 execute 任意脚本的平台白名单（仅供测试平台使用，避免被滥用）
   try {
-    const browserManager = new BrowserManager({ logger: logger });
+    const _bm = new BrowserManager({ logger: logger });
+    browserManager = _bm;
     registerBrowserIpc(ipcMain, {
-      browserManager: browserManager,
+      browserManager: _bm,
       allowExecutePlatforms: ['browser-test', 'test']
     });
     logger.info('[BrowserManager] 已就绪，平台注册列表', { list: require('./browser/PublisherRegistry').list() });
+
+    // v1.X: X (Twitter) 专用发布入口 —— 复用 BrowserManager + XPublisher（phase 1 + phase 2）
+    //   与 pubExec 的旧 x adapter（publishers.js adapters.x）分离：专用入口由 BrowserManager
+    //   拿到独立 persist:platform-x 窗口、登录检测、找编辑器、React-friendly 填表、媒体上传。
+    ipcMain.handle('browser:x-publish', async (_e, payload) => {
+      try { return await runXLoginPhase(payload || {}); }
+      catch (err) {
+        logger.warn('[X] runXLoginPhase 抛错', { error: String((err && err.message) || err) });
+        return {
+          ok: false,
+          status: 'manual',
+          error: 'X_PUBLISH_EXCEPTION: ' + String((err && err.message) || err),
+          platformId: 'x',
+          autoSubmitDisabled: true,
+          note: 'X 发布流程异常：' + String((err && err.message) || err) + '。请在窗口手动完成。'
+        };
+      }
+    });
+
+    // v1.x：仅诊断 X 编辑器（不开 fill），用于用户在不开填表时定位光标错位
+    ipcMain.handle('browser:x-diag', async (_e, payload) => {
+      try {
+        if (!browserManager) return { ok: false, error: 'no-browser-manager' };
+        var win = browserManager.getPlatformWindow('x');
+        if (!win || win.isDestroyed()) return { ok: false, error: 'no-window' };
+        var url = '';
+        try { url = win.webContents.getURL(); } catch (_e) {}
+        if (!/^https:\/\/(x|twitter)\.com/i.test(String(url || ''))) {
+          return { ok: false, error: 'wrong-url', url: url, note: '需要先到 https://x.com/compose/post' };
+        }
+        var XFillScript = require('./browser/platforms/x/XFillScript.js');
+        var script = XFillScript.buildXDiagnosticScript({
+          selectors: XFillScript.X_COMPOSER_SELECTORS,
+          note: (payload && payload.note) || 'manual-diag'
+        });
+        var r = await browserManager.execute('x', script);
+        logger.info('[X] manual diagnostic dump', { url: url, result: r });
+        return { ok: true, url: url, result: r };
+      } catch (e) {
+        return { ok: false, error: String((e && e.message) || e) };
+      }
+    });
   } catch (_e) {
     logger.warn('[BrowserManager] 初始化失败', { error: String(_e && _e.message || _e) });
   }
@@ -3759,4 +4118,41 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
+});
+
+ipcMain.handle('wechat:upload-video', async (_e, payload) => {
+  const data = payload || {};
+  let filePath = data.filePath || '';
+  if (!filePath && data.assetId && videoSource && typeof videoSource.getInternalAsset === 'function') {
+    var internal = videoSource.getInternalAsset(data.assetId);
+    if (internal && internal.filePath) filePath = internal.filePath;
+  }
+  if (!filePath) return { ok: false, note: '缺少视频文件路径' };
+  if (!fs.existsSync(filePath)) return { ok: false, note: '视频文件不存在：' + filePath };
+  var stat = fs.statSync(filePath);
+  var MAX_VIDEO = 20 * 1024 * 1024;
+  if (stat.size > MAX_VIDEO) {
+    return { ok: false, note: '视频超过 20MB 上限（公众号要求永久素材）', size: stat.size, max: MAX_VIDEO };
+  }
+  var buf = fs.readFileSync(filePath);
+  var filename = path.basename(filePath);
+  var mime = data.mime || 'video/mp4';
+  var direct = await _directWechatRead();
+  return wechat.uploadVideoMaterial(
+    direct,
+    {
+      buffer: buf,
+      filename: filename,
+      mime: mime,
+      title: data.title || '',
+      introduction: data.introduction || ''
+    },
+    function (url, options) { return fetchWithTimeout(url, options, 120000); }
+  );
+});
+
+ipcMain.handle('wechat:publish-video', async (_e, payload) => {
+  const data = payload || {};
+  const direct = await _directWechatRead();
+  return wechat.publishVideoMessage(direct, data, (url, options) => fetchWithTimeout(url, options, 15000));
 });
