@@ -9418,6 +9418,8 @@ window.testWechatConnection=function(){
     return {
       id: s.id,
       rowId: s.rowId,
+      // 固定修复：保留 seg 自带 text 副本。放置成功后 row 会被删除，未保留会导致 normalize 后再次 fallback "（已删除素材）"。
+      text: (typeof s.text === 'string') ? s.text : '',
       start: Number(s.start) || 0,
       end: Math.max((Number(s.start) || 0) + 0.2, Number(s.end) || 0),
       audioSec: (typeof s.audioSec === 'number' && s.audioSec > 0) ? s.audioSec : null,
@@ -10565,7 +10567,10 @@ window.testWechatConnection=function(){
     var playheadOut = sd.playheadSec || 0;
     var segHtml = segs.map(function(s){
       var row = rows.filter(function(x){return x.id===s.rowId;})[0];
-      var text = row ? row.text : '（已删除素材）';
+      // 文本查找顺序：seg 自带 text → row.text → "（已删除素材）" fallback。
+      //   优先 seg.text：放置成功后 row 已被删除，seg 不带 text 就会显示"空字幕"。
+      var text = (typeof s.text === 'string' && s.text) ? s.text : (row ? (row.text || '') : '');
+      if (!text) text = '（已删除素材）';
       // P2-1 第一批：字幕位置、宽度、激活区间统一使用 OUTPUT 时间。
       //   - 优先读取有效的 outStart/outEnd；缺 OUT 字段时按既有初始化规则兜底反推
       //   - 宽度保持音频时长 1:1：用 (outEnd - outStart) 在 OUT 维度计算，与 frozen 拉伸/跳位解耦
@@ -11404,8 +11409,14 @@ window.testWechatConnection=function(){
     var seg = (sd.segments||[]).filter(function(s){return s.id===id;})[0];
     if (!seg) return;
     // 拖动流程结束（任意早返回路径）必须清掉 __capDraggingSegment，避免遗留污染下一次 recompute。
+    //   同时清 __captionMoveToBankFired（本轮新增的双向拖拽升级标志），否则下一次拖动会被错误封印。
     var _clearDragFlag = function(){
-      try { if (state && state.subtitleData) delete state.subtitleData.__capDraggingSegment; } catch (_) {}
+      try {
+        if (state && state.subtitleData) {
+          delete state.subtitleData.__capDraggingSegment;
+          delete state.subtitleData.__captionMoveToBankFired;
+        }
+      } catch (_) {}
     };
     var startEv = ev;
     var startSeg = { start: seg.start, end: seg.end };
@@ -11438,6 +11449,27 @@ window.testWechatConnection=function(){
       var dx = e.clientX - startEv.clientX;
       // 拖动阈值：< 0.5px 不算拖动，避免 onMove 早期的浮点 dx 抖动把段直接甩飞
       if (Math.abs(dx) < 0.5) return;
+      // 双向拖拽（segment → bank）：onMove 期间检测鼠标命中素材区 #captionBankList。
+      //   - 命中后立即调用 _captionMoveSegmentToBank(id) 把 seg 移回素材区，并终止本次拖动链路。
+      //   - 既不修改 seg.outStart/outEnd，也不触碰 viewRange / frozen / _capBaseDuration。
+      //   - 用 try/catch + 单调升级标志 _captionMoveToBankFired 防止同一帧多次触发。
+      try {
+        if (!sd.__captionMoveToBankFired) {
+          var _bankEl = document.getElementById('captionBankList');
+          if (_bankEl) {
+            var _br = _bankEl.getBoundingClientRect();
+            if (e.clientX >= _br.left && e.clientX <= _br.right && e.clientY >= _br.top && e.clientY <= _br.bottom) {
+              sd.__captionMoveToBankFired = true;
+              // 升级：先清拖动锁旗标（_captionDragSegment 自己管理的），再调用移回素材区，再 persist+render
+              _clearDragFlag();
+              _captionMoveSegmentToBank(id);
+              try { _capPersist(); } catch (_) {}
+              try { _capRender(); } catch (_) {}
+              return;
+            }
+          }
+        }
+      } catch (_) {}
       // P2-1 第一批：拖动改为 OUTPUT 主坐标。
       //   - dx/_captionPxPerSec = OUTPUT 秒增量（基于按下时的固定起点，不随上一帧累计）。
       var dsOut = dx / _captionPxPerSec();
@@ -12037,6 +12069,44 @@ window.testWechatConnection=function(){
   function captionBankEdit(rid){
     _capOpenEditRowForm(rid);
   }
+  // 双向拖拽：把字幕片段从时间轴移回素材区。
+  //   - 与现有 _captionDragSegment 协同：用户在 onMove 中命中素材区时调用本函数。
+  //   - 删除 sd.segments 中的 seg；如果对应 row 已不在 sd.rows（被其它路径清掉），则补回一个最小 row 保留文本，
+  //     满足任务要求"恢复的素材应保留原字幕文本，不得丢字、重复添加或自动改写内容"。
+  //   - 不修改 viewRange / frozen / _capBaseDuration / 输出时长；不重新生成冻结；不修改 OUT 字段计算。
+  //   - 调用方负责终止当前的 onMove 链路，避免后续 pointermove 写入已删除的 seg。
+  function _captionMoveSegmentToBank(segId){
+    if (!segId) return false;
+    var sd = state.subtitleData;
+    if (!sd) return false;
+    var seg = (sd.segments || []).filter(function(s){ return s.id === segId; })[0];
+    if (!seg) return false;
+    var rid = seg.rowId;
+    // 1. 先确保 row 存在（即使此前 captionBankDelete 等路径把它删了，也要补一个回 sd.rows）
+    var rowExists = (sd.rows || []).some(function(r){ return r.id === rid; });
+    if (!rowExists && rid) {
+      // 兜底：用 seg 上记录的字段补一个最小 row，保证素材区能稳定显示原文本，且不重复造一个不同 rowId
+      //   优先读 seg.text（本轮新增的字段）；老字段 textSnapshot / title 兜底兼容；
+      //   三者都没有时退化为空串，用户可后续编辑输入。
+      var _segText = (typeof seg.text === 'string' && seg.text)
+        ? seg.text
+        : (typeof seg.textSnapshot === 'string' ? seg.textSnapshot : ((typeof seg.title === 'string' ? seg.title : '')));
+      sd.rows = (sd.rows || []).concat([{
+        id: rid,
+        text: _segText,
+        estimatedSec: Math.max(0.2, (seg.end || 0) - (seg.start || 0)),
+        audioSec: (typeof seg.audioSec === 'number' && seg.audioSec > 0) ? seg.audioSec : null,
+        updatedAt: Date.now(),
+        userMoved: false
+      }]);
+    }
+    // 2. 删除 sd.segments 中的 seg
+    sd.segments = (sd.segments || []).filter(function(s){ return s.id !== segId; });
+    sd.selectedSegmentId = null;
+    // 3. 清理派生 UI 选择，避免渲染时仍选到无效 seg
+    return true;
+  }
+
   function captionBankDelete(rid){
     // 任何会触发 _capRender() 的操作前先 flush 当前编辑态，避免正在编辑的 input 被销毁
     if (_capEditingRowId && _capEditingRowId !== rid) _capFlushEditState();
@@ -12121,11 +12191,15 @@ window.testWechatConnection=function(){
       if (typeof toast === 'function') toast('落点位置已被其他字幕占用，请重试', true);
       return;
     }
-    // subtitleId 与 rowId 同义（row 是真源；seg 只是引用，不复制 row）
+    // subtitleId 与 rowId 同义（row 是真源；seg 是 row 的引用）。
+    //   - 但本轮起，seg 必须自带 text 副本：放置成功后 row 会被从 sd.rows 删除，
+    //     若 seg 不带 text，渲染层 fallback 显示「（已删除素材）」（用户感知为"空字幕"）。
+    //   - 把 row.text 同步到 seg.text，保证 seg 渲染、编辑、保存/恢复、拖回素材区后再次拖入时文字不丢。
     var newSeg = {
       id: 's'+_capNewId('seg'),
       rowId: rid,
       subtitleId: rid,
+      text: row.text || '',                     // 固定修复：seg 自带文字副本
       start: start,
       end: end,
       audioSec: row.audioSec || null,
@@ -12138,6 +12212,9 @@ window.testWechatConnection=function(){
     sd.segments = sd.segments || [];
     sd.segments.push(newSeg);
     sd.selectedSegmentId = newSeg.id;
+    // 双向拖拽放置成功：从 sd.rows 删除该 row，避免素材列表显示重复项。
+    //   此时 newSeg.text 已经存好，渲染层不会再 fallback 到「（已删除素材）」。
+    sd.rows = (sd.rows || []).filter(function(r){ return r.id !== rid; });
     // v1.20.x：把字幕拖到时间轴不再自动追加冻结画面；冻结画面必须由用户显式操作触发。
     // P2-1 修复：pxps=availableWidth/finalDuration，inner 宽度=availableWidth，不再产生横向滚动条。
     //   无需保存/恢复 scrollLeft（sub/scene 改 overflow:hidden，scrollLeft 恒为 0）。
