@@ -1339,6 +1339,10 @@
 
 </style>
 
+<!-- v1.X 架构整理（第一批）：renderer-utils 把无副作用纯工具从 index.html 抽出。
+     加载顺序：必须先于任何使用 esc() 的内联脚本。 -->
+<script src="renderer-utils/format.js"></script>
+
 </head>
 
 <body>
@@ -3750,7 +3754,8 @@ window.testWechatConnection=function(){
     renderFlow();
   };
 
-  function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  // esc 已抽到 renderer-utils/format.js，通过 <script> 注入 window.esc。
+  // 删除此处的 function esc(...) 定义，所有调用点直接走 window.esc（IIFE 内 esc(xxx) 由外层作用域解析）。
 
   function av(size){return '<svg viewBox="0 0 24 24" fill="none" style="width:'+size+'px;height:'+size+'px"><rect x="4" y="5" width="16" height="14" rx="5" fill="#fff"/><circle cx="9.2" cy="11" r="1.5" fill="#0E7C7B"/><circle cx="14.8" cy="11" r="1.5" fill="#0E7C7B"/><path d="M9 15.5h6" stroke="#0E7C7B" stroke-width="1.4" stroke-linecap="round"/></svg>';}
 
@@ -9129,6 +9134,20 @@ window.testWechatConnection=function(){
     // [diag-once] viewRange 重计算入口：记 vaDur / finalDur / 旧 viewRange.end，与 after 对账
     try { console.log('[caption-diag] _capRecomputeViewRange before', {
       vaDuration: va && typeof va.duration === 'number' ? va.duration : null,
+      baseDuration: (typeof sd._capBaseDuration === 'number' && isFinite(sd._capBaseDuration)) ? sd._capBaseDuration : null,
+      frozenFramesLength: (sd.frozenFrames || []).length,
+      // 与 _capFinalOutputDuration() 严格一致：f.duration > 0 才计入；不另用门槛。
+      sumFrozen: (typeof _capFinalOutputDuration === 'function'
+        ? (function(){
+            var sd0 = state && state.subtitleData;
+            var va0 = state && state.videoAsset;
+            var base = (va0 && typeof va0.duration === 'number' && va0.duration > 0) ? va0.duration : (function(){var s=sd0||{}; return s._capBaseDuration;})();
+            if (typeof base !== 'number' || !isFinite(base) || base <= 0) base = 0;
+            var sum = 0;
+            (sd0 && sd0.frozenFrames || []).forEach(function(f){ var d = (typeof f.duration === 'number' && f.duration > 0) ? f.duration : 0; sum += d; });
+            return sum;
+          })()
+        : (sd.frozenFrames || []).reduce(function(a, f){ return a + ((typeof f.duration === 'number' && f.duration > 0) ? f.duration : 0); }, 0)),
       finalDur: typeof _capFinalOutputDuration === 'function' ? _capFinalOutputDuration() : null,
       prevViewRangeStart: sd.viewRange && sd.viewRange.start,
       prevViewRangeEnd: sd.viewRange && sd.viewRange.end,
@@ -9147,12 +9166,14 @@ window.testWechatConnection=function(){
     //     - 只升不降：>当前值才更新；防止 viewRange 反向"撑大" base。
     //     - 初值：sd.viewRange.end（用户进编辑器看到的初始宽度），与 _captionGetDuration 回退值保持解耦但一致起步。
     if (vaDur === 0) {
-      var _vrInit = sd.viewRange && typeof sd.viewRange.end === 'number' ? sd.viewRange.end : 24;
+      // P2-4 修复：_capBaseDuration 必须是无冻结段时的基础时长，不能被 viewRange.end 反向带偏。
+      //   历史初值 = sd.viewRange.end，但 viewRange.end 已被前面的 recompute / draft 恢复等路径
+      //   写过 frozen 总和后的值，导致 base 累积 frozen。
+      //   新行为：base 永远初始化为 24（项目既有的默认基础时长）。viewRange.end 由后续 lastEnd + 0.2 单独决定。
+      //   既有"只升不降"语义保留：base 一旦建立，只能被更大的值抬升（但无水岭路径会被 [L9215] 之前的逻辑过滤）。
       if (typeof sd._capBaseDuration !== 'number' || !isFinite(sd._capBaseDuration) || sd._capBaseDuration <= 0) {
-        sd._capBaseDuration = _vrInit;
+        sd._capBaseDuration = 24;
       }
-      // 水位线只升不降：用户主动加大 viewRange（如 captionStepSetup / 草稿恢复）需要被允许
-      //   但反向被 drag lastEnd 撑大的 viewRange 不允许被用做下一次 base。
     }
     // 优先取最终输出时长（vaDur + 冻结总和），有视频时用它作为时间轴基准
     var end = vaDur > 0 ? _capFinalOutputDuration() : (sd.viewRange && sd.viewRange.end);
@@ -9192,8 +9213,9 @@ window.testWechatConnection=function(){
       //   这些都不是字幕拖动 onMove）行为不变。
       if (!opts.skipExtend && lastEnd + 0.2 > end) {
         var _newEnd = lastEnd + 0.2;
-        // 但仍要尊重水位线：写回 viewRange 之前，同步抬升水位。
-        if (typeof sd._capBaseDuration !== 'number' || _newEnd > sd._capBaseDuration) sd._capBaseDuration = _newEnd;
+        // P2-4 修复：viewRange.end 可以扩展（让 frozen 显示得下），但 _capBaseDuration 绝不能
+        //   跟着 lastEnd 抬升。base 必须保持「无 frozen 时的基础时长」，否则删 frozen 后
+        //   finalDur = base + 0 仍然等于历史最大 base，表现为"视频总时长不缩短"。
         end = _newEnd;
       }
     }
@@ -9206,6 +9228,19 @@ window.testWechatConnection=function(){
       viewRangeStart: sd.viewRange && sd.viewRange.start,
       viewRangeEnd: sd.viewRange && sd.viewRange.end,
       finalDur: typeof _capFinalOutputDuration === 'function' ? _capFinalOutputDuration() : null,
+      baseDuration: (typeof sd._capBaseDuration === 'number' && isFinite(sd._capBaseDuration)) ? sd._capBaseDuration : null,
+      frozenFramesLength: (sd.frozenFrames || []).length,
+      sumFrozen: (typeof _capFinalOutputDuration === 'function'
+        ? (function(){
+            var sd0 = state && state.subtitleData;
+            var va0 = state && state.videoAsset;
+            var base = (va0 && typeof va0.duration === 'number' && va0.duration > 0) ? va0.duration : (function(){var s=sd0||{}; return s._capBaseDuration;})();
+            if (typeof base !== 'number' || !isFinite(base) || base <= 0) base = 0;
+            var sum = 0;
+            (sd0 && sd0.frozenFrames || []).forEach(function(f){ var d = (typeof f.duration === 'number' && f.duration > 0) ? f.duration : 0; sum += d; });
+            return sum;
+          })()
+        : (sd.frozenFrames || []).reduce(function(a, f){ return a + ((typeof f.duration === 'number' && f.duration > 0) ? f.duration : 0); }, 0)),
       vaDuration: va && typeof va.duration === 'number' ? va.duration : null,
       pxps: _captionPxPerSec()
     }); } catch (_) {}
@@ -9368,10 +9403,11 @@ window.testWechatConnection=function(){
     var sd = state.subtitleData || {};
     var base = sd._capBaseDuration;
     if (typeof base === 'number' && isFinite(base) && base > 0) return base;
-    // 兜底：水位线尚未建立（例如 _capRecomputeViewRange 还没跑过一次），
-    //   用 viewRange.end 起步，且立即把水位线种上，避免下次仍然走 viewRange 回退。
-    var r = sd.viewRange || { start:0, end:24 };
-    var init = (typeof r.end === 'number' && r.end > 0) ? r.end : 24;
+    // 兜底：水位线尚未建立（例如 _capRecomputeViewRange 还没跑过一次）。
+    //   P2-4 修复：不再用 viewRange.end 起步。viewRange.end 已被 recompute / draft 写过 frozen 总和，
+    //   把它当成 base 会让 finalDur 偏大。这里固定用 24（项目既有的默认基础时长）。
+    //   viewRange.end 仍由 viewRange 路径自行管理，与 base 完全解耦。
+    var init = 24;
     sd._capBaseDuration = init;
     return init;
   }
@@ -11023,6 +11059,53 @@ window.testWechatConnection=function(){
     // v1.20.10 第 1 阶段：每次重建 innerHTML 之前先 flush 当前编辑态，避免 input 被销毁导致修改丢失
     //   或"其他 row 看起来不能编辑"。
     _capFlushEditState();
+    // [caption-diag-pxps] P2-2：每次 render 时输出比例审计（仅读取字段，不修改任何状态）。
+    //   - callSeq：自增序号，方便关联 before / after / frozen change 三段日志。
+    //   - pxps / viewRange.start / viewRange.end / finalDur 的真实取值。
+    //   - 已存在字幕段的 outStart / outEnd / left / width，以及 frozen 段的 at / end / duration / outAt / outEnd。
+    //   - 仅这次任务诊断用，复现后删除 [caption-diag-pxps] 段。
+    try {
+      var _diagSeq = (window.__capPxpsDiagSeq = (window.__capPxpsDiagSeq || 0) + 1);
+      var _va = state.videoAsset;
+      var _vaDur = (_va && typeof _va.duration === 'number' && _va.duration > 0) ? _va.duration : 0;
+      var _pxps = _captionPxPerSec();
+      var _vr = _captionRange();
+      var _sumFrozenDuration = (sd && sd.frozenFrames || []).reduce(function(a, f){ return a + ((typeof f.duration === 'number' && f.duration > 0) ? f.duration : 0); }, 0);
+      var _finalDur = typeof _capFinalOutputDuration === 'function' ? _capFinalOutputDuration() : null;
+      var _subInnerWidth = Math.round((_vr.end || 0) * _pxps);
+      var _segs = sd ? (sd.segments || []) : [];
+      var _segAudit = _segs.map(function(s){
+        var oS = Number.isFinite(s.outStart) ? s.outStart : _capSourceToOutput(typeof s.start === 'number' ? s.start : 0);
+        var oE = Number.isFinite(s.outEnd)   ? s.outEnd   : _capSourceToOutput(typeof s.end   === 'number' ? s.end   : 0);
+        var left  = (oS - (_vr.start || 0)) * _pxps;
+        var width = Math.max(8, (oE - oS) * _pxps);
+        return { id: s.id, outStart: oS, outEnd: oE, left: left, width: width, audioSec: s.audioSec };
+      });
+      var _frAudit = (sd ? (sd.frozenFrames || []) : []).map(function(f){
+        var fAt = (typeof f.at === 'number') ? f.at : 0;
+        var fEnd = (typeof f.end === 'number' && f.end > fAt) ? f.end : (fAt + ((typeof f.duration === 'number') ? f.duration : 0));
+        return {
+          id: f.id, at: fAt, end: fEnd, duration: (typeof f.duration === 'number') ? f.duration : null,
+          outAt: _capSourceToOutput(fAt), outEnd: _capSourceToOutput(fEnd)
+        };
+      });
+      console.log('[caption-diag-pxps] _capRender before', {
+        callSeq: _diagSeq,
+        pxps: _pxps,
+        viewRangeStart: _vr.start,
+        viewRangeEnd: _vr.end,
+        viewRangeEnd_x_pxps: _subInnerWidth,
+        vaDuration: _vaDur,
+        sumFrozenDuration: _sumFrozenDuration,
+        finalDurSource: _vaDur > 0 ? 'vaDuration+sumFrozen' : '_captionGetDuration (sd._capBaseDuration)',
+        finalDur: _finalDur,
+        segCount: _segAudit.length,
+        segments: _segAudit,
+        frozenCount: _frAudit.length,
+        frozen: _frAudit
+      });
+    } catch (_) {}
+
     var box = document.querySelector('#captionTracks');
     var bank = document.querySelector('#captionBank');
     if (box) box.innerHTML = renderCaptionsTimelineHeader() + '<div style="height:8px"></div>' + renderCaptionsSubtitleTrack(sd) + '<div style="height:8px"></div>' + renderCaptionsSceneTrack(sd, state.videoAsset);
@@ -11052,6 +11135,32 @@ window.testWechatConnection=function(){
     } catch (_) {}
     // v1.20.x（本轮）：每次 render 同步刷新顶部时长 / 文件名 / 时间标签
     _capUpdateTopLabels();
+    // [caption-diag-pxps] P2-2：render 完成后的 after 快照。
+    //   渲染完毕 innerHTML 已经写入。sd 自身没被本次 render 修改 —— 验收"old cache 未被读到"
+    //   通过比对 callSeq 对齐的 before/after：pxps / viewRange / finalDur 必须一致。
+    try {
+      var _diagSeq2 = (window.__capPxpsDiagSeqAfter = (window.__capPxpsDiagSeqAfter || 0) + 1);
+      var _pxps2 = _captionPxPerSec();
+      var _vr2 = _captionRange();
+      var _finalDur2 = typeof _capFinalOutputDuration === 'function' ? _capFinalOutputDuration() : null;
+      console.log('[caption-diag-pxps] _capRender after', {
+        callSeq: _diagSeq2,
+        pxps: _pxps2,
+        viewRangeStart: _vr2.start,
+        viewRangeEnd: _vr2.end,
+        viewRangeEnd_x_pxps: Math.round((_vr2.end || 0) * _pxps2),
+        finalDur: _finalDur2,
+        // 实际写入 DOM 的 inner 宽：与 viewRange_end_x_pxps 应一致
+        subInnerWidthInDOM: (function(){
+          var el = document.querySelector('#captionSubTrack [data-sub-inner]');
+          return el ? el.clientWidth : null;
+        })(),
+        sceneInnerWidthInDOM: (function(){
+          var el = document.querySelector('#captionSceneTrack [data-scene-inner]');
+          return el ? el.clientWidth : null;
+        })()
+      });
+    } catch (_) {}
   }
   function _capPersist(){
     try { persistWorkSafely && persistWorkSafely(); } catch (_e) {}
@@ -11820,6 +11929,21 @@ window.testWechatConnection=function(){
       }
       sd.selectedFrozenId = fz.id;
       sd.selectedCutId = cutId;
+      // [caption-diag-frozen-cut] P2-3 运行时诊断：仅 prefix==='r' 时记录 fz.end / duration 与 finalDur 的对应关系，
+      //   用户报告"缩短冻结时 finalDur 不更新"。左切点 / 主体不写日志以免刷屏。
+      if (prefix === 'r') {
+        try {
+          console.log('[caption-diag-frozen-cut] onMove r', {
+            cutId: cutId,
+            fzAt: fz.at, fzEnd: fz.end, fzDuration: fz.duration,
+            baseDuration: (typeof sd._capBaseDuration === 'number' && isFinite(sd._capBaseDuration)) ? sd._capBaseDuration : null,
+            viewRangeEnd: sd.viewRange && sd.viewRange.end,
+            sumFrozen: (sd.frozenFrames || []).reduce(function(a, f){ return a + ((typeof f.duration === 'number' && f.duration > 0) ? f.duration : 0); }, 0),
+            finalDur: typeof _capFinalOutputDuration === 'function' ? _capFinalOutputDuration() : null,
+            vaDuration: state.videoAsset && typeof state.videoAsset.duration === 'number' ? state.videoAsset.duration : null
+          });
+        } catch (_) {}
+      }
       // v1.20.x（本轮）：切点拖动实时刷新顶部时长 / 文件名 / 时间标签，
       //   用户看到「冻结时长变 → 顶部视频总时长变」。
       _capUpdateTopLabels();
@@ -11837,7 +11961,9 @@ window.testWechatConnection=function(){
         vaDuration: state.videoAsset && typeof state.videoAsset.duration === 'number' ? state.videoAsset.duration : null,
         finalDur: typeof _capFinalOutputDuration === 'function' ? _capFinalOutputDuration() : null,
         viewRangeEnd: sd && sd.viewRange && sd.viewRange.end,
-        fzAt: fz.at, fzEnd: fz.end, fzDuration: fz.duration
+        fzAt: fz.at, fzEnd: fz.end, fzDuration: fz.duration,
+        baseDuration: (typeof sd._capBaseDuration === 'number' && isFinite(sd._capBaseDuration)) ? sd._capBaseDuration : null,
+        sumFrozen: (sd.frozenFrames || []).reduce(function(a, f){ return a + ((typeof f.duration === 'number' && f.duration > 0) ? f.duration : 0); }, 0)
       }); } catch (_) {}
       // v1.20.x：只有拖动左切点（f.at 变了）才需要重抽帧；右切点只改 f.end / duration，
       //   帧画面 = frozen 起点最后一帧，应保持不变。
@@ -11945,11 +12071,38 @@ window.testWechatConnection=function(){
   function _capDeleteFrozen(id){
     var sd = state.subtitleData;
     if (!sd) return;
+    // [caption-diag-frozen-delete] P2-3 运行时诊断：删除 frozen 前/中/后各采样一次基础时长字段。
+    //   - preFrozenCount：删除前 frozen 数组长度。
+    //   - postFrozenCount：删除后（filter 已生效）frozen 数组长度。
+    //   - 删除前后必须相差 1；如果不等于 1，说明存在重复 frozen / 异常路径。
+    try {
+      var _preFrozenCount = (sd.frozenFrames || []).length;
+      console.log('[caption-diag-frozen-delete] _capDeleteFrozen before', {
+        targetId: id,
+        preFrozenCount: _preFrozenCount,
+        preBaseDuration: (typeof sd._capBaseDuration === 'number' && isFinite(sd._capBaseDuration)) ? sd._capBaseDuration : null,
+        preViewRangeEnd: sd.viewRange && sd.viewRange.end,
+        preSumFrozen: (sd.frozenFrames || []).reduce(function(a, f){ return a + ((typeof f.duration === 'number' && f.duration > 0) ? f.duration : 0); }, 0),
+        preFinalDur: typeof _capFinalOutputDuration === 'function' ? _capFinalOutputDuration() : null
+      });
+    } catch (_) {}
     sd.frozenFrames = (sd.frozenFrames || []).filter(function(f){ return f.id !== id; });
     if (sd.selectedFrozenId === id) sd.selectedFrozenId = null;
     if (sd.selectedCutId && (sd.selectedCutId === _capFrozenLeftCutId({id:id}) || sd.selectedCutId === _capFrozenRightCutId({id:id}))) {
       sd.selectedCutId = null;
     }
+    try {
+      var _postFrozenCount = (sd.frozenFrames || []).length;
+      console.log('[caption-diag-frozen-delete] _capDeleteFrozen postFilter', {
+        targetId: id,
+        postFrozenCount: _postFrozenCount,
+        postBaseDuration: (typeof sd._capBaseDuration === 'number' && isFinite(sd._capBaseDuration)) ? sd._capBaseDuration : null,
+        postViewRangeEnd: sd.viewRange && sd.viewRange.end,
+        postSumFrozen: (sd.frozenFrames || []).reduce(function(a, f){ return a + ((typeof f.duration === 'number' && f.duration > 0) ? f.duration : 0); }, 0),
+        postFinalDur: typeof _capFinalOutputDuration === 'function' ? _capFinalOutputDuration() : null,
+        deltaFrozenCount: _postFrozenCount - _preFrozenCount
+      });
+    } catch (_) {}
     _capPersist();
     _capRender();
     _capUpdateTopLabels();
@@ -12211,6 +12364,12 @@ window.testWechatConnection=function(){
     };
     sd.segments = sd.segments || [];
     sd.segments.push(newSeg);
+    // P2-4 修复：新建字幕立即初始化 outStart/outEnd，避免渲染层回退路径
+    //   （Number.isFinite 缺失时按 _capSourceToOutput 重算）导致新建 seg 在 Σfrozen 变化时
+    //   视觉被拉长。必须在第一次 _capRender() 之前完成。
+    if (typeof _capBackfillOutFields === 'function') {
+      _capBackfillOutFields(sd.segments);
+    }
     sd.selectedSegmentId = newSeg.id;
     // 双向拖拽放置成功：从 sd.rows 删除该 row，避免素材列表显示重复项。
     //   此时 newSeg.text 已经存好，渲染层不会再 fallback 到「（已删除素材）」。
