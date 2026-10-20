@@ -49,6 +49,7 @@
     "files": [
       "electron/**/*",
       "index.html",
+      "renderer-utils/**/*",
       "assets/**/*",
       "package.json",
       "!**/_backup/**",

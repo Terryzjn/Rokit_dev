@@ -59,7 +59,16 @@ contextBridge.exposeInMainWorld('api', {
   // VideoSource（本地视频选择）—— Renderer 只拿 fileName/fileSize/duration；filePath 不暴露
   videoPickLocal: () => ipcRenderer.invoke('video:pick-local'),
   videoGetInternalAsset: (assetId) => ipcRenderer.invoke('video:get-internal-asset', assetId),
+  videoReadStream: (assetId) => ipcRenderer.invoke('video:read-stream', assetId),
+  videoExtractFrame: (assetId, atSeconds, opts) => ipcRenderer.invoke('video:extract-frame', Object.assign({ assetId: assetId, atSeconds: atSeconds }, opts || {})),
   videoClearInternalAsset: (assetId) => ipcRenderer.invoke('video:clear-internal-asset', assetId),
+  // 成品视频合成（冻结插入 + 字幕烧录 + AI 配音混音）。
+  //   segments 必须来自字幕轨道上的实际片段（text + outStart/outEnd），不读字幕素材库。
+  captionBurnFinal: (payload) => ipcRenderer.invoke('caption:burn-final', payload || {}),
+  // 读取已合成的成品视频字节（渲染层用 Blob URL 播放）
+  captionReadFinal: (filePath) => ipcRenderer.invoke('caption:read-final', filePath),
+  // 「保存视频」：弹出原生保存对话框，把成品 MP4 复制到用户自选位置
+  captionSaveFinal: (payload) => ipcRenderer.invoke('caption:save-final', payload || {}),
   // GitHub L1 直发
   githubPutFile: (opts) => ipcRenderer.invoke('github:put-file', opts),
   githubProbe: () => ipcRenderer.invoke('github:probe'),
@@ -97,6 +106,20 @@ contextBridge.exposeInMainWorld('api', {
   // Renderer 永远拿不到 client_secret。
   // AI 能力
   generate: (req) => ipcRenderer.invoke('llm:generate', req),
+  // v1.20.3：声音档案（用户录音 + 本地档案管理）
+  voiceList: () => ipcRenderer.invoke('voice:list'),
+  voiceCreateProfile: (payload) => ipcRenderer.invoke('voice:create-profile', payload || {}),
+  voiceSaveVersion: (payload) => ipcRenderer.invoke('voice:save-version', payload || {}),
+  voiceDeleteVersion: (payload) => ipcRenderer.invoke('voice:delete-version', payload || {}),
+  voiceDeleteProfile: (payload) => ipcRenderer.invoke('voice:delete-profile', payload || {}),
+  voiceReadAudioBuffer: (payload) => ipcRenderer.invoke('voice:read-audio-buffer', payload || {}),
+  voiceProbe: (payload) => ipcRenderer.invoke('voice:probe', payload || {}),
+  // v1.20.6：语音引擎选择（不暴露任何 key）
+  voiceEngineList: () => ipcRenderer.invoke('voice-engine:list'),
+  voiceEngineListFull: () => ipcRenderer.invoke('voice-engine:list-full'),
+  voiceEngineDefaults: (payload) => ipcRenderer.invoke('voice-engine:defaults', payload || {}),
+  voiceEngineProbe: (payload) => ipcRenderer.invoke('voice-engine:probe', payload || {}),
+  voiceEngineTestGenerate: (payload) => ipcRenderer.invoke('voice-engine:test-generate', payload || {}),
   // 抓取作品信息（GitHub / 普通网址）
   fetchMeta: (url) => ipcRenderer.invoke('fetch:meta', url),
   // 自动发布浏览器（内置登录态自动填表/发布）

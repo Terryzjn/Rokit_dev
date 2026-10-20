@@ -37,6 +37,10 @@ const { BrowserManager } = require('./browser/BrowserManager');
 const { registerBrowserIpc } = require('./browser/browser-ipc');
 require('./browser/platforms'); // 把 BrowserTestPublisher 等注册到 PublisherRegistry
 
+// v1.20.3：声音档案（用户录音 + 本地声音档案管理）
+const voiceProfiles = require('./voice-profiles');
+const voiceEngine = require('./voice-engine');
+
 // 尽早安装全局异常兜底（在 app.whenReady 之前也要能捕获）
 logger.installGlobalHandlers({ stage: 'pre-app-ready' });
 
@@ -145,6 +149,23 @@ function createWindow() {
       // eslint-disable-next-line no-console
       console.log('Rokit 已启动，版本 ' + ver + '。');
     } catch (_e) { /* 取版本失败不阻塞 */ }
+    // 调试开关：dev 模式（npm start / electron .）默认打开 DevTools，打包后不打开。
+    //  - 不再依赖 ROKIT_DEBUG：之前绑在 logger.isDebugConsole() 时，未设环境变量就不会开，
+    //    用户反馈「项目启动了 DevTools 还是不出现」，根因即此处。
+    //  - 仍保留 ROKIT_DEBUG=1 的原有作用（控制 logger info/debug 是否同步到 stdout）。
+    //  - 用 app.isPackaged 区分 dev / 打包环境：开发模式打开 DevTools，打包构建不打开。
+    try {
+      var shouldOpen = (typeof app !== 'undefined' && app.isPackaged === false);
+      if (shouldOpen) {
+        var wc = win.webContents;
+        if (wc && !wc.isDestroyed() && typeof wc.openDevTools === 'function') {
+          wc.openDevTools({ mode: 'detach' });
+        }
+        try { logger.info('[devtools] DevTools 已打开（dev 模式，isPackaged=false）'); } catch (_e) {}
+      } else {
+        try { logger.info('[devtools] DevTools 已跳过（打包环境，isPackaged=true）'); } catch (_e) {}
+      }
+    } catch (_e) { /* DevTools 打开失败不阻塞启动 */ }
   });
   win.on('closed', () => { if (mainWindow === win) mainWindow = null; });
   win.loadFile(path.join(__dirname, '..', 'index.html'));
@@ -3973,6 +3994,79 @@ function chooseCaptureSource(sources) {
 }
 
 app.whenReady().then(() => {
+  // v1.20.3：初始化声音档案存储（需要 userData 路径，依赖 app.getPath）
+  try {
+    const vpInit = voiceProfiles.init(app);
+    try { logger.info('[voice-profiles] init', vpInit || {}); } catch (_e) {}
+  } catch (_e) {
+    try { logger.warn('[voice-profiles] init failed', { error: String((_e && _e.message) || _e) }); } catch (__) {}
+  }
+  // 挂载 voice:* IPC（list / saveVersion / deleteVersion / deleteProfile / readAudioBuffer）
+  try {
+    if (typeof voiceProfiles.attachIpc === 'function') {
+      voiceProfiles.attachIpc(ipcMain, { logger: logger });
+    }
+  } catch (_e) {
+    try { logger.warn('[voice-profiles] attachIpc failed', { error: String((_e && _e.message) || _e) }); } catch (__) {}
+  }
+  // v1.20.6：挂载 voice-engine:* IPC（listEngines / probe / testGenerate / getDefaults）
+  try {
+    if (typeof voiceEngine !== 'undefined' && voiceEngine && !global.__voiceEngineIpcAttached) {
+      const { ipcMain: _ipc } = require('electron');
+      _ipc.handle('voice-engine:list', function () { return { ok: true, engines: voiceEngine.listEngines() }; });
+      // v1.20.10：返回完整目录（含 healthPaths / framework / synthesizePath）
+      _ipc.handle('voice-engine:list-full', function () { return { ok: true, engines: voiceEngine.listEnginesFull() }; });
+      _ipc.handle('voice-engine:defaults', function (_e, payload) {
+        var id = (payload && payload.engineId) || '';
+        return { ok: true, defaults: voiceEngine.getEngineDefaults(id) };
+      });
+      _ipc.handle('voice-engine:probe', async function (_e, payload) {
+        // 配置只在主进程短暂使用；**不**写入日志；不写入项目文件
+        try {
+          var r = await voiceEngine.probe((payload && payload.engineId), (payload && payload.config) || {});
+          return Object.assign({ ok: r.ok !== false }, r);
+        } catch (e) {
+          return { ok: false, error: 'probe-exception:' + ((e && e.message) || e) };
+        }
+      });
+      // 测试生成：返回 { ok, mime, audio: { base64 }, durationSec }，audio 通过 base64 传到渲染层
+      _ipc.handle('voice-engine:test-generate', async function (_e, payload) {
+        try {
+          var id = (payload && payload.engineId) || '';
+          var cfg = (payload && payload.config) || {};
+          var pl = (payload && payload.payload) || {};
+          var r = await voiceEngine.testGenerate(id, cfg, pl);
+          if (r && r.ok && r.audio && Buffer.isBuffer(r.audio)) {
+            // 限制：超过 25 MB 强制失败（防止 OSS 直推）
+            if (r.audio.length > 25 * 1024 * 1024) {
+              return { ok: false, error: 'audio-too-large:' + r.audio.length };
+            }
+            return {
+              ok: true,
+              mime: r.mime || 'audio/wav',
+              durationSec: r.durationSec || 0,
+              audioBase64: r.audio.toString('base64'),
+              // 回传实际使用的语言与文本长度，供 renderer 侧做一致性诊断
+              languageId: r.languageId || '',
+              sentTextLength: typeof pl.text === 'string' ? pl.text.length : 0,
+              audioBytes: r.audio.length,
+              refMime: r.refMime || '',
+              refExt: r.refExt || '',
+              refSampleRate: r.refSampleRate || 0,
+              refChannels: r.refChannels || 0
+            };
+          }
+          return Object.assign({ ok: r && r.ok === true }, r || {});
+        } catch (e) {
+          return { ok: false, error: 'test-exception:' + ((e && e.message) || e) };
+        }
+      });
+      global.__voiceEngineIpcAttached = true;
+      try { logger.info('[voice-engine] IPC mounted'); } catch (_e) {}
+    }
+  } catch (_e) {
+    try { logger.warn('[voice-engine] attach failed', { error: String((_e && _e.message) || _e) }); } catch (__) {}
+  }
   Menu.setApplicationMenu(null);
   session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
     if (!request.videoRequested) { callback({}); return; }

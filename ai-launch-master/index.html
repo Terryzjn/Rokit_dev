@@ -2126,6 +2126,11 @@
       selectedFrozenId:null
     },
 
+    // 「生成字幕」开关（step 14 底部，红框位置）。
+    //   undefined / true  → 生成（默认勾选）
+    //   false             → 跳过字幕生成；字幕轨道已有片段、时间戳、冻结切点一律保留
+    genSubtitle:true,
+
     shots:null,
 
     curVer:'30v',
@@ -3713,10 +3718,12 @@ window.testWechatConnection=function(){
       ensureFlow(); state.step=10; renderRail(); renderFlow(); return;
     }
     if(stageIdx===4){
-      // v1.20.10：rail stage 4 = "打通平台"，但中间新增了 step 14「编辑视频字幕」。
-      //   优先跳到 step 14（如果用户已通过 step 13 的「下一步」编辑过字幕，可手动进 11）。
-      //   保持 rail 阶段含义不变：连续 stage 4 圆点 = 编辑字幕 → 打通平台。
-      ensureFlow(); state.step=14; renderRail(); renderFlow(); return;
+      // rail stage 4 = "打通平台"：直接进入打通平台步骤 step=11。
+      //   修复前误跳到 step=14（字幕编辑），错误地把打通平台导航栏入口
+      //   绑定到了字幕编辑器。修复后遵循 STAGES 数组中的阶段含义，
+      //   与 gotoRailStep(stageIdx===3, step=10) 形成清晰的连续路径：
+      //   首秀计划 → 打通平台 → 发布清单。
+      ensureFlow(); state.step=11; renderRail(); renderFlow(); return;
     }
     if(stageIdx===5){
       // 发布清单：与首秀向导最后一步 step 12 共用同一份渲染（renderStep(s===12)）。
@@ -4081,6 +4088,8 @@ window.testWechatConnection=function(){
     else if(s===13){renderVoiceEngineStep(ctrl);}
 
     else if(s===14){renderCaptionsStep(ctrl);}
+
+    else if(s===15){renderCaptionsPlayback(ctrl);}
 
     else if(s===12){
 
@@ -9099,7 +9108,13 @@ window.testWechatConnection=function(){
       +   '<button class="btn ghost" onclick="captionStepBack()">← 上一步</button>'
       +     '<button class="btn ghost" onclick="captionSaveDraft()">保存草稿</button>'
       +     '<span style="flex:1"></span>'
-      +     '<button class="btn primary-main" onclick="captionFinalize()">完成并生成配音时间轴</button>'
+      // 「生成字幕」开关：默认勾选，控制后续流程是否执行字幕生成。
+      //   位置在「下一步」主按钮左侧（设计稿红框处），其余布局不变。
+      +     '<label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#203134;cursor:pointer;user-select:none;white-space:nowrap">'
+      +       '<input type="checkbox" id="capGenSubtitle" ' + (state.genSubtitle === false ? '' : 'checked') + ' style="width:15px;height:15px;cursor:pointer;accent-color:#0E7C7B">'
+      +       '<span>生成字幕</span>'
+      +     '</label>'
+      +     '<button class="btn primary-main" id="capFinalizeBtn" onclick="captionFinalize()">完成并生成配音时间轴</button>'
       +   '</div>'
       + '</div>';
 
@@ -9107,6 +9122,22 @@ window.testWechatConnection=function(){
     captionAttachVideo(hasVideo && va);
     // 绑定轨道交互
     captionBindTracks(sd);
+    // 绑定「生成字幕」开关
+    _capBindGenSubtitle();
+  }
+  // 「生成字幕」开关：读写 state.genSubtitle 并持久化。
+  //   该开关真实控制后续流程是否执行字幕生成（见 captionFinalize / playbackNext）。
+  function _capBindGenSubtitle(){
+    var box = document.getElementById('capGenSubtitle');
+    if (!box) return;
+    box.checked = state.genSubtitle !== false;
+    box.onchange = function(){
+      state.genSubtitle = !!box.checked;
+      _capPersist();
+      if (typeof toast === 'function') {
+        toast(state.genSubtitle ? '已开启字幕生成' : '已跳过字幕生成（已有字幕片段保持不变）', false);
+      }
+    };
   }
 
 // 计算总时长（优先 videoAsset.duration，否则 24s 默认）
@@ -9413,13 +9444,13 @@ window.testWechatConnection=function(){
   }
 
   // ========= 上一步：返回 step 13（语音引擎测试） =========
+  // 修复：原代码读的是 state.videoEngine —— 该字段在整个 state 初始定义里并不存在
+  //   （全文仅此一处出现），因此这里恒为 {}，守卫 `!(va.tested || va.skipTest)` 永远成立，
+  //   用户在字幕编辑页点「上一步」必然被测试门禁拦下。
+  //   正确状态源是 state.voiceEngine（与进入 step 14 的 voiceEngineNext 守卫同源）。
+  //   返回是"往回走"，不应要求已完成正向测试；仅当用户是从未测试/跳过的非法状态
+  //   进入时才提示，且此处直接放行到 step 13 让用户自行处理，不阻断导航。
   function captionStepBack(){
-    var va = state.videoEngine || {};
-    // 守卫：必须先通过测试或跳过（与 step 13 进入 step 14 的进入守卫互逆）
-    if (!(va.tested || va.skipTest)) {
-      if (typeof toast === 'function') toast('请先通过测试或点击「跳过测试」', true);
-      return;
-    }
     state.step = 13;
     state.voiceSource = 'aiDemo';
     renderRail();
@@ -9564,6 +9595,22 @@ window.testWechatConnection=function(){
     };
   }
 
+  // 修复：_capGenerating 是 row.id → bool 的状态表，用于防止同一 row 重复并发生成。
+  //   原 _capGenerateVoiceForRow（L12409 / L12418 / L12468）直接读写这个变量，但历史上从未 var 声明——
+  //   这是一个长期潜伏的隐性 bug；上一轮 captionFinalize 走通后才在控制台暴露 ReferenceError。
+  //   在字幕 IIFE 顶层声明一次，所有配音入口共享同一份。
+  var _capGenerating = {};
+  // 配音链路诊断日志（模块级，供 window._capVoiceDiag() 读取）。
+  //   只记录片段 id / 字符数 / 语言 / 字节数，不记录密钥与音频内容。
+  var _capVoiceLogBuf = [];
+  function _capVoiceLog(stage, info){
+    try {
+      _capVoiceLogBuf.push({ t: Date.now(), stage: stage, info: info });
+      if (typeof console !== 'undefined' && console.log) {
+        console.log('[caption-voice] ' + stage, JSON.stringify(info));
+      }
+    } catch (_e) {}
+  }
   // 把外部写入的 dirty 状态做一次规范化（确保下游渲染器/生成器拿到稳定形状）
   function _capNormalize(){
     var sd = state.subtitleData;
@@ -11532,14 +11579,6 @@ window.testWechatConnection=function(){
     // 固定修复：本次拖动期间锁住"反向写入 viewRange / 抬升 _capBaseDuration"的扩展路径。
     //   _capRecomputeViewRange 内的 noExtend 检测会读这个标记。
     sd.__capDraggingSegment = true;
-    try { console.log('[caption-diag] _captionDragSegment enter', {
-      vaDuration: state.videoAsset && typeof state.videoAsset.duration === 'number' ? state.videoAsset.duration : null,
-      finalDur: typeof _capFinalOutputDuration === 'function' ? _capFinalOutputDuration() : null,
-      viewRangeEnd: sd && sd.viewRange && sd.viewRange.end,
-      segOutStart: seg.outStart, segOutEnd: seg.outEnd,
-      segStart: seg.start, segEnd: seg.end,
-      audioSec: seg.audioSec, userMoved: seg.userMoved
-    }); } catch (_) {}
     var dur = _captionGetDuration();
     // 锁定原始长度：已生成配音用真实 audioSec（不缩短）；未配音用 seg 估算长度
     var realDur = (typeof seg.audioSec === 'number' && seg.audioSec > 0) ? seg.audioSec : null;
@@ -11649,15 +11688,6 @@ window.testWechatConnection=function(){
       //   注意：onUp 之后**不再**触发 recompute —— 任务要求"字幕主体拖动不能改变 viewRange / _capBaseDuration"，
       //   即使是释放瞬间的"显示收尾"也不允许；否则会与 onMove 期间表现不一致。
       _clearDragFlag();
-      // [diag-once] 字幕主体拖动出口：与 enter 对比，看 vaDur / finalDur / viewRange.end 是否被本操作改写
-      try { console.log('[caption-diag] _captionDragSegment onUp', {
-        vaDuration: state.videoAsset && typeof state.videoAsset.duration === 'number' ? state.videoAsset.duration : null,
-        finalDur: typeof _capFinalOutputDuration === 'function' ? _capFinalOutputDuration() : null,
-        viewRangeEnd: sd && sd.viewRange && sd.viewRange.end,
-        segOutStart: seg.outStart, segOutEnd: seg.outEnd,
-        segStart: seg.start, segEnd: seg.end,
-        userMoved: seg.userMoved
-      }); } catch (_) {}
       // v1.20.x：拖动结束不再自动追加冻结画面；冻结画面必须由用户显式操作触发。
       _capPersist();
     }
@@ -12578,6 +12608,78 @@ window.testWechatConnection=function(){
     _capPersist();
     if (typeof toast === 'function') toast('草稿已保存（' + (sd.rows || []).length + ' 条素材 · ' + (sd.segments || []).length + ' 个片段 · ' + (sd.frozenFrames || []).length + ' 个冻结 · ' + ((sd.frozenFrames || []).length * 2) + ' 个成对切点）', false);
   }
+  // ========= 配音生成全屏加载遮罩 =========
+  //   目的：点击「完成并生成配音时间轴」后立即进入明确的忙碌态，
+  //   阻止用户误触底层按钮 / 切换页面 / 拖动字幕；同时禁用主按钮防重复点击。
+  //   所有退出路径（成功 / 失败 / 异常）统一走 _capVoiceLoadingEnd()，避免按钮永久禁用。
+  function _capVoiceLoadingStart(total){
+    _capVoiceLoadingEnd(true); // 幂等：先清理可能残留的旧遮罩
+    var wrap = document.createElement('div');
+    wrap.id = 'capVoiceLoading';
+    wrap.setAttribute('role', 'dialog');
+    wrap.setAttribute('aria-modal', 'true');
+    wrap.style.cssText = [
+      'position:fixed', 'inset:0', 'z-index:99999',
+      'background:rgba(12,20,24,.62)',
+      'display:flex', 'align-items:center', 'justify-content:center',
+      'backdrop-filter:blur(2px)'
+    ].join(';');
+    // 只有真实的总段数才显示「第 x/y 段」，没有真实数据时不伪造百分比
+    var stageId = 'capVoiceStage';
+    wrap.innerHTML = ''
+      + '<div style="background:#fff;border-radius:14px;padding:26px 30px;min-width:330px;max-width:420px;text-align:center;box-shadow:0 18px 50px rgba(0,0,0,.28)">'
+      +   '<div id="capVoiceSpin" style="width:34px;height:34px;margin:0 auto 14px;border-radius:50%;border:3px solid rgba(14,124,123,.22);border-top-color:#0E7C7B;animation:capSpin .8s linear infinite"></div>'
+      +   '<div style="font-size:16px;font-weight:600;color:#203134">正在生成 AI 配音</div>'
+      +   '<div style="font-size:12.5px;color:var(--muted);margin-top:8px;line-height:1.6">正在读取字幕、生成语音并合成视频，请稍候……</div>'
+      +   '<div id="' + stageId + '" style="font-size:12px;color:#0E7C7B;margin-top:12px;min-height:17px"></div>'
+      + '</div>';
+    if (!document.getElementById('capVoiceSpinStyle')) {
+      var st = document.createElement('style');
+      st.id = 'capVoiceSpinStyle';
+      st.textContent = '@keyframes capSpin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}';
+      document.head.appendChild(st);
+    }
+    document.body.appendChild(wrap);
+    // 锁定主按钮（防重复点击）
+    var btn = document.getElementById('capFinalizeBtn');
+    if (btn) {
+      btn.disabled = true;
+      btn.dataset.capPrevHtml = btn.innerHTML;
+      btn.innerHTML = '<span style="display:inline-flex;align-items:center;gap:6px">'
+        + '<span style="width:12px;height:12px;border-radius:50%;border:2px solid rgba(255,255,255,.45);border-top-color:#fff;animation:capSpin .8s linear infinite;display:inline-block"></span>'
+        + '生成中…</span>';
+      btn.style.pointerEvents = 'none';
+      btn.style.opacity = '.75';
+    }
+    _capVoiceLoadingTotal = (typeof total === 'number' && total > 0) ? total : 0;
+  }
+  var _capVoiceLoadingTotal = 0;
+  // 更新阶段文案：有真实进度才显示「第 x/y 段」
+  function _capVoiceStage(text, done, total){
+    var el = document.getElementById('capVoiceStage');
+    if (!el) return;
+    var parts = [];
+    if (text) parts.push(text);
+    if (_capVoiceLoadingTotal > 0 && typeof done === 'number' && typeof total === 'number' && total > 0) {
+      parts.push('正在生成第 ' + Math.min(done, total) + '/' + total + ' 段语音');
+    }
+    el.textContent = parts.join(' · ');
+  }
+  // 统一收尾：移除遮罩、恢复按钮、复位运行锁
+  function _capVoiceLoadingEnd(silent){
+    var wrap = document.getElementById('capVoiceLoading');
+    if (wrap && wrap.parentNode) wrap.parentNode.removeChild(wrap);
+    var btn = document.getElementById('capFinalizeBtn');
+    if (btn) {
+      btn.disabled = false;
+      btn.style.pointerEvents = '';
+      btn.style.opacity = '';
+      if (btn.dataset.capPrevHtml) { btn.innerHTML = btn.dataset.capPrevHtml; delete btn.dataset.capPrevHtml; }
+    }
+    _capVoiceLoadingTotal = 0;
+    if (!silent) state.__captionVoiceRunning = false;
+  }
+
   function captionFinalize(){
     var sd = state.subtitleData;
     if (!sd) { if (typeof toast === 'function') toast('无数据', true); return; }
@@ -12585,21 +12687,386 @@ window.testWechatConnection=function(){
     var rows = sd.rows || [], segs = sd.segments || [];
     var va = state.videoAsset;
     if (!va || !va.id) { if (typeof toast === 'function') toast('尚未选择视频，无法完成', true); return; }
-    if (!rows.length) { if (typeof toast === 'function') toast('请先添加字幕素材', true); return; }
-    if (!segs.length) { if (typeof toast === 'function') toast('请先把字幕素材拖到时间轴', true); return; }
+    // 修复：移除「必须先有 rows」的检查。subtitle 拖拽到时间轴后 row 会被从 sd.rows 删除
+    //   （_capDropRowToTimeline 在 push seg 之后立刻 sd.rows = sd.rows.filter(r => r.id !== rid)）。
+    //   配音数据源只允许来自当前字幕轨道 sd.segments，不读 sd.rows。
+    // 唯一拦截：字幕轨道上没有任何**非空文字**的字幕片段。
+    //   数据源：seg.text —— 字幕轨道上实际放置的片段自带的文字副本
+    //   （_capDropRowToTimeline 写入、_capNormSeg 保留），不读 sd.rows / 原始正文。
+    //   判定：仅按「trim 后文字非空」，不再附加 start/end 时间戳条件 ——
+    //   否则一条有文字但时间戳尚未派生的新字幕会被误判为无效而拦住整个流程。
+    //   时间戳合法性由渲染层与后续配音放置逻辑各自处理，此处不拦截。
+    function hasSubtitleText(s){
+      return !!(s && typeof s.text === 'string' && s.text.trim());
+    }
+    var validSegCount = 0;
+    for (var _i = 0; _i < segs.length; _i++) if (hasSubtitleText(segs[_i])) validSegCount++;
+    if (validSegCount === 0) {
+      // 无字幕 / 全空白字幕：立即停止，不调用语音生成、不启动合成、不进播放页。
+      //   _capVoiceLoadingEnd() 兜底清理可能残留的遮罩并恢复按钮，避免界面卡在加载态。
+      _capVoiceLoadingEnd();
+      if (typeof toast === 'function') {
+        toast('请先在字幕轨道中添加至少一条非空字幕，再生成 AI 配音。', true, 5000);
+      }
+      return;
+    }
     // v1.20.x 最终输出时长 = 原视频时长 + 所有冻结段时长之和
     //   字幕 / AI 配音按此最终时间同步，原视频文件不被修改。
     var finalDur = _capFinalOutputDuration();
     var vaDur = va.duration || 0;
     var totalFrozen = Math.max(0, finalDur - vaDur);
-    captionSaveDraft();
-    if (typeof toast === 'function') {
-      var msg = '配音时间轴已生成。原视频 ' + vaDur.toFixed(1) + 's + 冻结延长 ' + totalFrozen.toFixed(1) + 's = 最终 ' + finalDur.toFixed(1) + 's。';
-      if (totalFrozen > 0) msg += '（原视频文件未修改，延长由冻结段贡献）';
-      toast(msg, false);
+    // 修复重复弹窗：这里原本调 captionSaveDraft()，它内部会弹「草稿已保存」。
+    //   点击「完成并生成配音时间轴」后紧接着还会弹「开始为 N 条字幕生成配音…」，
+    //   一次点击连出两个提示。此处改为静默持久化，草稿保存结果由下面那条配音提示承载。
+    _capPersist();
+    // 单任务锁：防止重复点击启动多任务并发
+    if (state.__captionVoiceRunning) {
+      if (typeof toast === 'function') toast('配音正在生成，请稍候……', false);
+      return;
     }
-    state.step = 11; renderRail(); renderFlow();
+    // 筛选需要生成配音的字幕段（缺 audioB64 的；已有 audioB64 的跳过）
+    var toGen = [];
+    for (var i = 0; i < segs.length; i++) {
+      var seg = segs[i];
+      // 过滤：文字为空的片段跳过（不为空白字幕生成语音）；不依赖 rowId，不读 sd.rows。
+      //   时间戳由 _capBackfillOutFields 在 normalize 阶段派生，这里不作为过滤条件，
+      //   避免新建字幕（尚未派生 outStart）被误跳过。
+      if (!hasSubtitleText(seg)) continue;
+      // 已经有合法 audioB64 且 audioSec > 0 —— 视为已生成，跳过
+      if (typeof seg.audioB64 === 'string' && seg.audioB64.length > 0 && (typeof seg.audioSec === 'number' && seg.audioSec > 0)) continue;
+      toGen.push(seg);
+    }
+    if (toGen.length === 0) {
+      // 全部已生成 → 直接进入成品合成（仍然要烧录字幕 + 混音）
+      if (typeof toast === 'function') toast('所有字幕都已生成配音，正在合成成品视频。', false);
+      _capVoiceLoadingStart(0);
+      _capVoiceStage('正在合成视频…');
+      _capBurnFinal();
+      return;
+    }
+    if (typeof toast === 'function') toast('开始为 ' + toGen.length + ' 条字幕生成配音…', false);
+    // 单任务锁 + 立即进入忙碌态（在任何 await / 异步工作之前就锁按钮与遮罩）
+    state.__captionVoiceRunning = true;
+    _capVoiceLoadingStart(toGen.length);
+    _capVoiceStage('正在读取字幕轨道…', 0, toGen.length);
+    // 按输出时间轴顺序逐段生成（outStart 升序）；失败时保留已成功的，继续下一段
+    toGen.sort(function(a, b){
+      var ao = Number.isFinite(a.outStart) ? a.outStart : (Number.isFinite(a.start) ? a.start : 0);
+      var bo = Number.isFinite(b.outStart) ? b.outStart : (Number.isFinite(b.start) ? b.start : 0);
+      return ao - bo;
+    });
+    var okCount = 0, failCount = 0, failedSegs = [];
+    var failReasons = [];   // 每条失败的具体原因，用于结束时如实上报
+    function noteFail(seg, kind, detail){
+      failCount++;
+      failedSegs.push(seg);
+      failReasons.push({ text: (typeof seg.text === 'string' ? seg.text : '').slice(0, 18), kind: kind, detail: detail || '' });
+    }
+    // 语种判定（与 main 端 _detectXttsLanguage 同一套阈值：CJK 占比 >= 15% 视为中文）
+    function _capDetectLang(text){
+      var s = String(text || '');
+      if (!s.trim()) return 'en';
+      var cjk = 0, letters = 0;
+      for (var i = 0; i < s.length; i++) {
+        var c = s.codePointAt(i);
+        if ((c >= 0x4e00 && c <= 0x9fff) || (c >= 0x3400 && c <= 0x4dbf)
+            || (c >= 0xf900 && c <= 0xfaff) || (c >= 0x3040 && c <= 0x30ff)) {
+          cjk++;
+          if (c >= 0x10000) i++;
+        } else if (/[A-Za-z]/.test(s[i])) {
+          letters++;
+        }
+      }
+      var total = cjk + letters;
+      if (total > 0 && cjk / total >= 0.15) return 'zh-cn';
+      return 'en';
+    }
+    // 参考音频（speaker_wav）来源：优先用当前选中的声音档案真实录音，
+    //   退回上次测试成功留下的音频。
+    //   故障原因：旧代码只用 ve.lastTestAudioBase64。该字段仅在 step 13「测试生成」
+    //   成功时写入；用户若点了「跳过测试」或从未测过，它就是空串，于是每条字幕都命中
+    //   `!refB64` 分支被直接判失败 —— 三条全失败的真实原因就在这里，
+    //   而非 XTTS 服务或模型本身有问题。
+    function resolveRefAudio(){
+      if (state.voiceProfile && state.voiceCurrentVersionId
+          && window.api && typeof window.api.voiceReadAudioBuffer === 'function') {
+        return window.api.voiceReadAudioBuffer({
+          profileId: state.voiceProfile.id,
+          versionId: state.voiceCurrentVersionId
+        }).then(function(r){
+          if (r && r.ok && r.b64) {
+            return { b64: r.b64, mime: r.mime || 'audio/wav' };
+          }
+          var veTmp = state.voiceEngine || {};
+          if (veTmp.lastTestAudioBase64) {
+            return { b64: veTmp.lastTestAudioBase64, mime: veTmp.lastTestMime || 'audio/wav' };
+          }
+          var e = (r && r.error) ? r.error : 'voice-profile-audio-unavailable';
+          throw new Error('读取声音档案失败:' + e);
+        });
+      }
+      var ve0 = state.voiceEngine || {};
+      if (ve0.lastTestAudioBase64) {
+        return Promise.resolve({ b64: ve0.lastTestAudioBase64, mime: ve0.lastTestMime || 'audio/wav' });
+      }
+      return Promise.reject(new Error('no-reference-audio:请先保存一段声音档案录音作为 AI 配音参考音色'));
+    }
+    function genOne(seg, cb){
+      // 数据源直接来自 seg 本身（字幕轨道上的真实文本），不读 sd.rows。
+      var segText = (typeof seg.text === 'string') ? seg.text.trim() : '';
+      if (!segText) {
+        noteFail(seg, 'empty-text', '字幕文本为空');
+        return cb();
+      }
+      var genKey = 'seg:' + seg.id;
+      if (_capGenerating[genKey]) return cb();
+      _capGenerating[genKey] = true;
+      var ve = state.voiceEngine || {};
+      var engineId = ve.engineId || 'xtts-v2';
+      var baseUrl = (ve.local && ve.local.baseUrl) || '';
+      if (!baseUrl) {
+        delete _capGenerating[genKey];
+        noteFail(seg, 'no-baseUrl', '语音引擎服务地址未配置（step 13 未填写或未保存）');
+        return cb();
+      }
+      resolveRefAudio().then(function(ref){
+        // 诊断日志：确认每条字幕实际传入的文本（片段 id / 字符长度 / 摘要），
+        // 不记录参考音频、密钥等敏感内容。
+        _capVoiceLog('request', { segId: seg.id, chars: segText.length, preview: segText.slice(0, 24) });
+        return window.api.voiceEngineTestGenerate({
+          engineId: engineId,
+          config: { baseUrl: baseUrl },
+          payload: { text: segText, refBase64: ref.b64, refMime: ref.mime }
+        });
+      }).then(function(r){
+        delete _capGenerating[genKey];
+        if (!r || !r.ok || !r.audioBase64) {
+          // 如实记录服务端返回的真实原因，不再吞掉
+          noteFail(seg, 'generate-failed',
+            ((r && r.error) || 'unknown') + ((r && r.actionableHint) ? (' | ' + r.actionableHint) : ''));
+          return cb();
+        }
+        var durSec = (typeof r.durationSec === 'number' && r.durationSec > 0) ? r.durationSec : 0;
+        // 返回值校验：必须有可解码的非空音频，否则不算成功
+        if (!r.audioBase64 || r.audioBase64.length < 100) {
+          noteFail(seg, 'bad-payload', '返回音频为空或过短（' + ((r && r.audioBase64 && r.audioBase64.length) || 0) + ' B）');
+          return cb();
+        }
+        // 文本一致性诊断：服务端实际收到的字符数必须等于我们发出的字符数，
+        // 且 languageId 必须与文本语种匹配，否则朗读内容会与字幕不符。
+        var sentChars = (typeof r.sentTextLength === 'number') ? r.sentTextLength : segText.length;
+        var lang = r.languageId || '';
+        var wantLang = _capDetectLang(segText);
+        if (sentChars !== segText.length || (lang && lang !== wantLang)) {
+          _capVoiceLog('mismatch', {
+            segId: seg.id, wantChars: segText.length, gotChars: sentChars,
+            wantLang: wantLang, gotLang: lang
+          });
+          noteFail(seg, 'text-mismatch',
+            '传入文本与服务端不一致（发出 ' + segText.length + ' 字 / 收到 ' + sentChars
+            + ' 字，语言 ' + (lang || '?') + ' ≠ ' + wantLang + '）');
+          return cb();
+        }
+        _capVoiceLog('ok', { segId: seg.id, chars: segText.length, lang: lang, bytes: r.audioBytes || 0, dur: durSec });
+        seg.audioSec = durSec;
+        seg.audioB64 = r.audioBase64;
+        seg.audioMime = r.mime || 'audio/wav';
+        seg.generated = true;
+        // 同步到 row（若 row 仍在），保证回到素材编辑步骤时判定一致
+        var row = (sd.rows || []).filter(function(x){ return x.id === seg.rowId; })[0];
+        if (row) {
+          row.audioSec = durSec || null;
+          row.audioB64 = r.audioBase64 || null;
+          row.audioMime = r.mime || 'audio/wav';
+          row.updatedAt = Date.now();
+        }
+        okCount++;
+        cb();
+      }).catch(function(e){
+        delete _capGenerating[genKey];
+        var msg = String((e && e.message) || e);
+        var kind = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|fetch failed|network/i.test(msg) ? 'service-unreachable'
+                 : (/no-reference-audio/.test(msg) ? 'no-reference-audio' : 'request-exception');
+        noteFail(seg, kind, msg);
+        cb();
+      });
+    }
+    // 串行生成，避免一次性起 N 个并发到 XTTS
+    // 失败原因分类标签（用于让用户一眼看出是哪一环坏了）
+    var FAIL_KIND_LABEL = {
+      'no-baseUrl': '服务地址未配置',
+      'no-reference-audio': '缺少参考音频',
+      'empty-text': '字幕文本为空',
+      'service-unreachable': 'XTTS 服务连接失败',
+      'request-exception': '请求异常',
+      'generate-failed': '模型生成失败',
+      'text-mismatch': '传入文本与字幕不一致',
+      'bad-payload': '返回值校验失败（音频为空/过短）'
+    };
+    function failSummary(max){
+      var seen = {};
+      var order = [];
+      failReasons.forEach(function(f){
+        var label = FAIL_KIND_LABEL[f.kind] || f.kind;
+        var key = label + '|' + f.detail;
+        if (!seen[key]) { seen[key] = { label: label, detail: f.detail, n: 0 }; order.push(key); }
+        seen[key].n++;
+      });
+      return order.slice(0, max || 3).map(function(k){
+        var it = seen[k];
+        return it.label + '×' + it.n + (it.detail ? '（' + String(it.detail).slice(0, 80) + '）' : '');
+      }).join('；');
+    }
+    function run(idx){
+      if (idx >= toGen.length) {
+        // 收尾统一走 _capVoiceLoadingEnd：移除遮罩 + 恢复按钮 + 复位运行锁
+        _capVoiceLoadingEnd();
+        _capPersist();
+        if (okCount === 0 && failCount > 0) {
+          // 全部失败：显示真实原因，不跳转到播放页伪装成功
+          if (typeof toast === 'function') {
+            toast('配音全部失败（' + failCount + ' 条），未生成任何语音。原因：' + failSummary(3), true, 6000);
+          }
+          return;
+        }
+        if (typeof toast === 'function') {
+          var msg = '配音生成完成：成功 ' + okCount + ' 条';
+          if (failCount > 0) msg += '，失败 ' + failCount + ' 条（' + failSummary(2) + '）';
+          toast(msg, failCount === 0 ? false : true, failCount === 0 ? 3000 : 6000);
+        }
+        // 配音完成后进入成品合成（冻结插入 + 字幕烧录 + 配音已混进文件）。
+        //   合成成功后由 _capBurnFinal 跳转到播放页；失败则停留在本页并报错。
+        _capVoiceLoadingStart(0);
+        _capVoiceStage('正在合成视频…');
+        _capBurnFinal();
+        return;
+      }
+      // 真实进度：显示当前正在生成的段序号
+      _capVoiceStage('正在生成语音…', idx + 1, toGen.length);
+      genOne(toGen[idx], function(){ run(idx + 1); });
+    }
+    run(0);
   }
+  // ===== 成品视频合成（冻结插入 + 字幕烧录 + AI 配音混音） =====
+  //   字幕文字唯一来源：state.subtitleData.segments（字幕轨道上实际放置的片段），
+  //   绝不读 sd.rows（字幕素材库）。
+  //   时间戳直接用 seg.outStart / seg.outEnd —— 那是渲染层算好的 OUT 时间，
+  //   与最终输出视频（含冻结延长）严格一致。
+  //   「生成字幕」勾选 = 烧录字幕；取消勾选 = 只做冻结插入 + 配音，不烧字幕。
+  function _capBuildBurnPayload(){
+    var sd = state.subtitleData || {};
+    var va = state.videoAsset || {};
+    var burnSub = state.genSubtitle !== false;
+    // 只取字幕轨道上的真实片段：有 text + 合法的 OUT 时间
+    var segs = (sd.segments || []).filter(function(s){
+      return s && typeof s.text === 'string' && s.text.trim()
+        && isFinite(Number(s.outStart)) && isFinite(Number(s.outEnd))
+        && Number(s.outEnd) > Number(s.outStart);
+    }).map(function(s){
+      // ===== 最终字幕时长：对齐对应 AI 配音的实际时长 =====
+      //   规则（仅作用于「最终合成用的数据」，不写回 sd.segments）：
+      //     字幕开始 =原 outStart（最终输出时间轴，保持不变）
+      //     字幕结束 = outStart + 该条配音文件的实际时长
+      //   时长来源：seg.audioSec —— 由 main 端 wavDurationSec() 从真实 WAV 字节
+      //   解析出的秒数（见 voice-engine.js testGenerate），不是预估时长。
+      //   没有成功生成配音（audioB64 缺失）或 audioSec 非法时，
+      //   保持原 outEnd，不虚构时长；其余错误处理逻辑不变。
+      //   允许字幕互相重叠：不做检测、不顺延、不阻止、不提示。
+      var outStart = Number(s.outStart);
+      var outEnd = Number(s.outEnd);
+      var hasVoice = (typeof s.audioB64 === 'string' && s.audioB64.length > 100);
+      var realVoiceSec = (typeof s.audioSec === 'number' && isFinite(s.audioSec) && s.audioSec > 0) ? s.audioSec : 0;
+      if (hasVoice && realVoiceSec > 0) {
+        outEnd = outStart + realVoiceSec;
+      }
+      return {
+        text: String(s.text),
+        outStart: outStart,
+        outEnd: outEnd,
+        // 原始字幕时长，仅供诊断/兜底，不参与烧录计时
+        origOutEnd: Number(s.outEnd),
+        voiceSec: hasVoice ? realVoiceSec : 0,
+        audioB64: hasVoice ? s.audioB64 : null,
+        audioMime: s.audioMime || 'audio/wav'
+      };
+    });
+    // 冻结段：复用渲染层的 at / duration / frameB64（静帧）
+    var frozen = (sd.frozenFrames || []).filter(function(f){
+      return f && Number(f.duration) > 0;
+    }).map(function(f){
+      return {
+        at: Number(f.at) || 0,
+        duration: Number(f.duration) || 0,
+        frameB64: f.frameB64 || null,
+        frameMime: f.frameMime || null
+      };
+    });
+    return {
+      assetId: va.id,
+      segments: segs,
+      frozen: frozen,
+      duration: (typeof va.duration === 'number' && va.duration > 0) ? va.duration : 0,
+      width: va.width || 0,
+      height: va.height || 0,
+      burnSubtitle: burnSub,
+      withVoice: true,
+      // AI 配音为主：原视频音轨静音，避免与配音叠加互相盖住
+      originalAudio: 'mute'
+    };
+  }
+  // 执行合成；成功返回结果并跳到播放页，失败显示真实错误并停留在当前页
+  function _capBurnFinal(onDone){
+    var payload = _capBuildBurnPayload();
+    if (!payload.assetId) {
+      if (typeof toast === 'function') toast('尚未选择视频，无法合成', true);
+      return;
+    }
+    if (payload.burnSubtitle && !payload.segments.length) {
+      if (typeof toast === 'function') toast('字幕轨道上还没有有效字幕片段，无法烧录字幕', true);
+      return;
+    }
+    if (!window.api || typeof window.api.captionBurnFinal !== 'function') {
+      if (typeof toast === 'function') toast('视频合成功能不可用（IPC 未就绪）', true);
+      return;
+    }
+    _capVoiceLoadingStart(0);
+    _capVoiceStage(payload.burnSubtitle ? '正在合成视频并烧录字幕…' : '正在合成视频…');
+    window.api.captionBurnFinal(payload).then(function(r){
+      _capVoiceLoadingEnd();
+      if (!r || !r.ok) {
+        // 失败：如实报错，停留在字幕编辑页，不进入播放页
+        if (typeof toast === 'function') {
+          toast('视频合成失败：' + ((r && r.error) || '未知错误'), true, 8000);
+        }
+        return;
+      }
+      state.__captionFinalVideo = {
+        path: r.path, bytes: r.bytes,
+        subtitlesBurned: r.subtitlesBurned,
+        voiceTracks: r.voiceTracks,
+        finalDuration: r.finalDuration
+      };
+      _capVoiceLog('burn-ok', {
+        bytes: r.bytes, subs: r.subtitlesBurned, voices: r.voiceTracks, dur: r.finalDuration
+      });
+      if (typeof toast === 'function') {
+        var m = '成品视频已生成（' + fmtDur(r.finalDuration || 0) + '）';
+        if (r.subtitlesBurned) m += ' · 已烧录 ' + r.subtitlesBurned + ' 条字幕';
+        if (r.voiceTracks) m += ' · 混入 ' + r.voiceTracks + ' 段配音';
+        toast(m, false);
+      }
+      state.step = 15; renderRail(); renderFlow();
+      if (typeof onDone === 'function') onDone(r);
+    }).catch(function(e){
+      _capVoiceLoadingEnd();
+      if (typeof toast === 'function') {
+        toast('视频合成异常：' + String((e && e.message) || e), true, 8000);
+      }
+    });
+  }
+  window._capBurnFinal = _capBurnFinal;
+  // 暴露配音诊断日志，供本地排查"传入文本是否与字幕一致"
+  window._capVoiceDiag = function(){ return (_capVoiceLogBuf || []).slice(); };
 
   // 暴露到 window
   window.captionBankAdd = captionBankAdd;
@@ -12609,6 +13076,506 @@ window.testWechatConnection=function(){
   window.captionFinalize = captionFinalize;
   window.captionStepBack = captionStepBack;
   window._capGenerateVoiceForRow = _capGenerateVoiceForRow;
+
+  // ========= 成品视频播放页（step 15） =========
+  //   把各段 seg.audioB64 按 seg.outStart 排好，组成单一 AudioBuffer；
+  //   原视频通过隐藏的 <video> 静音播放并以 rAF 同步 audio.currentTime。
+  //   紧凑布局：仅播放、暂停、进度条、当前/总时长、音量、静音、返回上一步、继续下一步。
+  var _capPlayback = {
+    ctx: null,
+    gain: null,
+    buffer: null,
+    source: null,
+    video: null,
+    rafId: 0,
+    duration: 0,
+    // 播放位置（输出时间轴秒）。pos 是唯一权威位置，anchor 是取位时刻的时间基准。
+    //   故障原因：旧实现把播放位置挂在 AudioContext.currentTime 上，而 currentTime
+    //   是只读属性 —— 拖动进度条时 `_capPlayback.ctx.currentTime = t` 写入无效；
+    //   且新建 AudioContext 处于 suspended 不推进时钟，tick() 读到的恒为 0，
+    //   于是进度条既不跟随也不可拖。
+    pos: 0,
+    anchor: 0,
+    isPlaying: false,
+    scrubbing: false,
+    volume: 1.0,
+    muted: false,
+    mixErrors: [],
+    loadPromise: null
+  };
+  // 把 data URL / base64 字符串解码成 ArrayBuffer
+  function _capPlaybackDecode(b64){
+    try {
+      var bin = atob(b64);
+      var arr = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      return arr.buffer;
+    } catch (e) { return null; }
+  }
+  // 创建（并确保 resume）AudioContext。
+  //   故障原因：旧代码只 new AudioContext()，Chromium 自动播放策略下它一直是
+  //   suspended —— 时钟不推进、source.start() 不出声，表现为「配音没生效」。
+  //   必须在用户手势内 resume()，这里也做兜底（resume 未 resolve 时不阻塞后续）。
+  function _capPlaybackEnsureCtx(){
+    if (!_capPlayback.ctx) {
+      try { _capPlayback.ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (_) { return null; }
+    }
+    try {
+      if (_capPlayback.ctx.state === 'suspended' && typeof _capPlayback.ctx.resume === 'function') {
+        _capPlayback.ctx.resume();
+      }
+    } catch (_) {}
+    return _capPlayback.ctx;
+  }
+  // 把 audio byte + mime 解析成 AudioBuffer
+  function _capPlaybackDecodeToBuffer(audioBuf, mime){
+    var ctx = _capPlaybackEnsureCtx();
+    if (!ctx) return null;
+    return ctx.decodeAudioData(audioBuf.slice(0));
+  }
+  // 渲染 step 15 页面
+  function renderCaptionsPlayback(ctrl){
+    var sd = state && state.subtitleData;
+    var va = state && state.videoAsset;
+    var segs = (sd && sd.segments) || [];
+    var finalDur = (typeof _capFinalOutputDuration === 'function') ? _capFinalOutputDuration() : 0;
+    var vaDur = (va && typeof va.duration === 'number') ? va.duration : 0;
+    var totalFrozen = Math.max(0, finalDur - vaDur);
+    var okSegs = segs.filter(function(s){
+      return s && typeof s.audioB64 === 'string' && s.audioB64.length > 0
+        && typeof s.audioSec === 'number' && s.audioSec > 0;
+    });
+    // 缺 audioB64 / audioSec 的段视为尚未成功
+    var failSegs = segs.filter(function(s){
+      if (!s) return false;
+      if (typeof s.audioB64 !== 'string' || s.audioB64.length === 0) return true;
+      if (typeof s.audioSec !== 'number' || s.audioSec <= 0) return true;
+      return false;
+    });
+    var h = ''
+      + '<div style="max-width:960px;margin:0 auto">'
+      +   '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">'
+      +     '<div style="width:34px;height:34px;border-radius:8px;background:rgba(14,124,123,.12);color:#0E7C7B;display:flex;align-items:center;justify-content:center;font-weight:700">▶</div>'
+      +     '<div style="flex:1">'
+      +       '<div style="font-size:18px;font-weight:600;color:#203134">成品视频预览</div>'
+      +       '<div style="font-size:12px;color:var(--muted);margin-top:2px">原视频 ' + vaDur.toFixed(1) + 's + 冻结延长 ' + totalFrozen.toFixed(1) + 's = 最终 ' + finalDur.toFixed(1) + 's。' + (failSegs.length ? '其中 ' + failSegs.length + ' 段尚未配音，将保持原视频音轨。' : '') + '</div>'
+      +     '</div>'
+      // 「保存视频」：放在现有操作按钮区域（返回上一步 之前），
+      //   不改动播放器尺寸 / 布局 / 播放控制。
+      +     '<button class="btn ghost" id="capSaveBtn" onclick="window.saveFinalVideo()">保存视频</button>'
+      +     '<button class="btn ghost" onclick="window.playbackBack()">返回上一步</button>'
+      +     '<button class="btn primary-main" onclick="window.playbackNext()">继续下一步</button>'
+      +   '</div>'
+      +   '<div style="position:relative;background:#000;aspect-ratio:16/9;border-radius:10px;overflow:hidden">'
+      +     '<video id="capPlaybackVideo" playsinline style="width:100%;height:100%;display:block;background:#000"></video>'
+      +   '</div>'
+      +   '<div id="capPlaybackBar" style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:#11181f;color:#cbd5d8;font-size:12.5px;border-radius:0 0 10px 10px;margin-top:-4px">'
+      +     '<button id="capPlayBtn" class="btn sm" style="min-width:54px">▶ 播放</button>'
+      +     '<span id="capPlaybackTime" style="min-width:108px">0:00.0 / ' + fmtDur(finalDur) + '</span>'
+      +     '<input id="capProgress" type="range" min="0" max="' + Math.max(0.01, finalDur) + '" step="0.01" value="0" style="flex:1">'
+      +     '<span style="font-size:12px;color:var(--muted)">🔊</span>'
+      +     '<input id="capVolume" type="range" min="0" max="1" step="0.01" value="1" style="width:90px">'
+      +     '<button id="capMuteBtn" class="btn sm ghost" style="min-width:54px">静音</button>'
+      +   '</div>'
+      + '</div>';
+    ctrl.innerHTML = h;
+    _capPlayback.video = document.getElementById('capPlaybackVideo');
+    _capPlayback.duration = finalDur;
+    // 优先播放已合成的成品视频（已含冻结插入 + 字幕烧录 + 配音混音）。
+    //   没有成品时回退到原视频，保证播放页永远有画面。
+    var finalVid = state.__captionFinalVideo;
+    if (finalVid && finalVid.path && window.api && window.api.captionReadFinal) {
+      window.api.captionReadFinal(finalVid.path).then(function(r){
+        if (!r || !r.ok || !r.b64) return _capPlaybackLoadSource(va);
+        var bin = atob(r.b64);
+        var arr = new Uint8Array(bin.length);
+        for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        var blob = new Blob([arr], { type: r.mime || 'video/mp4' });
+        var v = _capPlayback.video;
+        if (v.dataset && v.dataset.objUrl) URL.revokeObjectURL(v.dataset.objUrl);
+        var url = URL.createObjectURL(blob);
+        v.src = url;
+        v.dataset.objUrl = url;
+        // 成品自带完整音轨，关掉 Web Audio 实时混音，避免双重播放
+        _capPlayback.buffer = null;
+      }).catch(function(){ _capPlaybackLoadSource(va); });
+    } else {
+      _capPlaybackLoadSource(va);
+    }
+    // 加载并合成所有段音频（仅当没有成品音轨时才需要实时混音）
+    _capPlayback.loadPromise = _capPlaybackLoadMix(okSegs, finalDur).then(function(){
+      _capPlaybackAttachControls();
+      _capPlaybackReportMixErrors(okSegs.length);
+    }).catch(function(){
+      _capPlaybackAttachControls();
+      _capPlaybackReportMixErrors(okSegs.length);
+    });
+  }
+  // 回退：加载原视频
+  function _capPlaybackLoadSource(va){
+    if (!va || !va.id || !window.api || !window.api.videoReadStream) return;
+    window.api.videoReadStream(va.id).then(function(r){
+      if (!r || !r.ok || !r.b64) return;
+      var bin = atob(r.b64);
+      var arr = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      var blob = new Blob([arr], { type: r.mime || 'video/mp4' });
+      var v = _capPlayback.video;
+      if (v.dataset && v.dataset.objUrl) URL.revokeObjectURL(v.dataset.objUrl);
+      var url = URL.createObjectURL(blob);
+      v.src = url;
+      v.dataset.objUrl = url;
+    }).catch(function(){});
+  }
+  // 解码失败的段要如实上报，不能静默吞掉后假装已配音
+  function _capPlaybackReportMixErrors(expected){
+    var errs = _capPlayback.mixErrors || [];
+    if (!errs.length) return;
+    var uniq = {};
+    errs.forEach(function(e){ uniq[e] = (uniq[e] || 0) + 1; });
+    var detail = Object.keys(uniq).map(function(k){ return k + '×' + uniq[k]; }).join('、');
+    if (typeof toast === 'function') {
+      toast('有 ' + errs.length + '/' + expected + ' 段配音解码失败（' + detail + '），这些段将没有声音。', true);
+    }
+  }
+  // 加载并按 outStart 混合所有音频段 → 单一 AudioBuffer
+  function _capPlaybackLoadMix(okSegs, finalDur){
+    if (okSegs.length === 0) return Promise.resolve(null);
+    var ctx = _capPlaybackEnsureCtx();
+    if (!ctx) return Promise.resolve(null);
+    if (!_capPlayback.gain) {
+      try { _capPlayback.gain = ctx.createGain(); _capPlayback.gain.connect(ctx.destination); } catch (_) {}
+    }
+    var sampleRate = ctx.sampleRate;
+    var totalSamples = Math.max(1, Math.ceil(finalDur * sampleRate));
+    var mixed = ctx.createBuffer(2, totalSamples, sampleRate);
+    var chain = okSegs.slice().sort(function(a, b){
+      var ao = Number.isFinite(a.outStart) ? a.outStart : 0;
+      var bo = Number.isFinite(b.outStart) ? b.outStart : 0;
+      return ao - bo;
+    });
+    _capPlayback.mixErrors = [];
+    var p = Promise.resolve();
+    chain.forEach(function(seg){
+      p = p.then(function(){ return _capPlaybackMixOne(mixed, seg, sampleRate); })
+            .catch(function(e){ _capPlayback.mixErrors.push(String((e && e.message) || e)); });
+    });
+    return p.then(function(){ _capPlayback.buffer = mixed; }).catch(function(){ _capPlayback.buffer = mixed; });
+  }
+  // 单段 → 写入 mixed buffer 的对应偏移
+  function _capPlaybackMixOne(mixed, seg, sampleRate){
+    return new Promise(function(resolve, reject){
+      try {
+        var bin = _capPlaybackDecode(seg.audioB64);
+        if (!bin) return reject(new Error('decode-failed'));
+        // decodeAudioData 必须在新 ArrayBuffer 上调用，避免被 mixed 视图占用的 buffer 冲突
+        var ctx = _capPlayback.ctx;
+        if (!ctx) return reject(new Error('no-audio-context'));
+        ctx.decodeAudioData(bin.slice(0), function(buf){
+          try {
+            if (!buf || !buf.length) return reject(new Error('empty-audio-buffer'));
+            var off = Math.max(0, Math.floor((Number.isFinite(seg.outStart) ? seg.outStart : 0) * sampleRate));
+            for (var ch = 0; ch < Math.min(2, buf.numberOfChannels); ch++) {
+              var src = buf.getChannelData(ch);
+              var dst = mixed.getChannelData(ch);
+              var n = Math.min(src.length, dst.length - off);
+              if (n <= 0) continue;
+              for (var i = 0; i < n; i++) dst[off + i] += src[i];
+            }
+            resolve();
+          } catch (e) { reject(e); }
+        }, function(e){ reject(e); });
+      } catch (e) { reject(e); }
+    });
+  }
+  // 把播放控件绑到 AudioBuffer + 视频
+  function _capPlaybackAttachControls(){
+    var playBtn = document.getElementById('capPlayBtn');
+    var prog = document.getElementById('capProgress');
+    var timeEl = document.getElementById('capPlaybackTime');
+    var vol = document.getElementById('capVolume');
+    var muteBtn = document.getElementById('capMuteBtn');
+    var v = _capPlayback.video;
+    // dur 必须"活读"：_capPlaybackSyncMax 会在视频元数据就绪后修正总时长，
+    //   若这里做一次快照，闭包里的 dur 会与 prog.max / _capPlayback.duration 不一致。
+    function dur(){ return _capPlayback.duration; }
+    function fmtT(sec){
+      var s = Math.max(0, Math.min(sec || 0, dur()));
+      return fmtDur(s);
+    }
+    function stopRAF(){
+      if (_capPlayback.rafId) { cancelAnimationFrame(_capPlayback.rafId); _capPlayback.rafId = 0; }
+    }
+    // 当前播放位置（输出时间轴秒）。
+    //   有配音 buffer → 以 AudioContext 时钟为准（与 source.start 的偏移同源）；
+    //   无配音       → 以 video.currentTime 反算，绝不回退成 ctx.currentTime（那恒为 0）。
+    function nowT(){
+      if (_capPlayback.buffer && _capPlayback.ctx) {
+        var t = _capPlayback.pos + ((_capPlayback.ctx.currentTime || 0) - _capPlayback.anchor);
+        return t > dur() ? dur() : (t < 0 ? 0 : t);
+      }
+      var vv = _capPlayback.video;
+      if (vv && typeof vv.duration === 'number' && isFinite(vv.duration) && vv.duration > 0) {
+        return Math.min(dur(), _capSourceToOutput(vv.currentTime || 0));
+      }
+      return _capPlayback.pos;
+    }
+    // 统一的位置写入：更新 UI + 把输出时间映射回视频 source 时间
+    function seekTo(t, syncVideo){
+      t = Math.max(0, Math.min(t, dur()));
+      _capPlayback.pos = t;
+      _capPlayback.anchor = (_capPlayback.ctx && _capPlayback.ctx.currentTime) || 0;
+      if (prog && !_capPlayback.scrubbing) prog.value = t;
+      if (timeEl) timeEl.textContent = fmtT(t) + ' / ' + fmtDur(dur());
+      var vv = _capPlayback.video;
+      if (syncVideo !== false && vv) {
+        try {
+          if (_capPlayback.buffer) vv.muted = true;
+          vv.currentTime = _capOutputToSource(t);
+        } catch (_) {}
+      }
+    }
+    function tick(){
+      stopRAF();
+      if (!_capPlayback.isPlaying) return;
+      _capPlayback.rafId = requestAnimationFrame(tick);
+      var t = nowT();
+      if (!_capPlayback.buffer) _capPlayback.pos = t;
+      // 有配音时让画面跟随音频时钟：漂移超过阈值才纠正，避免每帧拉扯 video
+      var vv = _capPlayback.video;
+      if (_capPlayback.buffer && vv && !vv.seeking) {
+        try {
+          var want = _capOutputToSource(t);
+          if (Math.abs((vv.currentTime || 0) - want) > 0.35) vv.currentTime = want;
+        } catch (_) {}
+      }
+      // 拖动中不覆盖滑块位置，否则会把用户手指拽回去
+      if (_capPlayback.scrubbing) return;
+      if (prog) prog.value = t;
+      if (timeEl) timeEl.textContent = fmtT(t) + ' / ' + fmtDur(dur());
+    }
+    function applyGain(){
+      if (!_capPlayback.gain) return;
+      try { _capPlayback.gain.gain.value = _capPlayback.muted ? 0 : _capPlayback.volume; } catch (_) {}
+    }
+    function play(){
+      var vv = _capPlayback.video;
+      var ctx = _capPlaybackEnsureCtx();
+      if (_capPlayback.buffer && ctx) {
+        try {
+          if (_capPlayback.source) { try { _capPlayback.source.stop(); } catch (_) {} _capPlayback.source = null; }
+          _capPlayback.pos = Math.max(0, Math.min(_capPlayback.pos, dur()));
+          _capPlayback.anchor = ctx.currentTime || 0;
+          var src = ctx.createBufferSource();
+          src.buffer = _capPlayback.buffer;
+          if (_capPlayback.gain) src.connect(_capPlayback.gain);
+          else src.connect(ctx.destination);
+          applyGain();
+          src.onended = function(){ if (_capPlayback.isPlaying) pause(); };
+          src.start(0, _capPlayback.pos);
+          _capPlayback.source = src;
+          _capPlayback.isPlaying = true;
+        } catch (e) {
+          // 兜底：音频源起不来时退化为只播原视频，不伪装成已配音
+          _capPlayback.buffer = null;
+          _capPlayback.source = null;
+        }
+      }
+      if (vv) {
+        try {
+          if (_capPlayback.buffer) vv.muted = true;
+          vv.currentTime = _capOutputToSource(_capPlayback.pos);
+          var pr = vv.play();
+          if (pr && typeof pr.catch === 'function') pr.catch(function(){});
+        } catch (_) {}
+      }
+      if (_capPlayback.isPlaying) {
+        if (playBtn) playBtn.textContent = '⏸ 暂停';
+        tick();
+      }
+    }
+    function pause(){
+      _capPlayback.isPlaying = false;
+      var t = nowT();
+      _capPlayback.pos = t;
+      if (_capPlayback.source) { try { _capPlayback.source.stop(); } catch (_) {} _capPlayback.source = null; }
+      var vv = _capPlayback.video;
+      if (vv && !vv.paused) vv.pause();
+      stopRAF();
+      if (playBtn) playBtn.textContent = '▶ 播放';
+      if (prog) prog.value = t;
+      if (timeEl) timeEl.textContent = fmtT(t) + ' / ' + fmtDur(dur());
+    }
+    if (playBtn) playBtn.onclick = function(){ if (_capPlayback.isPlaying) pause(); else play(); };
+    // 进度条拖动：pointerdown 起进入 scrub，input 实时定位，pointerup 收尾并重启音频源。
+    //   故障原因：旧实现只绑 oninput 且把值写进只读的 ctx.currentTime —— 拖动完全无效。
+    function progScrubStart(){ _capPlayback.scrubbing = true; }
+    function progScrubEnd(){
+      if (!_capPlayback.scrubbing) return;
+      _capPlayback.scrubbing = false;
+      var t = parseFloat(prog && prog.value);
+      if (isFinite(t)) seekTo(t, true);
+      if (_capPlayback.isPlaying) play();
+    }
+    function progInput(){
+      var t = parseFloat(prog && prog.value);
+      if (!isFinite(t)) return;
+      seekTo(t, true);
+    }
+    if (prog) {
+      prog.addEventListener('pointerdown', progScrubStart);
+      prog.addEventListener('pointerup', progScrubEnd);
+      prog.addEventListener('pointercancel', function(){ _capPlayback.scrubbing = false; });
+      prog.addEventListener('touchstart', progScrubStart, { passive: true });
+      prog.addEventListener('touchend', progScrubEnd, { passive: true });
+      prog.addEventListener('input', progInput);
+      prog.addEventListener('change', progInput);
+    }
+    if (vol) vol.oninput = function(){
+      var g = parseFloat(vol.value);
+      if (isFinite(g)) { _capPlayback.volume = g; applyGain(); }
+    };
+    if (muteBtn) muteBtn.onclick = function(){
+      _capPlayback.muted = !_capPlayback.muted;
+      applyGain();
+      muteBtn.textContent = _capPlayback.muted ? '取消静音' : '静音';
+    };
+    if (v) {
+      // 仅在「没有配音 buffer」且正在播放时用视频自身时钟驱动 UI；
+      //   有配音时以音频时钟为准，避免两套时钟互相打架导致进度条抖动 / 回跳。
+      v.addEventListener('timeupdate', function(){
+        if (_capPlayback.buffer || !_capPlayback.isPlaying) return;
+        var outT = Math.min(dur(), _capSourceToOutput(v.currentTime || 0));
+        _capPlayback.pos = outT;
+        if (_capPlayback.scrubbing) return;
+        if (prog) prog.value = outT;
+        if (timeEl) timeEl.textContent = fmtT(outT) + ' / ' + fmtDur(dur());
+      });
+      // 元数据就绪后再校正进度条 max，避免 0 / NaN / 旧值
+      if (v.readyState >= 1) _capPlaybackSyncMax();
+      else v.addEventListener('loadedmetadata', function(){ _capPlaybackSyncMax(); }, { once: true });
+    }
+    _capPlaybackSyncMax();
+  }
+  // 校正进度条 max：输出时间轴长度以 finalDur 为准（已含冻结延长），
+  //   仅当 finalDur 缺失/非法（0 或 NaN）时才退回视频真实时长，避免 max=0 或 NaN。
+  //   在视频元数据就绪后再跑一次，确保不会用到加载前的旧值。
+  function _capPlaybackSyncMax(){
+    var v = _capPlayback.video;
+    var prog = document.getElementById('capProgress');
+    var timeEl = document.getElementById('capPlaybackTime');
+    if (!prog) return;
+    var want = (_capPlayback.duration > 0 && isFinite(_capPlayback.duration)) ? _capPlayback.duration : 0;
+    if (!(want > 0)) {
+      want = (v && typeof v.duration === 'number' && isFinite(v.duration) && v.duration > 0) ? v.duration : 0;
+    }
+    if (!(want > 0)) return;
+    _capPlayback.duration = want;
+    try { prog.max = String(want); } catch (_) {}
+    if (timeEl) timeEl.textContent = fmtDur(_capPlayback.pos) + ' / ' + fmtDur(want);
+  }
+  // 切走 step 时清理
+  function _capPlaybackDispose(){
+    try {
+      if (_capPlayback.source) _capPlayback.source.stop();
+    } catch (_) {}
+    _capPlayback.source = null;
+    _capPlayback.buffer = null;
+    _capPlayback.gain = null;
+    _capPlayback.isPlaying = false;
+    _capPlayback.scrubbing = false;
+    _capPlayback.pos = 0;
+    _capPlayback.anchor = 0;
+    if (_capPlayback.rafId) cancelAnimationFrame(_capPlayback.rafId);
+    _capPlayback.rafId = 0;
+    if (_capPlayback.video) {
+      try { _capPlayback.video.pause(); } catch (_) {}
+      if (_capPlayback.video.dataset && _capPlayback.video.dataset.objUrl) {
+        URL.revokeObjectURL(_capPlayback.video.dataset.objUrl);
+        _capPlayback.video.dataset.objUrl = '';
+      }
+      _capPlayback.video.removeAttribute('src');
+    }
+    _capPlayback.video = null;
+    if (_capPlayback.ctx) {
+      try { _capPlayback.ctx.close(); } catch (_) {}
+      _capPlayback.ctx = null;
+    }
+    _capPlayback.loadPromise = null;
+  }
+  // ===== 「保存视频」=====
+  //   保存对象：state.__captionFinalVideo.path —— 即 caption:burn-final 产出的成品 MP4
+  //   （已含 AI 配音 + 字幕烧录），不是原始视频、不是临时配音片段。
+  //   只做文件复制（主进程 caption:save-final），不重新执行合成。
+  var _capSaving = false;
+  function _capDefaultVideoName(){
+    // 默认文件名：Rokit-视频成品-YYYYMMDD-HHmmss.mp4
+    var d = new Date();
+    function p2(n){ return String(n).length < 2 ? ('0' + n) : String(n); }
+    return 'Rokit-视频成品-' + d.getFullYear() + p2(d.getMonth() + 1) + p2(d.getDate())
+      + '-' + p2(d.getHours()) + p2(d.getMinutes()) + p2(d.getSeconds()) + '.mp4';
+  }
+  window.saveFinalVideo = function(){
+    // 防重复触发：保存中直接忽略再次点击
+    if (_capSaving) return;
+    var fv = state.__captionFinalVideo;
+    if (!fv || !fv.path) {
+      if (typeof toast === 'function') {
+        toast('尚未生成成品视频，请先完成字幕与配音生成。', true, 5000);
+      }
+      return;
+    }
+    if (!window.api || typeof window.api.captionSaveFinal !== 'function') {
+      if (typeof toast === 'function') toast('保存功能不可用（IPC 未就绪）', true);
+      return;
+    }
+    var btn = document.getElementById('capSaveBtn');
+    _capSaving = true;
+    if (btn) { btn.disabled = true; btn.style.pointerEvents = 'none'; btn.style.opacity = '.6'; }
+    window.api.captionSaveFinal({
+      filePath: fv.path,
+      defaultPath: _capDefaultVideoName()
+    }).then(function(r){
+      // 无论成功/失败/取消，都恢复按钮，允许再次保存到其他位置
+      _capSaving = false;
+      if (btn) { btn.disabled = false; btn.style.pointerEvents = ''; btn.style.opacity = ''; }
+      if (r && r.canceled) return;   // 用户取消：安静返回，不提示失败
+      if (!r || !r.ok) {
+        if (typeof toast === 'function') {
+          toast('保存失败：' + ((r && r.error) || '未知错误'), true, 7000);
+        }
+        return;
+      }
+      if (typeof toast === 'function') {
+        toast('视频已保存到 ' + r.path, false, 5000);
+      }
+    }).catch(function(e){
+      _capSaving = false;
+      if (btn) { btn.disabled = false; btn.style.pointerEvents = ''; btn.style.opacity = ''; }
+      if (typeof toast === 'function') {
+        toast('保存异常：' + String((e && e.message) || e), true, 7000);
+      }
+    });
+  };
+
+// 返回 / 继续 下一步
+  window.playbackBack = function(){
+    _capPlaybackDispose();
+    state.step = 14; renderRail(); renderFlow();
+  };
+  window.playbackNext = function(){
+    _capPlaybackDispose();
+    // 「生成字幕」开关控制后续流程是否执行字幕生成：
+    //   勾选   → 标记需要生成字幕（下游发布/合成环节据 state.genSubtitle 决定是否烧录字幕）
+    //   取消   → 跳过字幕生成，但**不清除**字幕轨道上已有的片段 / 时间戳 / 冻结切点
+    state.genSubtitle = state.genSubtitle !== false;
+    _capPersist();
+    if (typeof toast === 'function' && !state.genSubtitle) {
+      toast('已跳过字幕生成（字幕片段保留在轨道上）', false);
+    }
+    // 配音完成后的下一步：进入"首秀计划"（step=10，参见 STAGES 导航结构）
+    state.step = 10; renderRail(); renderFlow();
+  };
 
 
 

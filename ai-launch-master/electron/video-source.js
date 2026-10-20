@@ -25,7 +25,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { dialog } = require('electron');
+const { dialog, app } = require('electron');
 const crypto = require('crypto');
 
 const logger = require('./logger');
@@ -248,6 +248,57 @@ function registerVideoSourceIpc(ipcMain) {
     clearInternalAsset(assetId);
     return { ok: true };
   });
+  // v1.20.10：step 14 字幕编辑器需要预览本地视频；renderer 没拿到 filePath，
+  //   由 main 读取字节、转 base64 后回传（v1：保守实现，不搞 Range 分片）。
+  //   返回结构 {ok, mime, b64}；前端用 URL.createObjectURL(new Blob(...)) 即可。
+  ipcMain.handle('video:read-stream', function (_e, assetId) {
+    try {
+      const a = getInternalAsset(assetId);
+      if (!a || !a.filePath) return { ok: false, error: 'asset-not-found' };
+      if (!fs.existsSync(a.filePath)) return { ok: false, error: 'file-missing' };
+      const buf = fs.readFileSync(a.filePath);
+      return {
+        ok: true,
+        mime: a.mimeType || 'video/mp4',
+        b64: buf.toString('base64'),
+        size: buf.length
+      };
+    } catch (e) {
+      return { ok: false, error: String((e && e.message) || e) };
+    }
+  });
+  // v1.20.10：冻结画面帧提取。给定 assetId + atSeconds，在 main 端用 ffmpeg
+  //   抽一张 JPEG，返回 base64 给 renderer（renderer 拼 blob URL 预览）。
+  //   返回结构 {ok, mime, b64, fileSize}。
+  ipcMain.handle('video:extract-frame', async function (_e, payload) {
+    try {
+      if (!payload || !payload.assetId) return { ok: false, error: 'no-asset' };
+      const a = getInternalAsset(payload.assetId);
+      if (!a || !a.filePath) return { ok: false, error: 'asset-not-found' };
+      if (!fs.existsSync(a.filePath)) return { ok: false, error: 'file-missing' };
+      const at = Math.max(0, Number(payload.atSeconds) || 0);
+      const width = (typeof payload.width === 'number' && payload.width > 0) ? payload.width : 640;
+      const videoModule = require('./video');
+      if (!videoModule || typeof videoModule.generateThumbnail !== 'function') {
+        return { ok: false, error: 'thumb-helper-missing' };
+      }
+      const r = await videoModule.generateThumbnail(a.filePath, { atSeconds: at, width: width });
+      if (!r || !r.ok || !r.path || !fs.existsSync(r.path)) {
+        return { ok: false, error: 'thumb-extract-failed' };
+      }
+      const buf = fs.readFileSync(r.path);
+      return {
+        ok: true,
+        mime: 'image/jpeg',
+        b64: buf.toString('base64'),
+        fileSize: buf.length,
+        at: at,
+        path: r.path
+      };
+    } catch (e) {
+      return { ok: false, error: String((e && e.message) || e) };
+    }
+  });
   // 给 handlePickLocal 的 stash 逻辑写一个独立 IPC，让 renderer 在拿到 ok=true 后通知 main 缓存
   ipcMain.handle('video:stash-asset', function (_e, asset) {
     if (!asset || !asset.id) return { ok: false };
@@ -255,6 +306,148 @@ function registerVideoSourceIpc(ipcMain) {
     // 因此 stash 必须在 handlePickLocal 内部完成；这里只对外暴露 OK 接口（无副作用）
     return { ok: true };
   });
+
+  // 成品视频合成：冻结插入 + 字幕烧录 + AI 配音混音（一次 ffmpeg 完成）。
+  //   renderer 只传 assetId + 字幕轨道数据，绝不接触 filePath；
+  //   字幕文字唯一来源是调用方传入的 segments[].text（字幕轨道上的真实片段）。
+  //   返回 { ok, path, bytes, subtitlesBurned, voiceTracks, finalDuration } 或 { ok:false, error }。
+  ipcMain.handle('caption:burn-final', async function (_e, payload) {
+    try {
+      const p = payload || {};
+      const assetId = p.assetId;
+      const a = getInternalAsset(assetId);
+      if (!a || !a.filePath) return { ok: false, error: 'asset-not-found' };
+      if (!fs.existsSync(a.filePath)) return { ok: false, error: 'file-missing' };
+
+      // 输入形状校验：segments 必须是带 text + outStart/outEnd 的数组
+      const segments = Array.isArray(p.segments) ? p.segments : [];
+      const frozen = Array.isArray(p.frozen) ? p.frozen : [];
+      if (p.burnSubtitle !== false && !segments.length) {
+        return { ok: false, error: 'no-segments:字幕轨道上没有任何有效字幕片段' };
+      }
+
+      let duration = Number(p.duration) || 0;
+      if (!(duration > 0) || !isFinite(duration)) {
+        // renderer 没给可信时长时在 main 侧实测
+        const videoModule = require('./video');
+        const meta = await videoModule.getMetadata(a.filePath);
+        if (meta && typeof meta.durationMs === 'number' && meta.durationMs > 0) {
+          duration = meta.durationMs / 1000;
+        }
+      }
+      if (!(duration > 0)) return { ok: false, error: 'duration-unknown:无法确定原视频时长' };
+
+      const captionBurn = require('./caption-burn');
+      const r = await captionBurn.burnFinalVideo(a.filePath, segments, frozen, {
+        duration: duration,
+        width: Number(p.width) || 0,
+        height: Number(p.height) || 0,
+        burnSubtitle: p.burnSubtitle !== false,
+        withVoice: p.withVoice !== false,
+        originalAudio: p.originalAudio || 'mute',
+        preset: p.preset,
+        crf: p.crf,
+        timeoutMs: p.timeoutMs
+      });
+      logger.info('[caption-burn] final video ready', {
+        bytes: r.bytes,
+        subtitlesBurned: r.subtitlesBurned,
+        voiceTracks: r.voiceTracks,
+        finalDuration: r.finalDuration
+      });
+      return r;
+    } catch (e) {
+      logger.warn('[caption-burn] failed', { error: String((e && e.message) || e) });
+      return { ok: false, error: String((e && e.message) || e) };
+    }
+  });
+
+  // 读取已合成成品视频的字节，供渲染层 <video> 播放。
+  //   安全约束：只允许读 caption-burn 自己产出的目录（userData/video/final），
+  //   避免渲染层借这条 IPC 读取任意本地文件。
+  ipcMain.handle('caption:read-final', function (_e, filePath) {
+    try {
+      if (!filePath || typeof filePath !== 'string') return { ok: false, error: 'no-path' };
+      const resolved = path.resolve(filePath);
+      let allowedRoot = '';
+      try { allowedRoot = path.resolve(path.join(app.getPath('userData'), 'video', 'final')); } catch (_e) {}
+      if (!allowedRoot) return { ok: false, error: 'no-allowed-root' };
+      const rel = path.relative(allowedRoot, resolved);
+      // 必须在 allowedRoot 之内（不能是 .. 开头，也不能是绝对路径）
+      if (!rel || rel.indexOf('..') === 0 || path.isAbsolute(rel)) {
+        return { ok: false, error: 'path-not-allowed' };
+      }
+      if (!fs.existsSync(resolved)) return { ok: false, error: 'file-missing' };
+      const buf = fs.readFileSync(resolved);
+      return { ok: true, mime: 'video/mp4', b64: buf.toString('base64'), size: buf.length };
+    } catch (e) {
+      return { ok: false, error: String((e && e.message) || e) };
+    }
+  });
+
+  // 「保存视频」：把已合成的最终成品 MP4 复制到用户自选目录。
+  //   - 只接受 caption-burn 自己产出的目录（与 read-final 同一白名单），
+  //     渲染层无法借此复制任意本地文件。
+  //   - 只做文件复制，不重新执行视频合成。
+  //   - 用户取消对话框 → { ok:false, canceled:true }，渲染层安静返回不报错。
+  ipcMain.handle('caption:save-final', async function (_e, payload) {
+    try {
+      const p = payload || {};
+      if (!p.filePath || typeof p.filePath !== 'string') {
+        return { ok: false, error: 'no-source-path:尚未生成成品视频' };
+      }
+      const resolved = path.resolve(p.filePath);
+      let allowedRoot = '';
+      try { allowedRoot = path.resolve(path.join(app.getPath('userData'), 'video', 'final')); } catch (_e) {}
+      if (!allowedRoot) return { ok: false, error: 'no-allowed-root' };
+      const rel = path.relative(allowedRoot, resolved);
+      if (!rel || rel.indexOf('..') === 0 || path.isAbsolute(rel)) {
+        return { ok: false, error: 'path-not-allowed' };
+      }
+      // 成品必须真实存在且非空，否则明确报错，绝不生成空文件
+      if (!fs.existsSync(resolved)) {
+        return { ok: false, error: '成品文件不存在，可能已被删除，请重新生成成品视频' };
+      }
+      const srcStat = fs.statSync(resolved);
+      if (!srcStat.isFile() || srcStat.size <= 0) {
+        return { ok: false, error: '成品文件为空，无法保存' };
+      }
+
+      const win = _e && _e.sender && _e.sender.getOwnerBrowserWindow && _e.sender.getOwnerBrowserWindow();
+      const opts = {
+        title: '保存成品视频',
+        defaultPath: p.defaultPath || undefined,
+        filters: [{ name: 'MP4 视频', extensions: ['mp4'] }]
+      };
+      const r = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts);
+      if (!r || r.canceled || !r.filePath) {
+        return { ok: false, canceled: true };
+      }
+
+      const dest = r.filePath;
+      ensureDirForFile(dest);
+      // 覆盖已有文件：先尝试删除（Windows 下 fs.copyFile 不会自动覆盖）
+      try { if (fs.existsSync(dest)) fs.unlinkSync(dest); } catch (_e) {}
+      fs.copyFileSync(resolved, dest);
+
+      // 保存后校验：目标必须存在且与源同尺寸
+      if (!fs.existsSync(dest)) return { ok: false, error: '保存失败：目标文件未生成' };
+      const destStat = fs.statSync(dest);
+      if (destStat.size !== srcStat.size) {
+        return { ok: false, error: '保存校验失败：文件大小不一致（源 ' + srcStat.size + ' / 目标 ' + destStat.size + '）' };
+      }
+      logger.info('[caption-burn] final video saved', { dest: dest, bytes: destStat.size });
+      return { ok: true, path: dest, bytes: destStat.size };
+    } catch (e) {
+      logger.warn('[caption-burn] save failed', { error: String((e && e.message) || e) });
+      return { ok: false, error: String((e && e.message) || e) };
+    }
+  });
+}
+
+// 确保目标文件的父目录存在
+function ensureDirForFile(filePath) {
+  try { fs.mkdirSync(path.dirname(filePath), { recursive: true }); } catch (_e) {}
 }
 
 // 给 handlePickLocal 增加 stash 副作用
