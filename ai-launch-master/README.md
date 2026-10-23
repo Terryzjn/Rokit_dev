@@ -15,25 +15,22 @@ npm start       # 启动桌面应用
 
 ### 首次使用
 
-1. 启动后，点右上角 **⚙** 打开「模型设置（BYOK）」
+1. 启动后，点右上角 **⚙** 打开「用户设置」
 2. 填写 Base URL / API Key / 模型名（如 DeepSeek：`https://api.deepseek.com/v1` + `deepseek-chat`；本地 Ollama：`http://127.0.0.1:11434/v1` + `llama3`）
-3. 点「测试连接」验证，保存
-4. （可选）填入 GitHub PAT（需 `repo` scope），启用 L1 直发能力
-5. 走一遍首秀向导：作品登记 → 诊断 → 录屏 → 拆条 → 计划 → 选平台 → 生成文案（此时会真实调用你的模型）→ 发布队列 → 发射
+3. 点「测试模型连接」验证，保存
+4. （可选）在「GitHub 发布」区填入 GitHub Token（需 `repo` scope）并指定发布仓库，启用 L1 直发能力；（可选）在「YouTube 发布」区完成 Google 官方授权
+5. 点「测试发布通道」可一次性验证 GitHub / YouTube 两个通道的连通性
+6. 走一遍首秀向导：作品登记 → 诊断 → 录屏 → 拆条 → 计划 → 选平台 → 生成文案（此时会真实调用你的模型）→ 发布队列 → 发射
 
 未配置 Key 时，文案生成会被主进程拦截并抛中文提示错，需先填好 Key。
 
-## v1.5 新能力（已上线）
+## v1.21 新变化
 
-- **OS 凭据管理器**接入敏感凭据：API Key / GitHub PAT 从 SQLite 明文迁出，写入 Windows DPAPI（macOS Keychain / Linux libsecret）。keytar 加载失败时降级为内存单例 + 警告日志
-- **主推队列状态机**：launching → pending → operating → stable → archived 五状态 + queue_state (main/parked/queued)，按 priority DESC + launched_at ASC 自动选主推
-- **反馈采集 + AI 分析**：GitHub Issues / V2EX RSS 双源采集，词典情感 + Jaccard 聚类 + P0/P1/P2 优先级（可选 LLM 摘要）
-- **屏幕录制 + 视频后处理**：WebM session 管理 → ffmpeg-static 转码 MP4（libx264 + aac + faststart） + 抽封面 + 掐头去尾
-- **GitHub L1 直发**：在设置中填入 GitHub PAT 后，推广页可一键调用 `POST /repos/{owner}/{repo}/releases` 创建 Release
-- **24 个新 IPC 通道**：secrets:5 + queue:1 + feedback:5 + recorder:6 + video:4 + github:3 + channels:health
-- **数据看板 BYOK 强引导**：顶部 chip 按 OS 凭据真实状态变色（未配置时明确提示「点此填 Key」）
-
-> 完整迁移说明：[docs/MIGRATION.md](docs/MIGRATION.md)
+- **凭据入口统一到设置页**：GitHub Token 与 YouTube 账号授权原本分散在「推广渠道」编辑器里，现已全部收敛到「设置」页对应分区，避免两处 Token 不一致
+- **YouTube 改用 Google 官方 OAuth**：设置页不再有「Data API Key」输入框，改为点击按钮跳转 Google 官方授权页完成登录。播放量统计的 Data API Key 改为**仅**支持环境变量 `ROKIT_YOUTUBE_API_KEY` 提供
+- **凭据槽位自动迁移**：旧版本存放在 `github-pat` / `youtube-api-key` 槽位的凭据，在首次启动时自动迁移到新的 `oauth-github` / `oauth-youtube` 记录并删除旧槽位
+- **发布通道连通性测试**：设置页底部新增「测试发布通道」，一次点击同时验证 GitHub（真实请求 `api.github.com/user`）与 YouTube（校验本地授权状态）
+- **WebM 时长检测修复**：浏览器 MediaRecorder 产出的 WebM 是流式容器（无时长元数据），现改为在容器报不出时长时自动扫一遍取真实时长
 
 ## 技术栈
 
@@ -44,7 +41,7 @@ npm start       # 启动桌面应用
 | 本地存储 | SQLite（`node:sqlite`），WAL 模式；作品 / 发布记录 / 反馈 / 设置全部本地 |
 | AI 接入 | BYOK：OpenAI 兼容 Chat Completions（Base URL / Key / 模型名可配）。Key 仅存本机 OS 凭据管理器 |
 | 凭据存储 | keytar（Windows DPAPI / macOS Keychain / Linux libsecret）；keytar 不可用时降级为进程内存单例 |
-| 平台发布 | L1 GitHub Release API（需 PAT）/ L2 深链 + 剪贴板跳转（13 平台） |
+| 平台发布 | L1 GitHub Release API（需 Token）/ L2 深链 + 剪贴板跳转（13 平台） |
 | 录屏 / 成片 | renderer MediaRecorder WebM → main ffmpeg-static 转码 MP4 + 抽封面 + 掐头去尾 |
 
 ## 目录结构
@@ -149,8 +146,8 @@ npm run dist:win      # 不自增板号，仅打 Windows 安装包
 
 | 平台 | 模式 | 凭证 | 实际行为 |
 |------|------|------|---------|
-| **GitHub** | 全自动 | GitHub PAT（OS 凭据管理器） | 打开发布页 → 填 tag / title / body → 自动点 Publish Release |
-| **YouTube** | 半自动（OAuth 自动 + 文件手动） | Google OAuth（OS 凭据管理器） | 跳到 YouTube Studio，OAuth 自动登入；**视频文件需手动上传**（YouTube 平台限制，不可自动化） |
+| **GitHub** | 全自动 | GitHub Token（OS 凭据管理器 `oauth-github`） | 打开发布页 → 填 tag / title / body → 自动点 Publish Release |
+| **YouTube** | 半自动（OAuth 自动 + 文件手动） | Google OAuth（OS 凭据管理器 `oauth-youtube`） | 跳到 YouTube Studio，OAuth 自动登入；**视频文件需手动上传**（YouTube 平台限制，不可自动化） |
 | **知乎** | 网页手动确认 | — | 打开发布页 → 自动填标题/正文 → 等用户选话题后手动点发布 |
 | **V2EX** | 网页手动确认 | — | 打开 `/new` → 自动填标题/正文 → 自动选节点（选不到则停在手动确认） |
 | **掘金** | 网页手动确认 | — | 打开编辑器 → 自动填标题/正文 → 等用户选分类/标签/封面后手动点发布 |
@@ -162,10 +159,11 @@ npm run dist:win      # 不自增板号，仅打 Windows 安装包
 ## 安全 / 隐私
 
 详见 [PRIVACY.md](PRIVACY.md)。要点：
-- **v1.5 起**：API Key / GitHub PAT 仅存本机 **OS 凭据管理器**（Windows DPAPI / macOS Keychain / Linux libsecret）；keytar 不可用时降级为进程内存单例。SQLite 不再保存明文
+- **v1.5 起**：API Key / GitHub Token / YouTube OAuth 凭据仅存本机 **OS 凭据管理器**（Windows DPAPI / macOS Keychain / Linux libsecret）；keytar 不可用时降级为进程内存单例。SQLite 不再保存明文
+- **v1.21 起**：GitHub Token 与 YouTube 账号授权的入口统一在「设置」页；旧的 `github-pat` / `youtube-api-key` 凭据槽位在首次启动时自动迁移并删除
 - 不收集遥测、不上报崩溃
 - 录屏 / 麦克风权限每次用户主动触发，未授权不录制
-- 第三方资源仅飞书字体（CDN）与 BYOK 模型端点 + GitHub Releases API
+- 第三方资源仅飞书字体（CDN）与 BYOK 模型端点 + GitHub API + YouTube API（仅在你主动使用对应功能时）
 - 完整迁移说明：[docs/MIGRATION.md](docs/MIGRATION.md)
 
 ## 协议

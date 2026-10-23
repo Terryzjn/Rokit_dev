@@ -19,11 +19,19 @@ contextBridge.exposeInMainWorld('api', {
   secretsSetApiKey: (v) => ipcRenderer.invoke('secrets:set-api-key', v),
   secretsClearApiKey: () => ipcRenderer.invoke('secrets:clear-api-key'),
   secretsStatus: () => ipcRenderer.invoke('secrets:status'),
-  secretsSetGithubPat: (v) => ipcRenderer.invoke('secrets:set-github-pat', v),
-  secretsClearGithubPat: () => ipcRenderer.invoke('secrets:clear-github-pat'),
-  secretsSetYoutubeApiKey: (v) => ipcRenderer.invoke('secrets:set-youtube-api-key', v),
-  secretsClearYoutubeApiKey: () => ipcRenderer.invoke('secrets:clear-youtube-api-key'),
-  secretsMigratePlaintext: () => ipcRenderer.invoke('secrets:migrate-plaintext'),
+  // v1.21：GitHub Token / YouTube Data API Key 的写入 IPC 已移除 ——
+  //   GitHub Token 改由 oauth:save-credential 写入（设置 → GitHub 发布）；
+  //   YouTube 改用 Google 官方 OAuth 授权（设置 → YouTube 发布）。
+  //   secretsMigratePlaintext 同步移除：renderer 从未调用，启动迁移由 main 直调。
+  // v1.21：线上语音引擎（OpenAI TTS / ElevenLabs TTS）凭据。
+  //   渲染层只能写入 / 清除 / 查状态，**读不到**明文密钥。
+  secretsOnlineTtsKey: (provider) => ipcRenderer.invoke('secrets:online-tts-key', { provider }),
+  secretsSetOnlineTtsKey: (provider, value) => ipcRenderer.invoke('secrets:set-online-tts-key', { provider, value }),
+  secretsClearOnlineTtsKey: (provider) => ipcRenderer.invoke('secrets:clear-online-tts-key', { provider }),
+  // 非敏感参数（Base URL / 模型 / 音色），与密钥走两条独立通道
+  onlineTtsConfig: (provider) => ipcRenderer.invoke('online-tts:config', { provider }),
+  onlineTtsSaveConfig: (provider, config) => ipcRenderer.invoke('online-tts:save-config', { provider, config: config || {} }),
+  onlineTtsClearConfig: (provider) => ipcRenderer.invoke('online-tts:clear-config', { provider }),
   // 主推队列
   queueSchedule: () => ipcRenderer.invoke('queue:schedule'),
   // 反馈（采集 / 分析 / 列表）
@@ -71,6 +79,9 @@ contextBridge.exposeInMainWorld('api', {
   captionSaveFinal: (payload) => ipcRenderer.invoke('caption:save-final', payload || {}),
   // GitHub L1 直发
   githubPutFile: (opts) => ipcRenderer.invoke('github:put-file', opts),
+  githubPutVideo: (payload) => ipcRenderer.invoke('github:put-video', payload || {}),
+  githubPagesStatus: () => ipcRenderer.invoke('github:pages-status'),
+  githubPublishPages: (payload) => ipcRenderer.invoke('github:publish-pages', payload || {}),
   githubProbe: () => ipcRenderer.invoke('github:probe'),
   githubPickRepo: () => ipcRenderer.invoke('github:pick-repo'),
   // 渠道健康度批量探测

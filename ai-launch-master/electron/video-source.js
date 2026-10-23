@@ -196,16 +196,12 @@ async function probeMetadata(filePath) {
     const videoModule = require('./video');
     if (typeof videoModule.getMetadata === 'function') {
       const m = await videoModule.getMetadata(filePath);
-      // m 形如 { duration: '00:01:23.45', width: 1920, height: 1080, ... }
+      if (!m) return null;
+      // getMetadata 实际返回 { durationMs, resolution:{width,height}, videoCodec, audioCodec, fps }
       const meta = {};
-      if (m.duration && typeof m.duration === 'string') {
-        const parts = m.duration.split(':').map(Number);
-        if (parts.length === 3 && parts.every(function (n) { return isFinite(n); })) {
-          meta.duration = parts[0] * 3600 + parts[1] * 60 + parts[2];
-        }
-      }
-      if (typeof m.width === 'number') meta.width = m.width;
-      if (typeof m.height === 'number') meta.height = m.height;
+      if (typeof m.durationMs === 'number' && m.durationMs > 0) meta.duration = m.durationMs / 1000;
+      if (m.resolution && typeof m.resolution.width === 'number') meta.width = m.resolution.width;
+      if (m.resolution && typeof m.resolution.height === 'number') meta.height = m.resolution.height;
       return meta;
     }
   } catch (_e) { /* 失败兜底 */ }

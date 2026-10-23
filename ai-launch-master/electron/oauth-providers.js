@@ -94,7 +94,10 @@ const youtube = {
   accountAvatarField: 'snippet.thumbnails.default.url',
   defaultScopes: [
     'https://www.googleapis.com/auth/youtube.upload',
-    'https://www.googleapis.com/auth/youtube.readonly'
+    'https://www.googleapis.com/auth/youtube.readonly',
+    // 只读授权 YouTube Analytics：用于 reports.query 读取 views 等频道级指标。
+    // 仅申请 readonly，不涉及 monetary / manage 权限。
+    'https://www.googleapis.com/auth/yt-analytics.readonly'
   ],
   // 关键参数：access_type=offline 让 Google 返回 refresh_token；
   //           prompt=consent 强制每次都显示同意页（确保 refresh_token 一定被颁发）

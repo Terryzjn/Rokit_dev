@@ -168,17 +168,39 @@ const ENGINES = [
     }
   }),
 
-  // ===== 在线服务（占位，无凭据不发起任何请求） =====
+  // ===== 在线服务（v1.21：OpenAI TTS / ElevenLabs TTS 已实现真实调用） =====
+  //   凭据来源：secrets.js 的 keytar 槽位（openai-tts-api-key / elevenlabs-tts-api-key）。
+  //   渲染层永远拿不到明文密钥，只传 providerId；密钥由本模块在主进程内读取。
   Object.assign(_onlineEngine(
     'openai-tts',
     'OpenAI TTS',
-    '通过 OpenAI 的 /v1/audio/speech 端点合成语音。需要在 Rokit 设置里配置 OPENAI_API_KEY。本次未实现实际调用——尚未在你环境中完成联调。'
-  )),
+    '调用 OpenAI 官方 /v1/audio/speech 端点合成语音（默认模型 gpt-4o-mini-tts，支持 13 个内置音色）。需在 Rokit 设置里配置 OpenAI TTS API Key。'
+  ), {
+    implemented: true,
+    framework: 'openai-audio-api',
+    defaults: { baseUrl: 'https://api.openai.com' },
+    healthPaths: ['/v1/models'],
+    capabilities: {
+      referenceAudio: 'no',
+      languages: 'multi',
+      outputFormat: 'wav'
+    }
+  }),
   Object.assign(_onlineEngine(
     'elevenlabs-tts',
     'ElevenLabs TTS',
-    '通过 ElevenLabs API 合成语音，声音克隆能力强，需要 ELEVENLABS_API_KEY。本次未实现。'
-  ))
+    '调用 ElevenLabs 官方 /v1/text-to-speech/{voice_id} 端点合成语音。需在 Rokit 设置里配置 ElevenLabs API Key 与 Voice ID（可在 elevenlabs.io/app/voice-library 浏览）。'
+  ), {
+    implemented: true,
+    framework: 'elevenlabs-api',
+    defaults: { baseUrl: 'https://api.elevenlabs.io' },
+    healthPaths: ['/v1/voices'],
+    capabilities: {
+      referenceAudio: 'no',
+      languages: 'multi',
+      outputFormat: 'mp3'
+    }
+  })
 ];
 
 // ===== HTTP 工具 =============================================================
@@ -909,6 +931,59 @@ function wavDurationSec(buf) {
   return 0;
 }
 
+// MP3 帧时长探测（纯解析，不落盘、不调 ffmpeg）。
+//   必要性：ElevenLabs 默认返回 MP3，而 MP3 无文件头时长的容器，
+//   wavDurationSec 拿不到值。若返回 0，字幕编辑器会把该段判为「未生成配音」。
+//   做法：跳过 ID3v2 标签 → 逐帧累加 (samplesPerFrame / sampleRate)。
+//   只在能解析出可信结果时返回 > 0，否则返回 0（绝不伪造时长）。
+const _MP3_BITRATES_V1_L3 = [0,32,40,48,56,64,80,96,112,128,160,192,224,256,320,0];
+const _MP3_BITRATES_V2_L3 = [0,8,16,24,32,40,48,56,64,80,96,112,128,144,160,0];
+const _MP3_RATES = {
+  3: [44100, 48000, 32000],  // MPEG1
+  2: [22050, 24000, 16000],  // MPEG2
+  0: [11025, 12000, 8000]    // MPEG2.5
+};
+function mp3DurationSec(buf) {
+  if (!buf || buf.length < 128) return 0;
+  let off = 0;
+  // 跳过 ID3v2（大小是 4 个 syncsafe 字节）
+  if (buf.toString('latin1', 0, 3) === 'ID3') {
+    if (buf.length < 10) return 0;
+    const sz = ((buf[6] & 0x7f) << 21) | ((buf[7] & 0x7f) << 14) | ((buf[8] & 0x7f) << 7) | (buf[9] & 0x7f);
+    off = 10 + sz;
+    if (off >= buf.length) return 0;
+  }
+  let frames = 0;
+  let totalSec = 0;
+  let guard = 0;
+  while (off + 4 <= buf.length && guard++ < 200000) {
+    if (buf[off] !== 0xff || (buf[off + 1] & 0xe0) !== 0xe0) {
+      off++; // 丢一个字节重扫，容忍帧间垃圾 / 填充
+      continue;
+    }
+    const verBits = (buf[off + 1] >> 3) & 0x03;  // 3=MPEG1, 2=MPEG2, 0=MPEG2.5
+    const layerBits = (buf[off + 1] >> 1) & 0x03; // 1 = Layer III
+    const rates = _MP3_RATES[verBits];
+    if (!rates || layerBits !== 1) { off++; continue; }
+    const rateIdx = (buf[off + 2] >> 2) & 0x03;
+    if (rateIdx === 3) { off++; continue; }
+    const bitrateIdx = (buf[off + 2] >> 4) & 0x0f;
+    if (bitrateIdx === 0 || bitrateIdx === 15) { off++; continue; }
+    const padBit = (buf[off + 2] >> 1) & 0x01;
+    const sr = rates[rateIdx];
+    const br = (verBits === 3 ? _MP3_BITRATES_V1_L3 : _MP3_BITRATES_V2_L3)[bitrateIdx] * 1000;
+    if (!sr || !br) { off++; continue; }
+    const spf = verBits === 3 ? 1152 : 576; // MPEG1 每帧 1152 采样，MPEG2/2.5 为 576
+    const frameLen = Math.floor((spf / 8) * br / sr) + padBit;
+    if (frameLen < 4) { off++; continue; }
+    totalSec += spf / sr;
+    frames++;
+    off += frameLen;
+  }
+  // 至少解出 2 帧才认为结果可信（1 帧可能是误命中）
+  return frames >= 2 ? totalSec : 0;
+}
+
 // ===== IPC ===================================================================
 
 function listEngines() {
@@ -1061,9 +1136,286 @@ async function genericLocalProbe(engineId, config) {
   };
 }
 
+// ===== v1.21：线上语音引擎适配器（OpenAI TTS / ElevenLabs TTS） =====
+//
+// 设计约束：
+//   - 密钥**只**在主进程内从 secrets.js（keytar）读取；本模块任何日志 / 返回值都不含密钥。
+//   - 网络层复用本文件既有的 _buildRequest（零新增依赖，不引入 openai / @elevenlabs/sdk）。
+//   - 「测试连接」只做**轻量认证请求**（列模型 / 列音色，不产生音频、不计费）；
+//     「测试语音生成」才真正 POST 合成。两者在 UI 上分开显示，不混为一谈。
+
+// 读取线上引擎密钥；返回 '' 表示未配置（**不**把 key 写进任何日志字段）
+async function _readOnlineKey(engineId) {
+  let secrets = null;
+  try { secrets = require('./secrets'); } catch (_e) { return ''; }
+  try {
+    if (engineId === 'openai-tts') return (await secrets.getOpenaiTtsKey()) || '';
+    if (engineId === 'elevenlabs-tts') return (await secrets.getElevenlabsTtsKey()) || '';
+  } catch (_e) {}
+  return '';
+}
+
+// 把上游 HTTP 错误翻译成可操作的中文提示。
+//   注意：网络不可达（ENOTFOUND/ECONNREFUSED）与「密钥无效」是**不同**故障，
+//   必须分开表述，否则用户会误以为密钥有问题而去反复重填。
+function _onlineErrorHint(engineId, status, errText, bodyText) {
+  const et = String(errText || '');
+  const bt = String(bodyText || '');
+  if (/ENOTFOUND|EAI_AGAIN|getaddrinfo/i.test(et)) {
+    return '无法解析服务域名（DNS 失败）。请检查网络连接 / 代理设置，或在配置里改用可访问的 Base URL。';
+  }
+  if (/ECONNREFUSED|ECONNRESET|socket hang up/i.test(et)) {
+    return '无法连接到服务器（连接被拒绝或中断）。请检查网络 / 代理 / Base URL 是否正确。';
+  }
+  if (/ETIMEDOUT|timeout|aborted/i.test(et)) {
+    return '请求超时。请检查网络状况后重试。';
+  }
+  if (status === 401) return 'API Key 无效或已撤销。请到服务端确认 Key 状态后重新配置。';
+  if (status === 403) return 'API Key 权限不足，或当前订阅不包含语音合成能力。请检查服务端权限与套餐。';
+  if (status === 429) return '请求被限流或额度不足（HTTP 429）。请降低频率或检查账户额度 / 账单。';
+  if (status === 422) {
+    if (/voice_id|voice/i.test(bt)) return 'Voice ID 无效或不属于当前账户。请到 Voice Library 复制正确的 Voice ID。';
+    if (/model/i.test(bt)) return '模型 ID 不受支持或无权限。请改用账户可用的模型 ID。';
+    return '请求参数不被服务端接受（HTTP 422）：' + bt.substring(0, 200);
+  }
+  if (status === 404) return '接口路径不存在（HTTP 404）。请确认 Base URL 是否指向官方地址且未多余拼接路径。';
+  if (status >= 500) return '服务端错误（HTTP ' + status + '）。这是服务商侧的问题，请稍后重试。';
+  if (status > 0) return '接口返回 HTTP ' + status + (bt ? '：' + bt.substring(0, 200) : '');
+  return '网络请求失败：' + (et || bt || '未知错误');
+}
+
+// 统一的音频合法性校验：过短 / 非音频 → 明确失败（不伪装成成功）
+function _validateAudioBuffer(buf, engineLabel) {
+  if (!buf || !buf.length) {
+    return { ok: false, error: 'empty-audio', actionableHint: engineLabel + ' 返回了空音频数据，请稍后重试。' };
+  }
+  if (buf.length < 128) {
+    return {
+      ok: false,
+      error: 'audio-too-small:' + buf.length,
+      actionableHint: engineLabel + ' 返回的音频过小（' + buf.length + ' 字节），不是有效音频。请重试或缩短测试文本。'
+    };
+  }
+  return { ok: true };
+}
+
+// OpenAI TTS：POST {baseUrl}/v1/audio/speech
+//   官方契约（https://developers.openai.com/api/docs/guides/text-to-speech）：
+//     header Authorization: Bearer <key>、Content-Type: application/json
+//     body  { model, input, voice, instructions?, response_format? }
+//   默认模型 gpt-4o-mini-tts（官方当前推荐的最新模型）；默认音色 alloy（13 个内置音色之一）。
+async function openaiTtsGenerate(config, text, payload) {
+  const cfg = config || {};
+  const baseUrl = String(cfg.baseUrl || 'https://api.openai.com').replace(/\/+$/, '');
+  const key = await _readOnlineKey('openai-tts');
+  if (!key) {
+    return {
+      ok: false,
+      error: 'missing-api-key',
+      actionableHint: '请先在 Rokit 设置的「YouTube / 线上语音」区配置 OpenAI TTS API Key。'
+    };
+  }
+  const input = String(text || '').trim();
+  if (!input) {
+    return { ok: false, error: 'empty-text', actionableHint: '请输入要合成的文本内容。' };
+  }
+  // 官方文档：voice 由模型支持集决定；gpt-4o-mini-tts 支持 alloy/ash/ballad/coral/echo/
+  // fable/marin/cedar/nova/onyx/sage/shimmer/verse。这里不硬校验，交给服务端判定。
+  const model = String(cfg.model || 'gpt-4o-mini-tts').trim();
+  const voice = String(cfg.voice || 'alloy').trim();
+  const instructions = String(cfg.instructions || '').trim();
+  // 强制 wav：与 XTTS-v2 的输出约定一致，且 wavDurationSec 可直接解析真实时长
+  const responseFormat = 'wav';
+  const bodyObj = { model: model, input: input, voice: voice, response_format: responseFormat };
+  if (instructions) bodyObj.instructions = instructions;
+
+  const r = await _buildRequest(baseUrl + '/v1/audio/speech', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + key,
+      'Content-Type': 'application/json',
+      'Accept': 'audio/wav,audio/*'
+    },
+    body: JSON.stringify(bodyObj),
+    timeoutMs: 60000
+  });
+  if (!r.ok) {
+    return { ok: false, error: 'network-error', errorDetail: String(r.error || ''), actionableHint: _onlineErrorHint('openai-tts', 0, r.error, '') };
+  }
+  if (r.status !== 200) {
+    return {
+      ok: false,
+      error: 'openai-tts-http-' + r.status,
+      errorDetail: String(r.text || '').substring(0, 300),
+      actionableHint: _onlineErrorHint('openai-tts', r.status, '', r.text)
+    };
+  }
+  const v = _validateAudioBuffer(r.body, 'OpenAI TTS');
+  if (!v.ok) return v;
+  // 必须是真 WAV（RIFF/WAVE 头），否则 wavDurationSec 拿不到时长
+  const wv = _validateWavBuffer(r.body);
+  if (!wv.ok) {
+    return {
+      ok: false,
+      error: 'unexpected-audio-format',
+      actionableHint: 'OpenAI TTS 未返回预期的 WAV 音频（content-type 与实际数据不符），无法解析时长。请重试。'
+    };
+  }
+  return {
+    ok: true,
+    mime: 'audio/wav',
+    audio: r.body,
+    status: r.status,
+    model: model,
+    voice: voice,
+    languageId: ''
+  };
+}
+
+// ElevenLabs TTS：POST {baseUrl}/v1/text-to-speech/{voice_id}?output_format=...
+//   官方契约（https://elevenlabs.io/docs/api-reference/text-to-speech/convert）：
+//     header xi-api-key: <key>、Content-Type: application/json
+//     query  output_format（默认 mp3_44100_128）
+//     body   { text, model_id? }
+//   默认模型 eleven_multilingual_v2（官方端点默认值，兼容性最广）。
+async function elevenlabsTtsGenerate(config, text, payload) {
+  const cfg = config || {};
+  const baseUrl = String(cfg.baseUrl || 'https://api.elevenlabs.io').replace(/\/+$/, '');
+  const key = await _readOnlineKey('elevenlabs-tts');
+  if (!key) {
+    return {
+      ok: false,
+      error: 'missing-api-key',
+      actionableHint: '请先在 Rokit 设置的「线上语音」区配置 ElevenLabs API Key。'
+    };
+  }
+  const input = String(text || '').trim();
+  if (!input) {
+    return { ok: false, error: 'empty-text', actionableHint: '请输入要合成的文本内容。' };
+  }
+  // Voice ID 必填（用户自己的音色，不能用示例值当默认）
+  const voiceId = String(cfg.voiceId || '').trim();
+  if (!voiceId) {
+    return {
+      ok: false,
+      error: 'missing-voice-id',
+      actionableHint: '请填写 Voice ID。可到 elevenlabs.io/app/voice-library 复制任一音色的 ID。'
+    };
+  }
+  const modelId = String(cfg.modelId || 'eleven_multilingual_v2').trim();
+  // mp3_44100_128 是官方默认；FFmpeg 合成链路可直接识别 mp3
+  const outputFormat = String(cfg.outputFormat || 'mp3_44100_128').trim();
+  const bodyObj = { text: input, model_id: modelId };
+
+  const url = baseUrl + '/v1/text-to-speech/' + encodeURIComponent(voiceId)
+    + '?output_format=' + encodeURIComponent(outputFormat);
+  const r = await _buildRequest(url, {
+    method: 'POST',
+    headers: {
+      'xi-api-key': key,
+      'Content-Type': 'application/json',
+      'Accept': 'audio/mpeg,audio/*'
+    },
+    body: JSON.stringify(bodyObj),
+    timeoutMs: 60000
+  });
+  if (!r.ok) {
+    return { ok: false, error: 'network-error', errorDetail: String(r.error || ''), actionableHint: _onlineErrorHint('elevenlabs-tts', 0, r.error, '') };
+  }
+  if (r.status !== 200) {
+    return {
+      ok: false,
+      error: 'elevenlabs-http-' + r.status,
+      errorDetail: String(r.text || '').substring(0, 300),
+      actionableHint: _onlineErrorHint('elevenlabs-tts', r.status, '', r.text)
+    };
+  }
+  const v = _validateAudioBuffer(r.body, 'ElevenLabs TTS');
+  if (!v.ok) return v;
+  // mp3 无文件头，靠 ID3 / MPEG sync 字节判断；两者都没有则视为无效音频
+  const isMp3 = _looksLikeMp3(r.body);
+  if (!isMp3) {
+    return {
+      ok: false,
+      error: 'unexpected-audio-format',
+      actionableHint: 'ElevenLabs TTS 返回的数据不像 MP3 音频，无法确认格式。请检查 output_format 配置，或重试。'
+    };
+  }
+  return {
+    ok: true,
+    mime: 'audio/mpeg',
+    audio: r.body,
+    status: r.status,
+    model: modelId,
+    voice: voiceId,
+    languageId: ''
+  };
+}
+
+// MP3 粗判：ID3 标签 或 MPEG 帧同步字（0xFF Ex/Fx）
+function _looksLikeMp3(buf) {
+  if (!buf || buf.length < 4) return false;
+  if (buf.slice(0, 3).toString('latin1') === 'ID3') return true;
+  if (buf[0] === 0xff && (buf[1] & 0xe0) === 0xe0) return true;
+  return false;
+}
+
+// 线上引擎「测试连接」：只做轻量认证请求（**不**生成音频、不计费）。
+//   OpenAI   → GET /v1/models
+//   ElevenLabs → GET /v1/voices
+//   两者都用最轻的 GET，验证「Key 有效 + 账户可达」，不等价于合成一定成功。
+async function onlineProbe(engineId, config) {
+  const cfg = config || {};
+  const eng = ENGINES.filter(function (x) { return x.id === engineId; })[0];
+  const label = (eng && eng.label) || engineId;
+  const key = await _readOnlineKey(engineId);
+  if (!key) {
+    return {
+      ok: false,
+      error: 'missing-api-key',
+      actionableHint: '请先在 Rokit 设置中配置 ' + label + ' 的 API Key。',
+      capabilities: eng && eng.capabilities ? Object.assign({}, eng.capabilities) : {}
+    };
+  }
+  const baseUrl = String(cfg.baseUrl || (eng && eng.defaults && eng.defaults.baseUrl) || '').replace(/\/+$/, '');
+  if (!baseUrl) {
+    return { ok: false, error: 'no-baseUrl', actionableHint: '请填写服务地址（Base URL）。', capabilities: {} };
+  }
+  const path = engineId === 'openai-tts' ? '/v1/models' : '/v1/voices';
+  const headers = engineId === 'openai-tts'
+    ? { 'Authorization': 'Bearer ' + key }
+    : { 'xi-api-key': key };
+  const r = await _buildRequest(baseUrl + path, { method: 'GET', headers: headers, timeoutMs: 15000 });
+  if (!r.ok) {
+    return {
+      ok: false,
+      error: 'network-error',
+      errorDetail: String(r.error || ''),
+      actionableHint: _onlineErrorHint(engineId, 0, r.error, ''),
+      capabilities: eng && eng.capabilities ? Object.assign({}, eng.capabilities) : {}
+    };
+  }
+  if (r.status === 200) {
+    return {
+      ok: true,
+      // 明确区分：只验证了认证可达，没验证合成
+      authOnly: true,
+      probeNote: '认证通过（' + path + ' 返回 200）。这**不代表**语音合成一定可用，请再点「生成测试语音」实际合成一次。',
+      capabilities: eng && eng.capabilities ? Object.assign({}, eng.capabilities) : {}
+    };
+  }
+  return {
+    ok: false,
+    error: 'online-http-' + r.status,
+    errorDetail: String(r.text || '').substring(0, 300),
+    actionableHint: _onlineErrorHint(engineId, r.status, '', r.text),
+    capabilities: eng && eng.capabilities ? Object.assign({}, eng.capabilities) : {}
+  };
+}
+
 async function probe(engineId, config) {
   // v1.20.10：通用本地引擎探测（每款引擎用自己配置的 healthPaths）
-  // 在线引擎走 onlineProbe（仍占位）
+  // v1.21：线上引擎走 onlineProbe（真实认证请求，不再是占位）
   const eng = ENGINES.filter(function (x) { return x.id === engineId; })[0];
   if (!eng) {
     return { ok: false, error: 'unknown-engine:' + engineId };
@@ -1074,7 +1426,10 @@ async function probe(engineId, config) {
     return await genericLocalProbe(engineId, config || {});
   }
   if (eng.kind === KIND_ONLINE) {
-    // 在线服务：先查凭据再决定是否允许"假成功"
+    // v1.21：真实认证探测（轻量 GET，不生成音频、不产生合成费用）
+    if (engineId === 'openai-tts' || engineId === 'elevenlabs-tts') {
+      return await onlineProbe(engineId, config || {});
+    }
     return {
       ok: false,
       error: 'online-service-pending-key',
@@ -1087,13 +1442,29 @@ async function probe(engineId, config) {
 
 async function testGenerate(engineId, config, payload) {
   // payload: { text, refBase64, refMime }
-  // v1.20.10：只有 xtts-v2 是真正实现的。其余真实跑会返回 engine-not-implemented。
+  // v1.20.10：xtts-v2 是第一个真实实现。
+  // v1.21：OpenAI TTS / ElevenLabs TTS 也已实现（走 testGenerate 统一约定）。
   if (engineId === 'xtts-v2') {
     // v1.20.10 紧急回归修复：把整个 payload 传下去，让 _payload.refMime 真正生效
     const r = await xttsTestGenerate(config || {}, (payload || {}).text || '', (payload || {}).refBase64 || '', payload || {});
     if (r.ok) {
       const dur = wavDurationSec(r.audio);
       r.durationSec = dur;
+    }
+    return r;
+  }
+  // v1.21：线上引擎。真实 HTTP 调用，失败时返回可识别错误，不伪装成功。
+  if (engineId === 'openai-tts' || engineId === 'elevenlabs-tts') {
+    const text = (payload || {}).text || '';
+    const cfg = config || {};
+    const r = engineId === 'openai-tts'
+      ? await openaiTtsGenerate(cfg, text, payload || {})
+      : await elevenlabsTtsGenerate(cfg, text, payload || {});
+    if (r && r.ok) {
+      // WAV 直接解析 RIFF 头；MP3 逐帧累加。两者都取不到就留 0（不伪造时长）。
+      r.durationSec = (r.mime === 'audio/wav')
+        ? wavDurationSec(r.audio)
+        : mp3DurationSec(r.audio);
     }
     return r;
   }
@@ -1126,5 +1497,12 @@ module.exports = {
     testGenerate: xttsTestGenerate
   },
   _genericLocalProbe: genericLocalProbe,
-  wavDurationSec: wavDurationSec
+  _online: {
+    probe: onlineProbe,
+    openaiTtsGenerate: openaiTtsGenerate,
+    elevenlabsTtsGenerate: elevenlabsTtsGenerate,
+    looksLikeMp3: _looksLikeMp3
+  },
+  wavDurationSec: wavDurationSec,
+  mp3DurationSec: mp3DurationSec
 };

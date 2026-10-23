@@ -292,6 +292,9 @@
   /* v1.5: GitHub PAT 输入框下方状态提示 */
   .cfg-pat-hint{font-size:11.5px;color:var(--muted);margin-top:4px;padding-left:2px}
   .cfg-pat-hint.ok{color:var(--success);font-weight:600}
+  /* v1.21: 线上配音配置的连接 / 生成状态徽章（与公众号连通性测试共用） */
+  .cfg-pat-hint.bad{color:var(--danger);font-weight:600}
+  .cfg-pat-hint.validating{color:var(--primary-dark);font-weight:600}
 
   .rocket-bar{margin:12px 0;padding:12px 14px;border:1px solid #BFE0DC;border-radius:12px;background:#EFF9F7}
 
@@ -1657,8 +1660,9 @@
 
       <aside class="cfg-nav" id="cfgNav">
         <button class="cfg-nav-item on" data-section="cfg-sec-model" onclick="cfgNavJump('cfg-sec-model')"><span class="ni-icon">🤖</span><span class="ni-text"><div class="ni-title">AI 模型</div><div class="ni-sub">Base URL · Key · 模型名</div></span></button>
-        <button class="cfg-nav-item" data-section="cfg-sec-github" onclick="cfgNavJump('cfg-sec-github')"><span class="ni-icon">🐙</span><span class="ni-text"><div class="ni-title">GitHub 发布</div><div class="ni-sub">PAT（可选）</div></span></button>
-        <button class="cfg-nav-item" data-section="cfg-sec-youtube" onclick="cfgNavJump('cfg-sec-youtube')"><span class="ni-icon">▶️</span><span class="ni-text"><div class="ni-title">YouTube 播放量</div><div class="ni-sub">Data API Key（可选）</div></span></button>
+        <button class="cfg-nav-item" data-section="cfg-sec-voice" onclick="cfgNavJump('cfg-sec-voice')"><span class="ni-icon">AI</span><span class="ni-text"><div class="ni-title">线上配音</div><div class="ni-sub">OpenAI · ElevenLabs</div></span></button>
+        <button class="cfg-nav-item" data-section="cfg-sec-github" onclick="cfgNavJump('cfg-sec-github')"><span class="ni-icon">🐙</span><span class="ni-text"><div class="ni-title">GitHub 发布</div><div class="ni-sub">Token · 发布仓库</div></span></button>
+        <button class="cfg-nav-item" data-section="cfg-sec-youtube" onclick="cfgNavJump('cfg-sec-youtube')"><span class="ni-icon">▶️</span><span class="ni-text"><div class="ni-title">YouTube 发布</div><div class="ni-sub">Google 官方授权</div></span></button>
         <button class="cfg-nav-item" data-section="cfg-sec-wechat" onclick="cfgNavJump('cfg-sec-wechat')"><span class="ni-icon">微</span><span class="ni-text"><div class="ni-title">公众号草稿</div><div class="ni-sub">官方草稿箱 API</div></span></button>
         <button class="cfg-nav-item" data-section="cfg-sec-auto" onclick="cfgNavJump('cfg-sec-auto')"><span class="ni-icon">⚡</span><span class="ni-text"><div class="ni-title">自动发布</div><div class="ni-sub">启用与平台</div></span></button>
         <button class="cfg-nav-item" data-section="cfg-sec-theme" onclick="cfgNavJump('cfg-sec-theme')"><span class="ni-icon">🎨</span><span class="ni-text"><div class="ni-title">主题与显示</div><div class="ni-sub">明/暗主题与字号</div></span></button>
@@ -1680,23 +1684,59 @@
 
         </div>
 
+        <div class="cfg-section" id="cfg-sec-voice" data-section="cfg-sec-voice">
+
+          <div class="cfg-title" style="font-weight:700;font-size:13.5px;margin:8px 0 4px">线上 AI 配音（可选）</div>
+
+          <div class="msub">在「选择语音生成方式」里选择「在线 AI 语音服务」时，Rokit 会调用下列服务商的官方接口合成语音。<b>API Key 只写入本机 OS 凭据管理器</b>（Windows DPAPI / macOS Keychain / Linux libsecret），不写入 SQLite、配置文件或日志。留空则该引擎不可用，不影响本地 XTTS-v2。</div>
+
+          <div id="cfgVoiceEngines" style="margin-top:10px"></div>
+
+        </div>
+
         <div class="cfg-section" id="cfg-sec-github" data-section="cfg-sec-github">
 
           <div class="cfg-title" style="font-weight:700;font-size:13.5px;margin:8px 0 4px">🐙 GitHub 发布（可选）</div>
 
-          <div class="msub">填入 GitHub Personal Access Token（需 <code>repo</code> 作用域）后，推广页可一键调用 L1 直发路径创建 Release。<b>PAT 只写入本机 OS 凭据管理器，不上传任何服务器。</b></div>
+          <div class="msub">配置 GitHub Personal Access Token 后，推广页可一键调用 L1 直发路径创建 Release。<b>Token 只写入本机 OS 凭据管理器，不上传任何服务器。</b></div>
 
-          <div class="field"><label>GitHub PAT</label><input id="cfgGithubPat" type="password" placeholder="ghp_..." autocomplete="off"/><div class="cfg-pat-hint" id="cfgGithubPatHint">未配置</div></div>
+          <div class="field">
+            <label>GitHub Token</label>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <button type="button" id="cfgGhBtn" class="btn ghost sm" onclick="cfgGhToggleInput()">添加 Personal Access Token</button>
+              <span id="cfgGhStatus" style="font-size:12.5px;color:var(--muted)">未配置</span>
+            </div>
+            <div id="cfgGhInput" style="display:none;margin-top:8px">
+              <div style="display:flex;gap:6px;align-items:center">
+                <input id="cfgGhToken" type="password" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx 或 github_pat_xxx" autocomplete="off" style="flex:1;padding:9px 11px;border:1px solid var(--line);border-radius:9px;font-size:13.5px"/>
+                <button type="button" class="btn sm" id="cfgGhSave" onclick="cfgGhSaveToken()">保存</button>
+                <button type="button" class="btn ghost sm" onclick="cfgGhCancelInput()">取消</button>
+              </div>
+              <!-- 发布仓库：文章将发布到此仓库，与「我的作品」中的「作品链接」完全分离 -->
+              <div style="display:flex;gap:6px;align-items:center;margin-top:8px">
+                <input id="cfgGhPublishRepo" type="text" placeholder="https://github.com/username/repository" autocomplete="off" style="flex:1;padding:9px 11px;border:1px solid var(--line);border-radius:9px;font-size:13.5px"/>
+              </div>
+              <div class="msub" style="margin:4px 0 0;color:var(--muted)">文章将发布到此 GitHub 仓库，请填写你有写入权限的仓库。<b>与「我的作品」中的「作品链接」完全分离</b>，不会用它统计 Star / 下载 / 访客。</div>
+              <div class="msub" style="margin:4px 0 0;color:var(--muted)">Rokit 不会保存你的账号密码。请到 GitHub → Settings → Developer settings → Personal access tokens 创建一个 <b>repo</b> 权限的 Token，粘贴到这里。Rokit 会立刻用它访问 <code>/user</code> 验证有效性，Token 仅存本机 OS 凭据管理器（Windows DPAPI / macOS Keychain / Linux libsecret）。</div>
+              <div id="cfgGhInputStatus" style="margin-top:6px;font-size:12.5px;color:var(--muted)"></div>
+            </div>
+          </div>
 
         </div>
 
         <div class="cfg-section" id="cfg-sec-youtube" data-section="cfg-sec-youtube">
 
-          <div class="cfg-title" style="font-weight:700;font-size:13.5px;margin:8px 0 4px">▶️ YouTube 播放量统计（可选）</div>
+          <div class="cfg-title" style="font-weight:700;font-size:13.5px;margin:8px 0 4px">▶️ YouTube 发布（可选）</div>
 
-          <div class="msub">填入 YouTube Data API v3 的 API Key 后，「我的作品」卡片会统计所配置视频的总播放量（只读公开数据，无需 OAuth 登录）。获取方式：Google Cloud Console → 创建项目 → 启用「YouTube Data API v3」→ 凭据 → 创建 API 密钥。<b>Key 只写入本机 OS 凭据管理器，不上传任何服务器；也可通过环境变量 ROKIT_YOUTUBE_API_KEY 提供。</b></div>
+          <div class="msub">点击下方按钮，Rokit 会打开系统浏览器跳转到 <b>Google 官方授权页</b>。请用你的 Google 账号登录并同意授权（<b>不会</b>让 Rokit 接触你的密码）。授权完成后 Token 仅存本机 OS 凭据管理器。</div>
 
-          <div class="field"><label>YouTube Data API Key</label><input id="cfgYoutubeKey" type="password" placeholder="AIza..." autocomplete="off"/><div class="cfg-pat-hint" id="cfgYoutubeKeyHint">未配置</div></div>
+          <div class="field">
+            <label>YouTube 账号（Google 官方授权）</label>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <button type="button" id="cfgYtBtn" class="btn ghost sm" onclick="cfgYtStartOAuth()">添加 YouTube 账号</button>
+              <span id="cfgYtStatus" style="font-size:12.5px;color:var(--muted)">未配置</span>
+            </div>
+          </div>
 
         </div>
 
@@ -1754,7 +1794,9 @@
 
         <div class="modal-acts">
 
-          <button type="button" class="btn ghost sm" onclick="testCfg()">测试连接</button>
+          <button type="button" class="btn ghost sm" onclick="testCfg()">测试模型连接</button>
+
+          <button type="button" class="btn ghost sm" onclick="testPublishChannels()">测试发布通道</button>
 
           <button type="button" class="btn ghost sm" onclick="closeSettings()">取消</button>
 
@@ -1822,36 +1864,8 @@
 
       <div class="field"><label>渠道类型 <span style="color:var(--danger)">*</span></label><select id="chKind" class="ch-select" required onchange="updateKindHint()"></select><div class="ch-kind-hint" id="chKindHint"></div></div>
 
-      <div id="chOAuthBox" style="display:none">
-        <div class="field">
-          <label id="chOAuthLabel">账号凭据（BYOK）</label>
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <button type="button" id="chOAuthBtn" class="btn ghost sm" onclick="toggleOAuthInput()">添加 Personal Access Token</button>
-            <span id="chOAuthStatus" style="font-size:12.5px;color:var(--muted)">未配置</span>
-          </div>
-          <div id="chOAuthInput" style="display:none;margin-top:8px">
-            <div style="display:flex;gap:6px;align-items:center">
-              <input id="chOAuthToken" type="password" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx 或 github_pat_xxx" autocomplete="off" style="flex:1;padding:9px 11px;border:1px solid var(--line);border-radius:9px;font-size:13.5px"/>
-              <button type="button" class="btn sm" id="chOAuthSave" onclick="saveOAuthCredential()">保存</button>
-              <button type="button" class="btn ghost sm" onclick="cancelOAuthInput()">取消</button>
-            </div>
-            <!-- v1.10：发布仓库（仅 GitHub 显示）。文章将发布到此仓库，与「我的作品」中的「作品链接」完全分离。 -->
-            <div id="chOAuthPublishRepoRow" style="display:none;margin-top:8px">
-              <div style="display:flex;gap:6px;align-items:center">
-                <input id="chOAuthPublishRepo" type="text" placeholder="https://github.com/username/repository" autocomplete="off" style="flex:1;padding:9px 11px;border:1px solid var(--line);border-radius:9px;font-size:13.5px"/>
-              </div>
-              <div class="msub" style="margin:4px 0 0;color:var(--muted)">文章将发布到此 GitHub 仓库，请填写你有写入权限的仓库。<b>与「我的作品」中的「作品链接」完全分离</b>，不会用它统计 Star / 下载 / 访客。</div>
-            </div>
-            <div class="msub" style="margin:4px 0 0;color:var(--muted)">Rokit 不会保存你的账号密码。请到 GitHub → Settings → Developer settings → Personal access tokens 创建一个 <b>repo</b> 权限的 Token，粘贴到这里。Rokit 会立刻用它访问 <code>/user</code> 验证有效性，Token 仅存本机 OS 凭据管理器（Windows DPAPI / macOS Keychain / Linux libsecret）。</div>
-            <div id="chOAuthInputStatus" style="margin-top:6px;font-size:12.5px;color:var(--muted)"></div>
-          </div>
-
-          <!-- YouTube / Google OAuth 不再展示 Client ID / Client Secret 输入框 -->
-          <!-- 这些是应用级开发者凭据，由 electron/config/youtube-oauth.local.js 提供；Renderer 永远拿不到 -->
-          <!-- 如果配置缺失，「添加 YouTube 账号」点击后会给出明确错误提示 -->
-          <div class="msub" id="chOAuthHint" style="margin:6px 0 0;color:var(--muted)">Token 由 Rokit 直接调用 GitHub API 提交，<b>不经第三方页面</b>，<b>不记录在日志</b>。</div>
-        </div>
-      </div>
+      <!-- v1.21：GitHub / YouTube 凭据均已移出推广渠道，
+           分别改到「设置 → GitHub 发布」与「设置 → YouTube 发布」配置。 -->
 
       <!-- 抖音开放平台专属：两阶段（先配凭据 → 再授权） -->
       <div id="chDouyinBox" style="display:none">
@@ -2088,7 +2102,10 @@
       kind:'',
       engineId:'',
       local:{ baseUrl:'' },
-      online:{ providerId:'', model:'' },
+      // v1.21：online 承载线上引擎配置（providerId / cfg / apiKeyPresent / authOk / authNote）。
+      //   cfg 是**非敏感**参数（baseUrl / model / voice / voiceId / modelId / outputFormat），
+      //   来自主进程 settings_kv；密钥本体永远不到达渲染层，只有 apiKeyPresent 布尔值。
+      online:{ providerId:'', apiKeyPresent:false, cfg:null, authOk:false, authNote:'' },
       reachable:false,
       capabilities:{},
       tested:false,
@@ -2203,7 +2220,12 @@
   PLATFORMS.forEach(function(p){state.platforms[p.id]=false;state.sel[p.id]=false;});
 
   // 各内置平台定制 hint（缺省走 builtinHint 通用 BYOK 说明）
-  var PLATFORM_HINT={};
+  var PLATFORM_HINT={
+    // v1.21：GitHub Token 已移出推广渠道，统一到「设置 → GitHub 发布」配置
+    github:'<b style="color:var(--primary-dark)">GitHub Token 与发布仓库已移至「设置 → GitHub 发布」</b>，请到 ⚙ 设置里配置。配置完成后，本渠道即可一键发布文章到指定仓库。',
+    // v1.21：YouTube 账号授权已移出推广渠道，统一到「设置 → YouTube 发布」配置
+    youtube:'<b style="color:var(--primary-dark)">YouTube 账号授权已移至「设置 → YouTube 发布」</b>，请到 ⚙ 设置里完成 Google 官方授权。授权完成后，本渠道即可一键发布视频。'
+  };
   // 通用 BYOK 说明：所有内置平台的 chKindHint 默认文案
   var builtinHint='Rokit 已内置此平台的发布页与自动填表脚本；<b style="color:var(--primary-dark)">不存你的账号密码</b>——首次发射时，Rokit 内嵌的「发布浏览器」会让你登录一次，登录态仅存本机。';
 
@@ -2293,13 +2315,16 @@
   function hasApi(){return !!(state.settings&&state.settings.api_key);}
 
   // v1.5：驱动顶栏状态点 + ⚙ 按钮完整状态描述，不再使用大块 chip
+  // v1.21：GitHub 状态改读 oauth:status('github')（PAT 槽位已清理，
+  //   secrets:status 不再有 hasGithubPat 字段）。为避免多一个异步层，
+  //   先按 API Key 状态同步上色，GitHub 后缀再异步补上。
   function noteModel(){
     var dot=document.getElementById('byokDot');
     var gear=document.getElementById('gearBtn');
-    function paint(hasKey,hasPat,modelName){
+    function paint(hasKey,modelName){
       var label;
       if(hasKey){
-        label='已配置：'+(modelName||state.settings.model||'模型')+(hasPat?' + GitHub PAT':'');
+        label='已配置：'+(modelName||state.settings.model||'模型');
         if(dot){dot.classList.add('show','ok');dot.title=label;}
       }else{
         label='未配置 API（点 ⚙ 配置）';
@@ -2307,15 +2332,24 @@
       }
       if(gear){gear.title=label;gear.setAttribute('aria-label',label);}
     }
+    function withGithub(base){
+      if(!(window.api && typeof window.api.oauthStatus==='function')) return;
+      window.api.oauthStatus('github').then(function(s){
+        if(!(s&&s.connected)) return;
+        var next=base+' + GitHub Token';
+        if(dot) dot.title=next;
+        if(gear){gear.title=next;gear.setAttribute('aria-label',next);}
+      }).catch(function(){});
+    }
     if(window.api && typeof window.api.secretsStatus==='function'){
       window.api.secretsStatus().then(function(st){
         if(!dot&&!gear)return;
         var hasKey=!!(st&&st.hasApiKey)||hasApi();
-        var hasPat=!!(st&&st.hasGithubPat);
-        paint(hasKey,hasPat,state.settings&&state.settings.model);
-      }).catch(function(){paint(hasApi(),false,state.settings&&state.settings.model);});
+        paint(hasKey,state.settings&&state.settings.model);
+        if(hasKey) withGithub('已配置：'+(state.settings&&state.settings.model||'模型'));
+      }).catch(function(){paint(hasApi(),state.settings&&state.settings.model);});
     }else{
-      paint(hasApi(),false,state.settings&&state.settings.model);
+      paint(hasApi(),state.settings&&state.settings.model);
     }
   }
 
@@ -2389,31 +2423,15 @@
 
     document.getElementById('cfgModel').value=state.settings.model||'';
 
-    // v1.5：GitHub PAT 仅写 OS 凭据管理器，输入框始终留空（防泄露）；下方追加状态提示
-    var patEl=document.getElementById('cfgGithubPat');if(patEl)patEl.value='';
-    var patHint=document.getElementById('cfgGithubPatHint');
-    if(patHint){
-      patHint.textContent='未配置';patHint.className='cfg-pat-hint';
-      if(window.api && typeof window.api.secretsStatus==='function'){
-        window.api.secretsStatus().then(function(st){
-          if(!patHint)return;
-          if(st && st.hasGithubPat){patHint.textContent='● 已配置（输入新值将覆盖，留空则清除）';patHint.className='cfg-pat-hint ok';}
-        }).catch(function(){});
-      }
-    }
+    // v1.5：GitHub Token 统一由「GitHub 发布」区的凭据面板管理（原「推广渠道 → GitHub」入口已移除）
+    cfgGhRefreshStatus();
 
-    // v5：YouTube Data API Key 状态提示（与 PAT 同模式：输入框始终留空）
-    var ytKeyEl=document.getElementById('cfgYoutubeKey');if(ytKeyEl)ytKeyEl.value='';
-    var ytKeyHint=document.getElementById('cfgYoutubeKeyHint');
-    if(ytKeyHint){
-      ytKeyHint.textContent='未配置';ytKeyHint.className='cfg-pat-hint';
-      if(window.api && typeof window.api.secretsStatus==='function'){
-        window.api.secretsStatus().then(function(st){
-          if(!ytKeyHint)return;
-          if(st && st.hasYoutubeApiKey){ytKeyHint.textContent='● 已配置（输入新值将覆盖，留空则清除）';ytKeyHint.className='cfg-pat-hint ok';}
-        }).catch(function(){});
-      }
-    }
+    // v1.21：YouTube 账号授权统一由「YouTube 发布」区管理（原「推广渠道 → YouTube」入口已移除）
+    cfgYtRefreshStatus();
+
+    // v1.21：线上 AI 配音（OpenAI TTS / ElevenLabs TTS）配置面板。
+    //   只读 keytar 的「是否已配置」布尔值与非敏感参数，**不发任何线上请求**。
+    cfgVoiceRefresh();
 
     // v1.1：先用 credentials-load 拉真实值（keytar 当前内容），再调 credentials-status 算缺失列表
     //   之前仅 status 取布尔、用 placeholder「掩码」反推，造成「圆点 ≠ 已保存」的视觉错觉且无法校验
@@ -2600,34 +2618,567 @@
 
     state.settings={provider:state.settings.provider||matchProviderId(),base_url:document.getElementById('cfgBase').value.trim()||'https://api.deepseek.com/v1',api_key:document.getElementById('cfgKey').value.trim(),model:document.getElementById('cfgModel').value.trim()||'deepseek-chat',autoPub:ap};
 
-    // v1.5：GitHub PAT 单独走 OS 凭据管理器（不入 settings JSON）
-    if(window.api){
-      var patInput=document.getElementById('cfgGithubPat');
-      var pat=patInput?(patInput.value||'').trim():'';
-      if(typeof window.api.secretsSetGithubPat==='function'){
-        if(pat){window.api.secretsSetGithubPat(pat).catch(function(){});}
-        else if(typeof window.api.secretsClearGithubPat==='function'){
-          window.api.secretsClearGithubPat().catch(function(){});
-        }
-      }
-    }
-
-    // v5：YouTube Data API Key 同样走 OS 凭据管理器（留空 = 清除）
-    if(window.api){
-      var ytKeyInput=document.getElementById('cfgYoutubeKey');
-      var ytKey=ytKeyInput?(ytKeyInput.value||'').trim():'';
-      if(typeof window.api.secretsSetYoutubeApiKey==='function'){
-        if(ytKey){window.api.secretsSetYoutubeApiKey(ytKey).catch(function(){});}
-        else if(typeof window.api.secretsClearYoutubeApiKey==='function'){
-          window.api.secretsClearYoutubeApiKey().catch(function(){});
-        }
-      }
-    }
+    // v1.5：GitHub Token 不再随设置页保存 —— 由「GitHub 发布」区的
+    //   cfgGhSaveToken() 即时写入（会先验证 Token 有效性 + 发布仓库 push 权限）。
+    // v1.21：YouTube Data API Key 输入框已移除（改用 Google 官方 OAuth 授权），
+    //   不再随设置页保存。
 
     persistSettings();noteModel();closeSettings();
 
     toast(wechatSaveResult&&!wechatSaveResult.persisted?'公众号配置暂存于本次运行；其他设置已保存':'已保存。文案生成将调用你的模型，自动发布规则已生效');
 
+  };
+
+  // ---------- GitHub 凭据面板（设置页「GitHub 发布」区） ----------
+  // v1.21：由「推广渠道 → GitHub」搬过来，作为 GitHub Token 的**唯一**配置入口。
+  //   与原推广渠道面板共用同一套 IPC（oauth:status / oauth:save-credential / oauth:disconnect），
+  //   因此两处读写的是同一份凭据，不会出现 Token 不一致。
+  //   注意：Token 不再随设置页底部「保存」提交 —— 点「保存」按钮即时生效并校验。
+
+  function cfgGhRefreshStatus(){
+    var btn=document.getElementById('cfgGhBtn');
+    var stEl=document.getElementById('cfgGhStatus');
+    var pubInput=document.getElementById('cfgGhPublishRepo');
+    if(!btn||!stEl) return;
+    if(!window.api||!window.api.oauthStatus){
+      btn.textContent='添加 Personal Access Token';
+      stEl.innerHTML='<span style="color:var(--muted)">未配置</span>';
+      return;
+    }
+    window.api.oauthStatus('github').then(function(s){
+      if(s && s.connected){
+        btn.textContent='更换 Token';
+        var account=s.account||{};
+        var label=account.login||account.name||'';
+        var displayLabel=label?('@'+label):'';
+        var reconnect=s.needsReconnect
+          ? ' <span style="color:var(--danger);font-weight:600">（授权已失效，请重新连接）</span>' : '';
+        var pubRepoLine='';
+        if(s.publishRepo && s.publishRepo.owner && s.publishRepo.repo){
+          pubRepoLine=' · 发布仓库：<span style="color:var(--primary-dark);font-weight:600">'+ esc(s.publishRepo.full_name||(s.publishRepo.owner+'/'+s.publishRepo.repo)) +'</span>';
+        }else{
+          pubRepoLine=' · <span style="color:var(--danger)">未设置发布仓库（点击「更换 Token」补填）</span>';
+        }
+        stEl.innerHTML=
+          '<span style="color:var(--success);font-weight:600">✓ 已连接</span>'+
+          (displayLabel?(' <span style="color:var(--ink)">'+ esc(displayLabel) +'</span>'):'')+
+          reconnect+
+          pubRepoLine+
+          ' · <a href="javascript:void(0)" onclick="cfgGhDisconnect()">解除绑定</a>';
+        // 预填已保存的发布仓库（编辑流程）
+        if(pubInput && s.publishRepo && s.publishRepo.url){
+          pubInput.value=s.publishRepo.url;
+          pubInput.placeholder = s.publishRepo.full_name
+            ? ('已保存：'+s.publishRepo.full_name)
+            : ('https://github.com/'+s.publishRepo.owner+'/'+s.publishRepo.repo);
+        }
+      }else{
+        btn.textContent='添加 Personal Access Token';
+        stEl.innerHTML='<span style="color:var(--muted)">未配置</span>';
+      }
+    }).catch(function(){
+      stEl.innerHTML='<span style="color:var(--muted)">未配置</span>';
+    });
+  }
+
+  window.cfgGhToggleInput=function(){
+    var box=document.getElementById('cfgGhInput');
+    var btn=document.getElementById('cfgGhBtn');
+    var input=document.getElementById('cfgGhToken');
+    var pubInput=document.getElementById('cfgGhPublishRepo');
+    if(!box||!btn)return;
+    if(box.style.display!=='none'){ cfgGhCancelInput(); return; }
+    box.style.display='';
+    btn.textContent='收起';
+    if(input) input.value='';
+    if(pubInput) pubInput.value='';
+    // 拉一次已连接状态，把 publishRepo 预填到输入框
+    try{
+      window.api.oauthStatus('github').then(function(s){
+        if(s && s.connected && s.publishRepo && s.publishRepo.url && pubInput){
+          pubInput.value=s.publishRepo.url;
+        }
+      }).catch(function(){});
+    }catch(_e){}
+    if(input){ setTimeout(function(){input.focus();},30); }
+  };
+
+  window.cfgGhCancelInput=function(){
+    var box=document.getElementById('cfgGhInput');
+    var input=document.getElementById('cfgGhToken');
+    var pubInput=document.getElementById('cfgGhPublishRepo');
+    var st=document.getElementById('cfgGhInputStatus');
+    if(box) box.style.display='none';
+    if(input) input.value='';
+    if(pubInput) pubInput.value='';
+    if(st) st.textContent='';
+    cfgGhRefreshStatus();
+  };
+
+  window.cfgGhSaveToken=async function(){
+    var input=document.getElementById('cfgGhToken');
+    var btn=document.getElementById('cfgGhSave');
+    var st=document.getElementById('cfgGhInputStatus');
+    var pubInput=document.getElementById('cfgGhPublishRepo');
+    if(!input||!btn)return;
+    if(!window.api||!window.api.oauthSaveCredential){ toast('请在桌面端使用本功能'); return; }
+    var token=String(input.value||'').trim();
+    var publishRepo=pubInput?String(pubInput.value||'').trim():'';
+    if(!token){ st.innerHTML='<span style="color:var(--danger)">请输入 Token</span>'; return; }
+    btn.disabled=true;
+    st.innerHTML= publishRepo
+      ? '<span style="color:var(--primary-dark)">验证 Token + 检查发布仓库 push 权限...</span>'
+      : '<span style="color:var(--primary-dark)">验证中...</span>';
+    var r;
+    try{ r=await window.api.oauthSaveCredential('github',{ access_token:token, publishRepo: publishRepo||null }); }
+    catch(e){ r={ ok:false, reason:'exception', detail:String(e && e.message || e) }; }
+    btn.disabled=false;
+    if(r && r.ok){
+      input.value='';
+      if(pubInput) pubInput.value='';
+      cfgGhCancelInput();
+      var who=(r.account && r.account.login)?('@'+r.account.login):(r.account && r.account.name)||'github';
+      var pubNote='';
+      if(r.publishRepo && r.publishRepo.full_name) pubNote='，发布仓库：'+r.publishRepo.full_name;
+      else pubNote='，未设置发布仓库';
+      toast('✓ 已保存 Token（'+who+pubNote+'）');
+    }else{
+      var reason=r && r.reason;
+      var msg={
+        'invalid_token':'Token 无效或已过期',
+        'insufficient_scope':'Token 权限不足（GitHub 需要勾选 repo scope）',
+        'forbidden':'Token 无权访问 /user',
+        'rate_limited':'API 速率限制，请稍后重试',
+        'network':'网络异常：'+(r && r.detail || ''),
+        'not_persisted':'OS 凭据管理器不可用（keytar 未加载），重启应用或安装系统组件后重试',
+        'exception':'流程异常：'+(r && r.detail || ''),
+        'invalid_input':'Token 格式不合法',
+        'invalid_repo_url':'发布仓库地址无效：'+(r && r.detail || '请输入 https://github.com/owner/repo 形式的 URL'),
+        'repo_not_found':'指定的 GitHub 仓库不存在或 Token 无权访问'+((r && r.owner && r.repo)?('（'+r.owner+'/'+r.repo+'）'):''),
+        'no_push_permission':'当前 Token 没有此仓库的写入权限'+((r && r.owner && r.repo)?('（'+r.owner+'/'+r.repo+'）'):'')+'。请检查：(1) Fine-grained PAT 是否勾选 Contents: Read and write；(2) 目标仓库是否在 PAT 的 Repository access 列表中。'
+      }[reason] || ('保存失败：'+(reason||'unknown'));
+      st.innerHTML='<span style="color:var(--danger)">'+esc(msg)+'</span>';
+      toast('✗ '+msg, true);
+    }
+  };
+
+  window.cfgGhDisconnect=async function(){
+    if(!window.api||!window.api.oauthDisconnect) return;
+    if(!confirm('确认解除「GitHub Token」绑定？后续发布将不再使用此账号。')) return;
+    try{ await window.api.oauthDisconnect('github'); }catch(_e){}
+    var pubInput=document.getElementById('cfgGhPublishRepo');
+    if(pubInput){ pubInput.value=''; pubInput.placeholder='https://github.com/username/repository'; }
+    cfgGhRefreshStatus();
+    toast('已解除「GitHub Token」');
+  };
+
+  // ---------- YouTube 账号授权面板（设置页「YouTube 发布」区） ----------
+  // v1.21：由「推广渠道 → YouTube」搬过来，作为 YouTube 账号的**唯一**授权入口。
+  //   共用同一套 oauth:* IPC，与原推广渠道读写同一份凭据。
+  //   错误文案与原实现逐条一致，避免改变用户可见行为。
+
+  window.cfgYtStartOAuth=async function(){
+    var btn=document.getElementById('cfgYtBtn');
+    var stEl=document.getElementById('cfgYtStatus');
+    if(!stEl) return;
+    if(!window.api||!window.api.oauthStart){ toast('请在桌面端使用本功能'); return; }
+    if(btn) btn.disabled=true;
+    // 不预先显示"已打开"——等主进程实际验证浏览器启动后再更新
+    stEl.innerHTML='<span style="color:var(--primary-dark)">正在打开系统浏览器...</span>';
+    var r;
+    try{ r=await window.api.oauthStart('youtube'); }
+    catch(e){ r={ ok:false, reason:'exception', detail:String(e && e.message || e) }; }
+    if(btn) btn.disabled=false;
+    if(r && r.ok){
+      // 区分：自动打开浏览器 vs 剪贴板兜底
+      if (r.via === 'clipboard') {
+        // 受限上下文（Low 完整性）下 Windows 会拦截把授权链接交给浏览器的动作。
+        // 这不是"启动失败"，而是系统层面的限制 —— 如实说明原因，避免用户反复重试。
+        var restrictedNote = r.restricted
+          ? '<span style="color:var(--muted);font-size:11.5px">原因：当前进程运行在受限（Low 完整性）上下文里，Windows 会拦截"把链接交给浏览器"的动作，所以无法自动弹窗。请自己从任务栏 / 开始菜单打开浏览器再粘贴，就能正常完成授权。</span><br>'
+          : '';
+        stEl.innerHTML=
+          '<span style="color:var(--danger);font-weight:600">⚠ 浏览器未自动打开</span><br>' +
+          restrictedNote +
+          '<span style="color:var(--ink)">已把授权链接复制到剪贴板。请打开系统浏览器（Edge / Chrome），<b>粘贴到地址栏并回车</b>完成 Google 登录。完成后本页面会自动显示「✓ 已连接」。</span>';
+        toast('⚠ 浏览器未自动打开，URL 已复制到剪贴板', true);
+      } else {
+        var note = r.note ? (' ' + r.note) : '';
+        stEl.innerHTML='<span style="color:var(--primary-dark)">✓ 已通过「' + esc(r.via || '系统默认浏览器') + '」打开授权页，请在浏览器中完成...' + esc(note) + '</span>';
+        toast('✓ 浏览器已打开，请在浏览器中完成 Google 授权');
+      }
+      cfgYtRefreshStatus();
+      var who = (r.account && (r.account.login || r.account.name)) || 'YouTube';
+      if (r.account) toast('✓ 已授权 YouTube（' + who + '）');
+    } else {
+      var reason = r && r.reason;
+      if (reason === 'browser_open_failed_clipboard' && r.authUrl) {
+        stEl.innerHTML=
+          '<span style="color:var(--danger);font-weight:600">✗ 无法自动打开浏览器</span><br>' +
+          '<span style="color:var(--ink)">已把授权链接复制到剪贴板。请打开系统浏览器（Edge / Chrome），<b>粘贴地址栏并回车</b>完成授权（之后可以关掉 Rokit 的本提示）。</span><br>' +
+          '<span style="color:var(--muted);font-size:11.5px;word-break:break-all">链接前缀：' + esc(r.authUrl.slice(0, 60)) + '...（已复制完整 URL）</span>';
+        toast('✗ 浏览器启动失败，URL 已复制到剪贴板', true);
+      } else {
+        var msg = {
+          'missing_client_id':'未配置 Google OAuth Client ID（需设置环境变量 ROKIT_OAUTH_CLIENT_YOUTUBE；详见 README「YouTube 配置」一节）',
+          'provider_not_found':'当前版本未启用 YouTube provider',
+          'user_cancelled':'已在 Google 授权页取消',
+          'timeout':'授权超时（5 分钟内未完成），请重试',
+          'state_mismatch':'state 校验失败（可能被浏览器扩展劫持，请关闭代理类扩展后重试）',
+          'token_exchange_failed':'换取 access_token 失败：' + (r.detail || ''),
+          'token_response_invalid':'Google 返回的 token 格式异常',
+          'no_native_keytar':'OS 凭据管理器不可用（keytar 未加载），重启应用或安装系统组件后重试',
+          'loopback_listen_failed':'本机无法启动回调监听（端口被占用？）：' + (r.detail || ''),
+          'browser_open_failed':'所有浏览器启动方式均失败：' + (r.detail || ''),
+          'exception':'流程异常：' + (r.detail || '')
+        }[reason] || ('YouTube 授权失败：' + reason);
+        stEl.innerHTML='<span style="color:var(--danger)">'+ esc(msg) +'</span>';
+        toast('✗ ' + msg, true);
+      }
+    }
+  };
+
+  function cfgYtRefreshStatus(){
+    var btn=document.getElementById('cfgYtBtn');
+    var stEl=document.getElementById('cfgYtStatus');
+    if(!btn||!stEl) return;
+    if(!window.api||!window.api.oauthStatus){
+      btn.textContent='添加 YouTube 账号';
+      stEl.innerHTML='<span style="color:var(--muted)">未配置</span>';
+      return;
+    }
+    window.api.oauthStatus('youtube').then(function(s){
+      if(s && s.connected){
+        btn.textContent='重新授权';
+        var account=s.account||{};
+        var label=account.login||account.name||'';
+        var reconnect=s.needsReconnect
+          ? ' <span style="color:var(--danger);font-weight:600">（授权已失效，请重新连接）</span>' : '';
+        stEl.innerHTML=
+          '<span style="color:var(--success);font-weight:600">✓ 已连接</span>'+
+          (label?(' <span style="color:var(--ink)">'+ esc(label) +'</span>'):'')+
+          reconnect+
+          ' · <a href="javascript:void(0)" onclick="cfgYtDisconnect()">解除绑定</a>';
+      }else{
+        btn.textContent='添加 YouTube 账号';
+        stEl.innerHTML='<span style="color:var(--muted)">未配置</span>';
+      }
+    }).catch(function(){
+      stEl.innerHTML='<span style="color:var(--muted)">未配置</span>';
+    });
+  }
+
+  window.cfgYtDisconnect=async function(){
+    if(!window.api||!window.api.oauthDisconnect) return;
+    if(!confirm('确认解除「YouTube 账号」授权？后续发布将不再使用此账号。')) return;
+    try{ await window.api.oauthDisconnect('youtube'); }catch(_e){}
+    cfgYtRefreshStatus();
+    toast('已解除「YouTube 账号」');
+  };
+
+  // ---------- 线上 AI 配音设置面板（设置页「线上配音」区） ----------
+  // v1.21：为 openai-tts / elevenlabs-tts 提供唯一的配置入口。
+  //   - API Key：走 secrets:online-tts-key 系列 IPC（keytar），渲染层读不到明文。
+  //   - 模型 / 音色 / Base URL：走 online-tts:* 系列 IPC（settings_kv），非凭据。
+  //   - 「测试连接」= 轻量认证 GET（不合成、不计费）；「测试语音生成」= 真实合成并可试听。
+  //   两者状态分别显示，绝不把「认证通过」显示成「已验证可合成」。
+  var ONLINE_TTS = [
+    {
+      id: 'openai-tts',
+      label: 'OpenAI TTS',
+      docUrl: 'https://platform.openai.com/docs/guides/text-to-speech',
+      keyLabel: 'OpenAI API Key',
+      keyPlaceholder: 'sk-...',
+      keyNote: '在 platform.openai.com/api-keys 创建。Key 需具备 TTS 权限。',
+      fields: [
+        { k: 'baseUrl', label: '服务地址（Base URL）', ph: 'https://api.openai.com' },
+        { k: 'model', label: '模型', ph: 'gpt-4o-mini-tts',
+          note: '官方当前推荐的 TTS 模型。也可填 tts-1 / tts-1-hd。' },
+        { k: 'voice', label: '音色（voice）', ph: 'alloy',
+          note: 'gpt-4o-mini-tts 支持：alloy / ash / ballad / coral / echo / fable / marin / cedar / nova / onyx / sage / shimmer / verse' }
+      ],
+      testText: '你好，这是 Rokit 的语音测试。'
+    },
+    {
+      id: 'elevenlabs-tts',
+      label: 'ElevenLabs TTS',
+      docUrl: 'https://elevenlabs.io/docs/eleven-api/quickstart',
+      keyLabel: 'ElevenLabs API Key',
+      keyPlaceholder: 'sk_...（或从 Profile 复制 API Key）',
+      keyNote: '在 elevenlabs.io/app/settings/api-keys 创建。',
+      fields: [
+        { k: 'baseUrl', label: '服务地址（Base URL）', ph: 'https://api.elevenlabs.io' },
+        { k: 'voiceId', label: 'Voice ID', ph: '例如 21m00Tcm4TlvDq8ikWAM',
+          note: '到 elevenlabs.io/app/voice-library 点开任一音色即可看到 ID。请填你自己账号可用的音色。' },
+        { k: 'modelId', label: '模型 ID（model_id）', ph: 'eleven_multilingual_v2',
+          note: '常见值：eleven_multilingual_v2 / eleven_multilingual_v1 / eleven_turbo_v2_5 / eleven_flash_v2_5' },
+        { k: 'outputFormat', label: '输出格式（output_format）', ph: 'mp3_44100_128',
+          note: '留空使用官方默认 mp3_44100_128；也可填 pcm_44100 等。' }
+      ],
+      testText: '你好，这是 Rokit 的语音测试。'
+    }
+  ];
+  // 与 voiceEngine.online 同构：{ hasKey, persisted, probing, generating, cfg, authOk, authNote, tested, audioBase64, mime, durationSec, error, hint }
+  var _cfgVoiceState = {};
+
+  function _cfgVoiceUi(id, s){
+    var def = null;
+    for (var i = 0; i < ONLINE_TTS.length; i++) if (ONLINE_TTS[i].id === id) def = ONLINE_TTS[i];
+    if (!def) return '';
+    var cfg = s.cfg || {};
+    // 连接状态：四态分开显示（未测试 / 测试中 / 成功 / 失败）
+    var authBadge;
+    if (s.probing) authBadge = '<span class="cfg-pat-hint validating">连接测试中…</span>';
+    else if (s.authOk) authBadge = '<span class="cfg-pat-hint ok">✓ 认证通过（未验证合成）</span>';
+    else if (s.authError) authBadge = '<span class="cfg-pat-hint bad">✕ 连接失败</span>';
+    else authBadge = '<span class="cfg-pat-hint">未测试连接</span>';
+
+    var genBadge;
+    if (s.generating) genBadge = '<span class="cfg-pat-hint validating">生成中…</span>';
+    else if (s.tested) genBadge = '<span class="cfg-pat-hint ok">✓ 已生成测试语音</span>';
+    else if (s.genError) genBadge = '<span class="cfg-pat-hint bad">✕ 生成失败</span>';
+    else genBadge = '<span class="cfg-pat-hint">未测试生成</span>';
+
+    var keyRow = s.hasKey
+      ? '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">' +
+          '<span class="cfg-pat-hint ok">✓ 已保存到系统凭据管理器</span>' +
+          '<button type="button" class="btn ghost sm" onclick="cfgVoiceSaveKey(\'' + id + '\')">更换 Key</button>' +
+          '<button type="button" class="btn ghost sm" onclick="cfgVoiceClearKey(\'' + id + '\')">清除 Key</button>' +
+        '</div>'
+      : '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">' +
+          '<input id="cfgVtKey_' + id + '" type="password" placeholder="' + esc(def.keyPlaceholder) + '" autocomplete="off" style="flex:1;min-width:220px;padding:9px 11px;border:1px solid var(--line);border-radius:9px;font-size:13.5px"/>' +
+          '<button type="button" class="btn ghost sm" onclick="cfgVoiceToggleKeyVisible(\'' + id + '\')" id="cfgVtEye_' + id + '">显示</button>' +
+          '<button type="button" class="btn sm" onclick="cfgVoiceSaveKey(\'' + id + '\')">保存 Key</button>' +
+        '</div>';
+
+    var fieldHtml = def.fields.map(function(f){
+      var val = cfg[f.k] || '';
+      return '<div class="field"><label>' + esc(f.label) + '</label>' +
+        '<input id="cfgVt_' + id + '_' + f.k + '" value="' + esc(val) + '" placeholder="' + esc(f.ph) + '" autocomplete="off"/>' +
+        (f.note ? '<div class="msub" style="margin:4px 0 0;color:var(--muted)">' + esc(f.note) + '</div>' : '') +
+        '</div>';
+    }).join('');
+
+    var errHtml = '';
+    var errs = [];
+    if (s.authError) errs.push('连接测试：' + s.authError);
+    if (s.genError) errs.push('生成测试：' + s.genError);
+    if (errs.length) {
+      errHtml = '<div style="margin-top:8px;font-size:12.5px;color:var(--danger);line-height:1.7">' +
+        errs.map(function(e){ return esc(e); }).join('<br/>') + '</div>';
+      if (s.hint) errHtml += '<div class="msub" style="margin:4px 0 0;color:var(--danger)">建议：' + esc(s.hint) + '</div>';
+    }
+    if (s.authNote) errHtml += '<div class="msub" style="margin:4px 0 0;color:var(--muted)">' + esc(s.authNote) + '</div>';
+
+    var audioHtml = '';
+    if (s.tested && s.audioBase64 && s.mime) {
+      audioHtml = '<div style="margin-top:10px">' +
+        '<div class="msub" style="margin:0 0 4px;color:var(--muted)">已生成 · ' + esc(s.mime) + ' · 时长 ' + fmtDur(s.durationSec || 0) + '</div>' +
+        '<audio id="cfgVtAudio_' + id + '" controls src="data:' + esc(s.mime) + ';base64,' + s.audioBase64 + '" style="width:100%;height:34px"></audio>' +
+        '</div>';
+    }
+
+    return '<div style="border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px">' +
+      '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">' +
+        '<b style="font-size:13.5px;color:var(--ink)">' + esc(def.label) + '</b>' +
+        '<a href="' + esc(def.docUrl) + '" target="_blank" rel="noreferrer noopener" class="cfg-pat-hint">官方文档 ↗</a>' +
+        '<span style="flex:1"></span>' +
+        authBadge + genBadge +
+      '</div>' +
+      '<div class="msub" style="margin:0 0 10px;color:var(--muted)">' + esc(def.keyNote) + '</div>' +
+      '<div class="field"><label>' + esc(def.keyLabel) + '</label>' + keyRow + '</div>' +
+      fieldHtml +
+      '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px">' +
+        '<button type="button" class="btn ghost sm" onclick="cfgVoiceSaveCfg(\'' + id + '\')">保存配置</button>' +
+        '<button type="button" class="btn ghost sm" onclick="cfgVoiceResetCfg(\'' + id + '\')">恢复默认</button>' +
+        '<span style="flex:1"></span>' +
+        '<button type="button" class="btn sm" id="cfgVtProbe_' + id + '" onclick="cfgVoiceTestConnect(\'' + id + '\')"' + (s.probing ? ' disabled' : '') + '>' + (s.probing ? '测试中…' : '测试连接') + '</button>' +
+        '<button type="button" class="btn sm" id="cfgVtGen_' + id + '" onclick="cfgVoiceTestGenerate(\'' + id + '\')"' + (s.generating ? ' disabled' : '') + '>' + (s.generating ? '生成中…' : '测试语音生成') + '</button>' +
+      '</div>' +
+      errHtml +
+      audioHtml +
+      '</div>';
+  }
+
+  function _cfgVoiceRender(){
+    var box = document.getElementById('cfgVoiceEngines');
+    if (!box) return;
+    // 重渲染会重建 input，先把用户当前输入的值回填进 state，避免打字时丢失
+    ONLINE_TTS.forEach(function(d){
+      var s = _cfgVoiceState[d.id];
+      if (!s) return;
+      var keep = {};
+      d.fields.forEach(function(f){
+        var el = document.getElementById('cfgVt_' + d.id + '_' + f.k);
+        if (el) keep[f.k] = String(el.value || '').trim();
+      });
+      if (Object.keys(keep).length) {
+        s.cfg = Object.assign({}, s.cfg || {}, keep);
+      }
+    });
+    box.innerHTML = ONLINE_TTS.map(function(d){ return _cfgVoiceUi(d.id, _cfgVoiceState[d.id] || {}); }).join('');
+  }
+
+  function _cfgVoiceLoadOne(id){
+    var s = _cfgVoiceState[id] || (_cfgVoiceState[id] = {});
+    if (!window.api || typeof window.api.onlineTtsConfig !== 'function') return;
+    window.api.onlineTtsConfig(id).then(function(c){
+      if (c && c.ok) s.cfg = c;
+      _cfgVoiceRender();
+    }).catch(function(){});
+    // 读密钥状态（只拿 hasKey 布尔值，永远拿不到明文）
+    if (typeof window.api.secretsOnlineTtsKey === 'function') {
+      window.api.secretsOnlineTtsKey(id).then(function(r){
+        if (r && r.ok) s.hasKey = !!r.hasKey;
+        _cfgVoiceRender();
+      }).catch(function(){});
+    }
+  }
+
+  function cfgVoiceRefresh(){
+    if (!window.api || typeof window.api.onlineTtsConfig !== 'function') {
+      var box = document.getElementById('cfgVoiceEngines');
+      if (box) box.innerHTML = '<div class="cfg-pat-hint">当前版本不支持线上配音配置</div>';
+      return;
+    }
+    ONLINE_TTS.forEach(function(d){
+      var s = _cfgVoiceState[d.id] || (_cfgVoiceState[d.id] = {});
+      // 重置测试状态，但不碰已保存的 key / cfg
+      s.probing = false; s.generating = false;
+      s.authOk = false; s.authError = ''; s.authNote = '';
+      s.tested = false; s.genError = ''; s.audioBase64 = ''; s.mime = ''; s.durationSec = 0;
+      _cfgVoiceLoadOne(d.id);
+    });
+    _cfgVoiceRender();
+  }
+
+  window.cfgVoiceToggleKeyVisible = function(id){
+    var inp = document.getElementById('cfgVtKey_' + id);
+    var btn = document.getElementById('cfgVtEye_' + id);
+    if (!inp || !btn) return;
+    var show = inp.type === 'password';
+    inp.type = show ? 'text' : 'password';
+    btn.textContent = show ? '隐藏' : '显示';
+  };
+
+  window.cfgVoiceSaveKey = async function(id){
+    var inp = document.getElementById('cfgVtKey_' + id);
+    if (!inp || !window.api || typeof window.api.secretsSetOnlineTtsKey !== 'function') {
+      toast('当前版本不支持保存该凭据', true); return;
+    }
+    var v = String(inp.value || '').trim();
+    if (!v) { toast('请输入 API Key', true); return; }
+    var r;
+    try { r = await window.api.secretsSetOnlineTtsKey(id, v); }
+    catch (e) { r = { ok: false, error: 'exception', detail: String(e && e.message || e) }; }
+    if (r && r.ok) {
+      inp.value = '';
+      var s = _cfgVoiceState[id] || (_cfgVoiceState[id] = {});
+      s.hasKey = true;
+      _cfgVoiceRender();
+      // persisted=false = keytar 不可用，仅存于本次进程内存，重启会失效 —— 必须如实告知
+      toast(r.persisted ? '✓ Key 已保存到系统凭据管理器' : '⚠ 已暂存（仅本次运行有效：OS 凭据管理器不可用）', !r.persisted);
+    } else {
+      toast('✗ 保存失败：' + ((r && r.error) || 'unknown') + (r && r.detail ? (' · ' + r.detail) : ''), true);
+    }
+  };
+
+  window.cfgVoiceClearKey = async function(id){
+    if (!window.api || typeof window.api.secretsClearOnlineTtsKey !== 'function') return;
+    if (!confirm('确认清除该 API Key？清除后 Rokit 不会再向该服务发送任何请求。')) return;
+    await window.api.secretsClearOnlineTtsKey(id).catch(function(){});
+    var s = _cfgVoiceState[id] || (_cfgVoiceState[id] = {});
+    s.hasKey = false; s.tested = false; s.audioBase64 = ''; s.authOk = false;
+    _cfgVoiceRender();
+    toast('已清除 API Key');
+  };
+
+  function _cfgVoiceReadInputs(id){
+    var s = _cfgVoiceState[id] || (_cfgVoiceState[id] = {});
+    var cfg = Object.assign({}, s.cfg || {});
+    var def = null;
+    for (var i = 0; i < ONLINE_TTS.length; i++) if (ONLINE_TTS[i].id === id) def = ONLINE_TTS[i];
+    if (!def) return {};
+    def.fields.forEach(function(f){
+      var el = document.getElementById('cfgVt_' + id + '_' + f.k);
+      if (el) cfg[f.k] = String(el.value || '').trim();
+    });
+    return cfg;
+  }
+
+  window.cfgVoiceSaveCfg = async function(id){
+    if (!window.api || typeof window.api.onlineTtsSaveConfig !== 'function') return;
+    var s = _cfgVoiceState[id] || (_cfgVoiceState[id] = {});
+    var cfg = _cfgVoiceReadInputs(id);
+    var r;
+    try { r = await window.api.onlineTtsSaveConfig(id, cfg); }
+    catch (e) { r = { ok: false, error: 'exception' }; }
+    if (r && r.ok) { s.cfg = r; _cfgVoiceRender(); toast('✓ 已保存配置'); }
+    else toast('✗ 保存失败：' + ((r && r.error) || 'unknown'), true);
+  };
+
+  window.cfgVoiceResetCfg = async function(id){
+    if (!window.api || typeof window.api.onlineTtsClearConfig !== 'function') return;
+    var r = await window.api.onlineTtsClearConfig(id).catch(function(){ return null; });
+    var s = _cfgVoiceState[id] || (_cfgVoiceState[id] = {});
+    if (r && r.ok) s.cfg = r;
+    _cfgVoiceRender();
+    toast('已恢复默认配置');
+  };
+
+  window.cfgVoiceTestConnect = async function(id){
+    if (!window.api || typeof window.api.voiceEngineProbe !== 'function') return;
+    var s = _cfgVoiceState[id] || (_cfgVoiceState[id] = {});
+    if (s.probing || s.generating) return;
+    var cfg = _cfgVoiceReadInputs(id);
+    s.probing = true; s.authOk = false; s.authError = ''; s.authNote = ''; s.hint = '';
+    _cfgVoiceRender();
+    var r;
+    try { r = await window.api.voiceEngineProbe({ engineId: id, config: cfg }); }
+    catch (e) { r = { ok: false, error: 'exception', actionableHint: String(e && e.message || e) }; }
+    s.probing = false;
+    s.authOk = !!(r && r.ok);
+    s.authNote = (r && r.probeNote) || '';
+    s.authError = (r && r.ok) ? '' : ((r && r.actionableHint) || (r && r.error) || '未知错误');
+    s.hint = (r && r.ok) ? '' : (s.authError);
+    // 清除旧的生成结果：换了 Key / 参数后旧音频不再代表当前配置
+    if (s.tested) { s.tested = false; s.audioBase64 = ''; }
+    _cfgVoiceRender();
+    if (s.authOk) toast('✓ 认证通过（未验证合成）');
+    else toast('✕ ' + s.authError, true);
+  };
+
+  window.cfgVoiceTestGenerate = async function(id){
+    if (!window.api || typeof window.api.voiceEngineTestGenerate !== 'function') return;
+    var s = _cfgVoiceState[id] || (_cfgVoiceState[id] = {});
+    if (s.probing || s.generating) return;
+    var def = null;
+    for (var i = 0; i < ONLINE_TTS.length; i++) if (ONLINE_TTS[i].id === id) def = ONLINE_TTS[i];
+    var cfg = _cfgVoiceReadInputs(id);
+    s.generating = true; s.tested = false; s.genError = ''; s.audioBase64 = ''; s.hint = '';
+    _cfgVoiceRender();
+    var r;
+    try {
+      r = await window.api.voiceEngineTestGenerate({
+        engineId: id,
+        config: cfg,
+        payload: { text: def ? def.testText : '你好，这是 Rokit 的语音测试。', refBase64: '', refMime: '' }
+      });
+    } catch (e) { r = { ok: false, error: 'exception', actionableHint: String(e && e.message || e) }; }
+    s.generating = false;
+    if (r && r.ok && r.audioBase64) {
+      s.tested = true;
+      s.audioBase64 = r.audioBase64;
+      s.mime = r.mime || 'audio/wav';
+      s.durationSec = r.durationSec || 0;
+      _cfgVoiceRender();
+      toast('✓ 已生成测试语音（可在下方试听）');
+    } else {
+      s.genError = (r && r.actionableHint) || (r && r.error) || '未知错误';
+      s.hint = (r && r.errorDetail) ? String(r.errorDetail).slice(0, 200) : '';
+      _cfgVoiceRender();
+      toast('✕ ' + s.genError, true);
+    }
   };
 
   window.clearWechatConfig=function(){
@@ -2773,6 +3324,71 @@ window.testWechatConnection=function(){
 
     }catch(err){box.innerHTML='<span style="color:var(--danger)">连接失败：'+esc(err&&err.message?err.message:String(err))+'</span>';}
 
+  };
+
+  // v1.21：GitHub + YouTube 发布凭据连通性测试（设置页底部「测试连接」）。
+  //   GitHub：调 github:probe 真实访问 api.github.com/user。
+  //   YouTube：读 oauth:status 的本地凭据状态（connected 且无需重连），不额外发网络请求。
+  //   未配置一律算失败（红字提示），两个都通过才弹绿色。
+  window.testPublishChannels=async function(){
+    var box=document.getElementById('cfgStatus');
+    if(box){box.innerHTML='<span style="color:var(--muted)">正在测试 GitHub / YouTube…</span>';}
+    if(!window.api||!window.api.oauthStatus){
+      if(box){box.innerHTML='<span style="color:var(--danger)">当前版本不支持连通性测试</span>';}
+      return;
+    }
+
+    // GitHub：真实网络探测
+    var gh={ok:false,label:'GitHub 未配置'};
+    try{
+      if(typeof window.api.githubProbe==='function'){
+        var g=await window.api.githubProbe();
+        gh = g && g.ok
+          ? {ok:true,label:'GitHub 可用'+(g.login?('（@'+g.login+'）'):'')}
+          : {ok:false,label:'GitHub 不可用：'+((g&&g.error)||'未知错误')};
+      }else{
+        gh={ok:false,label:'GitHub 不可用：探测接口不可用'};
+      }
+    }catch(e){ gh={ok:false,label:'GitHub 不可用：'+((e&&e.message)||String(e))}; }
+
+    // YouTube：只读本地凭据状态（方案 A：不发 tokeninfo 网络请求）
+    var yt={ok:false,label:'YouTube 未配置'};
+    try{
+      var s=await window.api.oauthStatus('youtube');
+      if(!s || !s.connected){
+        yt={ok:false,label:'YouTube 未配置'};
+      }else if(s.needsReconnect){
+        yt={ok:false,label:'YouTube 授权已失效，请重新授权'};
+      }else{
+        var who=(s.account&&(s.account.login||s.account.name))||'';
+        yt={ok:true,label:'YouTube 可用'+(who?('（'+who+'）'):'')};
+      }
+    }catch(e){ yt={ok:false,label:'YouTube 不可用：'+((e&&e.message)||String(e))}; }
+
+    var okCount=(gh.ok?1:0)+(yt.ok?1:0);
+    var line=function(r){
+      return '<div style="margin-top:4px"><span style="color:'+(r.ok?'var(--success)':'var(--danger)')+'">'+
+        (r.ok?'✓ ':'✗ ')+esc(r.label)+'</span></div>';
+    };
+
+    if(okCount===2){
+      if(box){box.innerHTML='<span style="color:var(--success)">✓ GitHub 与 YouTube 均可用</span>';}
+      confirmModal({
+        title:'连通性测试通过',
+        body:'GitHub 与 YouTube 两个发布通道均可用。',
+        okLabel:'知道了',
+        cancelLabel:'关闭'
+      });
+    }else{
+      if(box){box.innerHTML='<span style="color:var(--danger)">✗ '+esc(okCount===0?'GitHub 与 YouTube 均不可用':'部分通道不可用')+'</span>'+line(gh)+line(yt);}
+      confirmModal({
+        title: okCount===0 ? '连通性测试失败' : '部分通道不可用',
+        body: (okCount===0 ? 'GitHub 与 YouTube 通道均不可用。' : '以下通道不可用：'),
+        detail: (gh.ok?'':gh.label+'\n')+(yt.ok?'':yt.label),
+        okLabel:'去设置',
+        cancelLabel:'关闭'
+      });
+    }
   };
 
 
@@ -3186,7 +3802,7 @@ window.testWechatConnection=function(){
                     + '<div class="wp-stats">'
                     +   '<div class="wp-stat"><div class="wp-num">'+((work.star||0).toLocaleString())+'</div><div class="wp-lbl">Star</div></div>'
                     +   '<div class="wp-stat"><div class="wp-num">'+((work.dl||0).toLocaleString())+'</div><div class="wp-lbl">下载</div></div>'
-                    +   '<div class="wp-stat"><div class="wp-num">'+(work.play||0)+'</div><div class="wp-lbl">播放</div></div>'
+                    +   '<div class="wp-stat"><div class="wp-num">'+ytViewsText(work)+'</div><div class="wp-lbl">播放</div></div>'
                     + '</div>'
                     + '<div class="wp-next">下一步：<b>'+esc(work.next||'登记推广')+'</b></div>';
       // 定位
@@ -3228,6 +3844,53 @@ window.testWechatConnection=function(){
         clearTimeout(_wpTimer);
         _wpHideTimer = setTimeout(hideWorkPopover, 100);
       });
+
+      // ===== 临时诊断：作品卡片点击 → 输出 YouTube 绑定信息到 DevTools Console =====
+      //   用途：现场核对「卡片显示的数字」与「该卡片实际绑定的视频 ID」是否一致。
+      //   约束（只读诊断）：
+      //     · 不新增任何 UI / 按钮 / 弹窗
+      //     · 不修改卡片原有点击行为 —— **不** preventDefault、**不** stopPropagation，
+      //       只在 capture 阶段同步打日志，保证早于卡片内联的 openWork() 执行
+      //     · 不写数据库、不调 saveWork、不改 yt_url、不调 YouTube API
+      //   绑定一次即可：setupWorkHover 由 renderWorks 反复调用，本函数有 __wpBound 守卫。
+      grid.addEventListener('click', function(e){
+        try {
+          var card = e.target.closest('.wcard');
+          if(!card || !card.dataset.workId) return;      // 只在卡片内点击时输出
+          var id = card.dataset.workId;
+          var w = (state.works||[]).find(function(x){ return x && x.id === id; });
+          if(!w) return;
+          var ytUrl   = (w.yt_url === null || w.yt_url === undefined) ? '' : String(w.yt_url);
+          var workUrl = (w.url === null || w.url === undefined) ? '' : String(w.url);
+          // 复用项目现有解析逻辑（与 refreshWorksGithubStats / main.js 的字段优先级一致），
+          // 不修改共享解析函数本身
+          var vid = parseYoutubeVideoId(ytUrl) || parseYoutubeVideoId(workUrl);
+          var hasStat = (w.yt_views !== null && w.yt_views !== undefined);
+          var diagnosis = !vid
+            ? '没有绑定有效视频 ID'
+            : (hasStat ? '已绑定有效视频 ID，且有播放量统计值' : '已绑定有效视频 ID，但尚无播放量统计值');
+          var info = {
+            workId: w.id,
+            workName: w.name,
+            ytUrl: ytUrl,
+            workUrl: workUrl,
+            parsedVideoId: vid || null,
+            ytViews: hasStat ? w.yt_views : null,
+            ytUpdatedAt: w.yt_updated_at || null,
+            play: (w.play === null || w.play === undefined) ? null : w.play,
+            createdAt: w.created_at || null,
+            updatedAt: w.updated_at || null,
+            diagnosis: diagnosis
+          };
+          console.log('[YT-BIND-DIAG]', info);
+          console.log('[YT-BIND-DIAG] workId=' + info.workId
+            + ' videoId=' + info.parsedVideoId
+            + ' ytViews=' + info.ytViews);
+        } catch(_e) {
+          // 诊断代码永远不能影响点击行为
+          console.warn('[YT-BIND-DIAG] failed:', _e && _e.message);
+        }
+      }, true);
     };
 
     // v1.5 UX：状态栏路由下拉（任务 22）
@@ -3604,16 +4267,16 @@ window.testWechatConnection=function(){
 
     document.getElementById('railBox').style.display=(r==='flow')?'':'none';
 
-    // 首秀向导：覆盖全部 flow 路由步骤；发布清单（step 12）的高亮交给 tabLaunch
-    document.getElementById('tabFlow').className=(r==='flow' && state && state.step!==12)?'on':'';
+    // 首秀向导：覆盖全部 flow 路由步骤（含 step 12 发布清单 —— 它与首秀最后一步共用同一页面）
+    document.getElementById('tabFlow').className=(r==='flow')?'on':'';
 
     document.getElementById('tabDash').className=(r==='dashboard')?'on':'';
 
     document.getElementById('tabChannels').className=(r==='channels')?'on':'';
 
-    // 「发布清单」入口：仅在 flow 路由 step 12 时高亮（与首秀向导最后一步共用一份页面）
-    var _tabLaunch = document.getElementById('tabLaunch');
-    if(_tabLaunch){ _tabLaunch.className=(r==='flow' && state && state.step===12)?'on':''; }
+    // v1.21：原此处有tabLaunch 的 className 赋值（配合 `state.step===12` 判断），
+    //   但该按钮的 DOM 早已从顶栏移除（顶栏现为 tabFlow / tabDash / tabChannels / tabWorks 四个），
+    //   判断永远不成立。已随空壳逻辑一并删除。
 
     document.getElementById('tabWorks').className=(r==='works')?'on':'';
 
@@ -3639,31 +4302,42 @@ window.testWechatConnection=function(){
     // v1.5 UX：同步底部状态栏（任务 17）
     if(typeof updateStatusBar==='function') updateStatusBar();
 
-    syncTopNav();
-
     window.scrollTo(0,0);
 
   }
 
   window.go=go;
 
-  // 顶栏导航的页面模式控制：当前 navtab 固定 4 个按钮（首秀 / 数据看板 / 推广渠道 / 我的作品），
-  // 「打通平台」是首秀向导内的 step 11，不再作为顶栏独立入口，故此函数无操作。
-  // 保留以兼容历史调用点（renderFlow 末尾、go 末尾），后续如需新增顶栏项再启用。
-  function syncTopNav(){
-    var tab=document.getElementById('tabPlatforms');
-    if(!tab) return;
-    var inWizardVideo = (typeof state!=='undefined') && state.route==='flow' && state.step===5;
-    tab.style.display = inWizardVideo ? 'none' : '';
-  }
-
-
+  // v1.21：原此处有 syncTopNav()，负责在向导视频步骤（step 5）隐藏顶栏「打通平台」入口。
+  //   但它操作的 tabPlatforms DOM 早已从顶栏移除，顶栏现固定为
+  //   tabFlow / tabDash / tabChannels / tabWorks 四个按钮，函数体首行即 `if(!tab) return`，
+  //   是完全的空壳。函数本身与两处调用点（renderFlow 末尾、go 末尾）一并删除。
 
   var STAGES=[{name:'交付作品'},{name:'AI 诊断'},{name:'录屏创作视频'},{name:'首秀计划'},{name:'打通平台'},{name:'发布清单'}];
 
+  // v1.21：发射成功后的「流程已结束」哨兵值。
+  //   与 step 13/14/15（选择语音生成方式 / 字幕编辑 / 字幕回放）刻意错开，
+  //   避免重演「发射成功后误渲染语音生成页」的问题（见 renderStep 的 STEP_DONE 分支）。
+  var STEP_DONE = 99;
+
+  // step → STAGES 阶段索引。归属依据是「用户在做什么」，不是数字大小：
+  //   0-3 交付作品 / 4 AI 诊断 / 5-9 + 13-15 录屏创作视频（含配音·字幕·成片）
+  //   10 首秀计划 / 11 打通平台 / 12 发布清单
+  //   STEP_DONE 返回 STAGES.length（= 6），超出数组长度 → renderRail 里 `i<now`
+  //   对所有阶段成立，六个阶段全显示 done（绿色对勾），即「流程已全部完成」。
+  //   v1.21 修正：13/14/15 是 v1.20 新增的配音链路，物理位置夹在 step 8 与 step 10 之间，
+  //   但语义上仍属于「录屏创作视频」阶段 —— 此前被误映射到 stage 4 / 5，
+  //   导致语音与字幕页面错误高亮「打通平台」/「发布清单」。
   function stageOf(step){
 
-    if(step<=3)return 0;if(step===4)return 1;if(step<=9)return 2;if(step===10)return 3;if(step===11)return 4;if(step===13||step===14)return 4;return 5;
+    if(step===STEP_DONE)return STAGES.length;
+    if(step<=3)return 0;
+    if(step===4)return 1;
+    if(step<=9)return 2;
+    if(step===13||step===14||step===15)return 2;
+    if(step===10)return 3;
+    if(step===11)return 4;
+    return 5;
 
   }
 
@@ -3672,8 +4346,13 @@ window.testWechatConnection=function(){
     var now=stageOf(state.step),html='';
 
     // v1.14：六个步骤改为可点击按钮，鼠标悬停 / 焦点都有反馈；点击后跳转
+    //   v1.21 修正：「当前阶段」原本用 `state.step>=13` 判定「已完成态」，
+    //   那是 v1.20 之前「进入 step 13 即视为流程走完」的遗留写法。
+    //   但13/14/15（配音·字幕·成片）现已归入 stage 2，仍属「录屏创作视频」进行中，
+    //   若沿用该条件会把进行中的阶段显示成 done（丢掉 now 的脉冲高亮）。
+    //   现在「已完成」只由 stageOf 的结果决定：now 之前的阶段才算 done。
     STAGES.forEach(function(s,i){
-      var cls = i<now || (state.step>=13 && i===now) ? 'done' : (i===now ? 'now' : '');
+      var cls = i<now ? 'done' : (i===now ? 'now' : '');
       var idx = i;
       var safeName = esc(s.name||'');
       html+='<button type="button" class="seg '+cls+'" data-rail-step="'+idx+'" data-rail-name="'+safeName+'" role="button" tabindex="0" aria-label="跳转到：'+safeName+'" title="'+safeName+' · 点击进入该步骤"><span class="dot"></span><span class="lab">'+safeName+'</span>'+(i<STAGES.length-1?'<span class="bar"></span>':'')+'</button>';
@@ -3954,8 +4633,7 @@ window.testWechatConnection=function(){
     // v1.5 UX：挂载聊天 / 命令（任务 23）
     if(typeof setupChatSlash==='function') setupChatSlash();
 
-    // 步骤变化后同步顶栏「打通平台」入口的显隐（向导视频步骤内隐藏）
-    if(typeof syncTopNav==='function') syncTopNav();
+    // v1.21：原此处调用 syncTopNav()（顶栏「打通平台」入口显隐），随该空壳函数一并移除。
 
   }
 
@@ -3964,6 +4642,10 @@ window.testWechatConnection=function(){
   function renderStep(ctrl){
 
     var s=state.step;
+
+    // v1.21：流程已结束（发射成功）。此时聊天流里已有「发射成功」卡片，
+    //   不再渲染任何后续步骤控件 —— ctrlBox 留空。
+    if(s===STEP_DONE){ctrl.innerHTML='';return;}
 
     if(s===0){ctrl.innerHTML='<div class="choice"><button class="btn" onclick="goNext(0)">开始首秀</button></div>';}
 
@@ -8479,27 +9161,52 @@ window.testWechatConnection=function(){
         '</div>';
     }
 
-    // 在线引擎：UI 占位（API 联调待逐个服务实现）
+    // 在线引擎面板（v1.21：OpenAI TTS / ElevenLabs TTS 已实现真实调用）
     function _onlinePanel(){
       if (kind !== 'ONLINE_SERVICE' || !ve.engineId) return '';
       var e = (ve.enginesCache || []).filter(function(x){ return x.id === ve.engineId; })[0];
       var implemented = !!(e && e.implemented);
       var providerLabel = (e && e.label) ? esc(e.label) : '未命名服务';
       var providerDesc = (e && e.description) ? esc(e.description) : '在线 AI 语音服务 —— 详细能力与配置取决于所选服务。';
-      // v1.20.8：状态板 —— 在线服务版本
+      var on = ve.online || {};
+      var _hasKey = !!on.apiKeyPresent;
+      var _oCfg = on.cfg || {};
+      // v1.21：把「认证检查」与「已合成音频」拆成两行独立状态，互不冒充
+      var _authLine, _genLine;
+      if (ve.probing) {
+        _authLine = '<span class="voicegen-status warn"><span class="st-dot"></span>正在验证…</span>';
+        _genLine = '';
+      } else if (ve.testError) {
+        _authLine = '';
+        _genLine = '<span class="voicegen-status bad"><span class="st-dot"></span>生成失败</span>';
+      } else if (ve.tested) {
+        _authLine = on.authOk ? '<span class="voicegen-status ok"><span class="st-dot"></span>认证通过</span>' : '';
+        _genLine = '<span class="voicegen-status ok"><span class="st-dot"></span>已生成测试语音</span>';
+      } else if (on.authOk) {
+        _authLine = '<span class="voicegen-status ok"><span class="st-dot"></span>认证通过（未合成）</span>';
+        _genLine = '<span class="voicegen-status warn"><span class="st-dot"></span>未生成测试语音</span>';
+      } else if (ve.reachable) {
+        _authLine = '<span class="voicegen-status ok"><span class="st-dot"></span>已连接（未合成）</span>';
+        _genLine = '<span class="voicegen-status warn"><span class="st-dot"></span>未生成测试语音</span>';
+      } else if (_hasKey) {
+        _authLine = '<span class="voicegen-status idle"><span class="st-dot"></span>未测试连接</span>';
+        _genLine = '<span class="voicegen-status idle"><span class="st-dot"></span>未测试生成</span>';
+      } else {
+        _authLine = '<span class="voicegen-status idle"><span class="st-dot"></span>未配置 API Key</span>';
+        _genLine = '<span class="voicegen-status idle"><span class="st-dot"></span>未测试生成</span>';
+      }
       var _oStateClass, _oStateIcon, _oStateTitle, _oStateSub;
-      // 是否有 API Key 在已实现时查询 secret store（在渲染层能读到的就是 state.voiceEngine.online.apiKeyPresent）
-      var _hasKey = !!(ve.online && ve.online.apiKeyPresent);
       if (!implemented) {
         _oStateClass = 'warn';
         _oStateIcon = '!';
         _oStateTitle = '该服务适配器尚未实现';
-        _oStateSub = 'Rokit 主进程没有为本服务提供 API Key 配置或调用代码。点击「跳过引擎选择」可绕过验证进入下一步。';
+        _oStateSub = 'Rokit 主进程没有为本服务提供 API 调用代码。点击「跳过引擎选择」可绕过验证进入下一步。';
       } else if (ve.testError) {
         _oStateClass = 'bad';
         _oStateIcon = '✕';
-        _oStateTitle = '上次测试失败';
-        _oStateSub = esc(ve.testError) + ' · 通常是 API Key 无效/过期，或余额不足';
+        _oStateTitle = '上次生成失败';
+        // 优先展示主进程给出的可操作提示，而不是裸 error code
+        _oStateSub = esc(ve.lastHint || ve.testError);
       } else if (ve.tested) {
         _oStateClass = 'ok';
         _oStateIcon = '✓';
@@ -8509,32 +9216,73 @@ window.testWechatConnection=function(){
         _oStateClass = 'idle';
         _oStateIcon = '○';
         _oStateTitle = '未配置 API Key';
-        _oStateSub = '请先到 Rokit 设置中配置 ' + esc(providerLabel) + ' 的凭据（keytar 加密保存，本地不落明文）。';
-      } else if (ve.reachable) {
+        _oStateSub = '请先到 Rokit 设置 →「线上配音」配置 ' + providerLabel + ' 的 API Key（仅写入本机 OS 凭据管理器，不落明文）。';
+      } else if (on.authOk) {
         _oStateClass = 'warn';
         _oStateIcon = '…';
-        _oStateTitle = '已连接在线服务 · 尚未生成测试语音';
-        _oStateSub = 'API Key 已验证通过，但实际合成能力还需要一次测试调用。';
+        _oStateTitle = '认证通过 · 尚未验证合成';
+        _oStateSub = '服务端接受了凭据，但这不代表能合成语音。请点「生成测试语音」实际合成一次。';
       } else {
         _oStateClass = 'idle';
         _oStateIcon = '○';
         _oStateTitle = '尚未验证在线服务';
-        _oStateSub = '点击下方「生成测试语音」会真实调用一次合成接口（可能产生少量费用）。';
+        _oStateSub = '「测试连接」只发一次轻量认证请求（不合成、不计费）；「生成测试语音」才会真正合成（可能产生少量费用）。';
       }
+      // 在线配置摘要：让用户一眼看到实际会用哪些模型 / 音色
+      var _cfgRows = [];
+      if (_oCfg.baseUrl) _cfgRows.push(['服务地址', _oCfg.baseUrl]);
+      if (_oCfg.model) _cfgRows.push(['模型', _oCfg.model]);
+      if (_oCfg.voice) _cfgRows.push(['音色', _oCfg.voice]);
+      if (_oCfg.voiceId) _cfgRows.push(['Voice ID', _oCfg.voiceId]);
+      if (_oCfg.modelId) _cfgRows.push(['模型 ID', _oCfg.modelId]);
+      if (_oCfg.outputFormat) _cfgRows.push(['输出格式', _oCfg.outputFormat]);
+      var _cfgHtml = _cfgRows.length
+        ? '<div class="voicegen-cap" style="margin-top:10px">' +
+            '<div style="font-weight:600;color:var(--primary-dark);margin-bottom:4px">当前配置</div>' +
+            _cfgRows.map(function(r){
+              return '<div class="cap-row"><span class="cap-k">' + esc(r[0]) + '</span><span class="cap-v">' + esc(r[1]) + '</span></div>';
+            }).join('') +
+            '<div class="voicegen-hint" style="margin-top:6px">在 Rokit 设置 →「线上配音」修改。</div>' +
+          '</div>'
+        : '';
+      // 失败诊断（不泄露密钥：主进程只回 error code + 可操作提示 + 截断后的响应体）
+      var _oDiag = '';
+      if (ve.testError && (ve.lastErrorDetail || ve.lastHint)) {
+        _oDiag = '<details class="voicegen-diag"><summary>查看诊断详情</summary>' +
+          (ve.lastHint ? '<div class="voicegen-hint" style="margin:6px 0"><b>建议：</b>' + esc(ve.lastHint) + '</div>' : '') +
+          (ve.lastErrorDetail ? '<pre class="voicegen-detail">' + esc(ve.lastErrorDetail) + '</pre>' : '') +
+          '</details>';
+      }
+      // ElevenLabs 必须有 Voice ID 才能合成 —— 在这里就拦住，别让用户白花钱
+      var _needVoiceId = (ve.engineId === 'elevenlabs-tts' && !String(_oCfg.voiceId || '').trim());
       return '<div class="voicegen-field">' +
-        '<div style="display:flex;align-items:center;gap:8px"><span style="font-size:14px;font-weight:600;color:var(--ink)">🔑 ' + providerLabel + '</span>' + _statusBadge() + '</div>' +
+        '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+          '<span style="font-size:14px;font-weight:600;color:var(--ink)">' + providerLabel + '</span>' +
+          _authLine + _genLine +
+        '</div>' +
         '<div class="voicegen-statecard ' + _oStateClass + '" id="veOnlineStateCard">' +
           '<div class="vs-ic">' + _oStateIcon + '</div>' +
           '<div class="vs-tx"><div class="vs-title">' + _oStateTitle + '</div><div class="vs-sub">' + _oStateSub + '</div></div>' +
-          ((implemented && _hasKey && !ve.tested && !ve.testError)
+          ((implemented && _hasKey && !ve.tested && !ve.testError && !_needVoiceId)
               ? '<div class="vs-act"><button class="btn sm" onclick="voiceEngineRunTest()">🎧 生成测试语音</button></div>'
               : '') +
         '</div>' +
+        _oDiag +
         '<div class="voicegen-hint" style="margin-top:8px;line-height:1.7">' + providerDesc + '</div>' +
         (implemented
             ? '<div class="voicegen-hint" style="margin-top:6px">⚠ 调用在线服务会按服务商计费，请先确认账户余额和用量。</div>'
             : '<div class="voicegen-hint" style="margin-top:6px;color:var(--accent-deep)">⚠ 该服务的适配器尚未在 Rokit 中实现。目前只能查看服务条目，<b>无法实际调用</b>。</div>'
           ) +
+        (_needVoiceId
+            ? '<div class="voicegen-hint" style="margin-top:8px;color:var(--accent-deep)">请先在设置 →「线上配音」填写 Voice ID 后再生成。</div>'
+            : '') +
+        (implemented
+            ? '<div style="display:flex;gap:8px;margin-top:10px;align-items:center;flex-wrap:wrap">' +
+                '<button class="btn ghost sm" id="veOnlineProbeBtn" onclick="voiceEngineOnlineProbe()"' + (ve.probing ? ' disabled' : '') + '>' + (ve.probing ? '测试中…' : '测试连接') + '</button>' +
+                '<span class="voicegen-hint" style="flex:1;min-width:200px">「测试连接」仅校验凭据（不合成、不计费）；「生成测试语音」会真实合成并可试听。</span>' +
+              '</div>'
+            : '') +
+        _cfgHtml +
         (implemented ? _audioHtml : '') +
         '</div>';
     }
@@ -8675,7 +9423,7 @@ window.testWechatConnection=function(){
         state.voiceEngine.local = { baseUrl: '' };
       }
       if (kind !== 'ONLINE_SERVICE') {
-        state.voiceEngine.online = { providerId: '', apiKeyPresent: false };
+        state.voiceEngine.online = { providerId: '', apiKeyPresent:false, cfg:null, authOk:false, authNote:'' };
       }
     }
     // 没有缓存引擎列表就拉一次
@@ -8712,17 +9460,32 @@ window.testWechatConnection=function(){
           state.voiceEngine.local.baseUrl = e.defaults.baseUrl;
         }
       } else if (state.voiceEngine.kind === 'ONLINE_SERVICE') {
+        if (!state.voiceEngine.online) state.voiceEngine.online = {};
         state.voiceEngine.online.providerId = engineId;
-        try {
-            if (window.api && typeof window.api.secretsStatus === 'function') {
-              window.api.secretsStatus().then(function(r){
-                if (!state.voiceEngine) state.voiceEngine = {};
-                if (!state.voiceEngine.online) state.voiceEngine.online = {};
-                state.voiceEngine.online.apiKeyPresent = !!(r && r.hasApiKey);
-                renderVoiceEngineStep(document.getElementById('ctrlBox'));
-              }).catch(function(){ /* 静默 */ });
-            }
-        } catch (_e) {}
+        state.voiceEngine.online.apiKeyPresent = false;
+        state.voiceEngine.online.cfg = null;
+        state.voiceEngine.online.authOk = false;
+        state.voiceEngine.online.authNote = '';
+        // 只读本地状态与配置：**不发任何线上请求**，不产生费用。
+        //   v1.20.8 旧实现读的是通用 LLM 的 secretsStatus.hasApiKey，
+        //   会把「配了文案模型 Key」误当成「配了语音服务 Key」，这里改成按引擎逐个查。
+        var _on = state.voiceEngine.online;
+        if (window.api && typeof window.api.secretsOnlineTtsKey === 'function') {
+          window.api.secretsOnlineTtsKey(engineId).then(function(r){
+            if (!state.voiceEngine || !state.voiceEngine.online) return;
+            if (state.voiceEngine.engineId !== engineId) return;
+            _on.apiKeyPresent = !!(r && r.ok && r.hasKey);
+            renderVoiceEngineStep(document.getElementById('ctrlBox'));
+          }).catch(function(){ /* 静默：查不到就当作未配置 */ });
+        }
+        if (window.api && typeof window.api.onlineTtsConfig === 'function') {
+          window.api.onlineTtsConfig(engineId).then(function(c){
+            if (!state.voiceEngine || !state.voiceEngine.online) return;
+            if (state.voiceEngine.engineId !== engineId) return;
+            if (c && c.ok) _on.cfg = c;
+            renderVoiceEngineStep(document.getElementById('ctrlBox'));
+          }).catch(function(){ /* 静默：用引擎默认值 */ });
+        }
       }
     }
     renderVoiceEngineStep(document.getElementById('ctrlBox'));
@@ -8848,18 +9611,70 @@ window.testWechatConnection=function(){
         renderVoiceEngineStep(document.getElementById('ctrlBox'));
       });
   };
+  // v1.21：线上引擎「测试连接」—— 只做一次轻量认证 GET（不合成、不计费）。
+  //   与「生成测试语音」是两个独立按钮、两套独立状态，互不冒充。
+  window.voiceEngineOnlineProbe = function(){
+    var ve = state.voiceEngine;
+    if (!ve || ve.kind !== 'ONLINE_SERVICE' || !ve.engineId) {
+      if (typeof toast === 'function') toast('请先选择在线引擎', true);
+      return;
+    }
+    if (ve.probing) { if (typeof toast === 'function') toast('测试进行中，请稍候', true); return; }
+    if (!window.api || !window.api.voiceEngineProbe) {
+      if (typeof toast === 'function') toast('voice-engine IPC 不可用（请重启 Rokit）', true);
+      return;
+    }
+    var cfg = Object.assign({}, (ve.online && ve.online.cfg) || {});
+    ve.probing = true;
+    if (!ve.online) ve.online = {};
+    ve.online.authOk = false;
+    ve.online.authNote = '';
+    renderVoiceEngineStep(document.getElementById('ctrlBox'));
+    window.api.voiceEngineProbe({ engineId: ve.engineId, config: cfg }).then(function(r){
+      ve.probing = false;
+      if (!state.voiceEngine || !state.voiceEngine.online) return;
+      ve.reachable = !!(r && r.ok);
+      ve.online.authOk = !!(r && r.ok);
+      ve.online.authNote = (r && r.probeNote) || '';
+      ve.capabilities = (r && r.capabilities) || {};
+      if (r && r.ok) {
+        // 认证通过 ≠ 合成可用：明确告知，不写 tested
+        if (typeof toast === 'function') toast('认证通过（未验证合成）', false);
+      } else {
+        ve.online.authOk = false;
+        ve.online.authNote = (r && r.actionableHint) || '';
+        if (typeof toast === 'function') toast('连接失败：' + ((r && r.actionableHint) || (r && r.error) || '未知错误'), true);
+      }
+      renderVoiceEngineStep(document.getElementById('ctrlBox'));
+    }).catch(function(e){
+      ve.probing = false;
+      if (state.voiceEngine && state.voiceEngine.online) state.voiceEngine.online.authOk = false;
+      ve.reachable = false;
+      ve.online.authNote = String(e && e.message || e);
+      if (typeof toast === 'function') toast('连接失败：' + ve.online.authNote, true);
+      renderVoiceEngineStep(document.getElementById('ctrlBox'));
+    });
+  };
   window.voiceEngineRunTest = function(){
     var ve = state.voiceEngine;
     if (!ve || !ve.engineId) { if (typeof toast === 'function') toast('请先选择引擎', true); return; }
     // 在线服务：未配置 Key 时禁止测试（避免产生费用）
     if (ve.kind === 'ONLINE_SERVICE' && !(ve.online && ve.online.apiKeyPresent)) {
-      if (typeof toast === 'function') toast('请先在 Rokit 设置中配置此服务的凭据', true);
+      if (typeof toast === 'function') toast('请先在 Rokit 设置 →「线上配音」配置此服务的 API Key', true);
       return;
     }
     // 本地服务：必须先检测连接
     if (ve.kind === 'LOCAL_MODEL' && !ve.reachable) {
       if (typeof toast === 'function') toast('请先检测本地服务连接', true);
       return;
+    }
+    // v1.21：ElevenLabs 缺 Voice ID 时直接拦住，不去打服务端（避免无谓计费）
+    if (ve.kind === 'ONLINE_SERVICE' && ve.engineId === 'elevenlabs-tts') {
+      var _vid = String((ve.online && ve.online.cfg && ve.online.cfg.voiceId) || '').trim();
+      if (!_vid) {
+        if (typeof toast === 'function') toast('请先在设置 →「线上配音」填写 Voice ID', true);
+        return;
+      }
     }
     var text = '';
     var tEl = document.getElementById('veTestText');
@@ -8893,7 +9708,9 @@ window.testWechatConnection=function(){
     function _runWithRef(b64, mime){
       var cfg = {};
       if (ve.kind === 'LOCAL_MODEL') cfg.baseUrl = ve.local.baseUrl;
-      else if (ve.kind === 'ONLINE_SERVICE') cfg.providerId = ve.engineId;
+      // v1.21：线上引擎把设置页保存的非敏感参数（baseUrl / model / voice / voiceId …）
+      //   一并透传给适配器。密钥**不在这里**——主进程自己从 keytar 读。
+      else if (ve.kind === 'ONLINE_SERVICE') cfg = Object.assign({ providerId: ve.engineId }, (ve.online && ve.online.cfg) || {});
       window.api.voiceEngineTestGenerate({
         engineId: ve.engineId,
         config: cfg,
@@ -9162,31 +9979,6 @@ window.testWechatConnection=function(){
     if (!opts.skipExtend && (sd.__capDraggingSegment === true || sd.__capDraggingFrozenMove === true)) {
       opts = Object.assign({}, opts, { skipExtend: true });
     }
-    // [diag-once] viewRange 重计算入口：记 vaDur / finalDur / 旧 viewRange.end，与 after 对账
-    try { console.log('[caption-diag] _capRecomputeViewRange before', {
-      vaDuration: va && typeof va.duration === 'number' ? va.duration : null,
-      baseDuration: (typeof sd._capBaseDuration === 'number' && isFinite(sd._capBaseDuration)) ? sd._capBaseDuration : null,
-      frozenFramesLength: (sd.frozenFrames || []).length,
-      // 与 _capFinalOutputDuration() 严格一致：f.duration > 0 才计入；不另用门槛。
-      sumFrozen: (typeof _capFinalOutputDuration === 'function'
-        ? (function(){
-            var sd0 = state && state.subtitleData;
-            var va0 = state && state.videoAsset;
-            var base = (va0 && typeof va0.duration === 'number' && va0.duration > 0) ? va0.duration : (function(){var s=sd0||{}; return s._capBaseDuration;})();
-            if (typeof base !== 'number' || !isFinite(base) || base <= 0) base = 0;
-            var sum = 0;
-            (sd0 && sd0.frozenFrames || []).forEach(function(f){ var d = (typeof f.duration === 'number' && f.duration > 0) ? f.duration : 0; sum += d; });
-            return sum;
-          })()
-        : (sd.frozenFrames || []).reduce(function(a, f){ return a + ((typeof f.duration === 'number' && f.duration > 0) ? f.duration : 0); }, 0)),
-      finalDur: typeof _capFinalOutputDuration === 'function' ? _capFinalOutputDuration() : null,
-      prevViewRangeStart: sd.viewRange && sd.viewRange.start,
-      prevViewRangeEnd: sd.viewRange && sd.viewRange.end,
-      segCount: (sd.segments || []).length,
-      cutCount: (sd.cuts || []).length,
-      frozenCount: (sd.frozenFrames || []).length,
-      sumFrozenDuration: (sd.frozenFrames || []).reduce(function(a, f){ return a + ((typeof f.duration === 'number' && f.duration > 0) ? f.duration : 0); }, 0)
-    }); } catch (_) {}
     var vaDur = (va && typeof va.duration === 'number' && va.duration > 0) ? va.duration : 0;
     // 固定修复：字幕拖动反馈环。
     //   当无有效 videoAsset.duration 时，_capFinalOutputDuration() 的 base 经 _captionGetDuration()
@@ -9253,28 +10045,6 @@ window.testWechatConnection=function(){
     if (end < 6) end = 6; // 极小视频保留最低 6s
     if (!sd.viewRange) sd.viewRange = { start: 0, end: end };
     else sd.viewRange.end = end;
-    // [caption-diag] viewRange 重计算完成
-    try { console.log('[caption-diag] _capRecomputeViewRange after', {
-      playheadSec: sd.playheadSec,
-      viewRangeStart: sd.viewRange && sd.viewRange.start,
-      viewRangeEnd: sd.viewRange && sd.viewRange.end,
-      finalDur: typeof _capFinalOutputDuration === 'function' ? _capFinalOutputDuration() : null,
-      baseDuration: (typeof sd._capBaseDuration === 'number' && isFinite(sd._capBaseDuration)) ? sd._capBaseDuration : null,
-      frozenFramesLength: (sd.frozenFrames || []).length,
-      sumFrozen: (typeof _capFinalOutputDuration === 'function'
-        ? (function(){
-            var sd0 = state && state.subtitleData;
-            var va0 = state && state.videoAsset;
-            var base = (va0 && typeof va0.duration === 'number' && va0.duration > 0) ? va0.duration : (function(){var s=sd0||{}; return s._capBaseDuration;})();
-            if (typeof base !== 'number' || !isFinite(base) || base <= 0) base = 0;
-            var sum = 0;
-            (sd0 && sd0.frozenFrames || []).forEach(function(f){ var d = (typeof f.duration === 'number' && f.duration > 0) ? f.duration : 0; sum += d; });
-            return sum;
-          })()
-        : (sd.frozenFrames || []).reduce(function(a, f){ return a + ((typeof f.duration === 'number' && f.duration > 0) ? f.duration : 0); }, 0)),
-      vaDuration: va && typeof va.duration === 'number' ? va.duration : null,
-      pxps: _captionPxPerSec()
-    }); } catch (_) {}
   }
 
   // 最终输出时长 = 原视频时长 + 全部冻结段时长之和
@@ -10211,61 +10981,19 @@ window.testWechatConnection=function(){
     var outT = sd.playheadSec || 0;
     // 先尝试锚定 frozen（如果在 frozen 内）
     var anchored = _capAnchorVideoToFrozen(outT, sd);
-    // v1.20.x（本轮诊断）：只增加日志,不改任何业务路径/调用频率/阈值。
-    //   全局计数器 window.__capApplyDiagCount 累计本函数总调用次数,前 20 次打印一条
-    //   [caption-diag] applyVideoState。frozen 分支不复算 srcT,避免重复调用既有函数。
-    var _capApplyDiagCount;
     if (anchored) {
-      try {
-        _capApplyDiagCount = (window.__capApplyDiagCount = (window.__capApplyDiagCount || 0) + 1);
-        if (_capApplyDiagCount <= 20) {
-          console.log('[caption-diag] applyVideoState', {
-            callIndex: _capApplyDiagCount,
-            branch: 'frozen-anchored',
-            outT: outT,
-            anchored: true,
-            srcT: '(frozen-anchored-not-computed)',
-            videoReady: !!(el && isFinite(el.duration || 0)),
-            curPreSeek: el ? (el.currentTime || 0) : null,
-            didSeek: false
-          });
-        }
-      } catch (_) {}
       return;
     }
     // 不在 frozen：按 srcT 跟随
     var srcT = _capOutputToSource(outT);
-    var videoReady = !!(el && isFinite(el.duration || 0));
-    var curPreSeek = el ? (el.currentTime || 0) : null;
-    var didSeek = false;
     if (el && isFinite(el.duration || 0)) {
       try {
         if (Math.abs((el.currentTime || 0) - srcT) > 0.1) {
           _capSeekInternal++;
           el.currentTime = srcT;
-          didSeek = true;
         }
       } catch (_) {}
     }
-    var absDiffCurVsSrc = (curPreSeek !== null) ? Math.abs(curPreSeek - srcT) : null;
-    try {
-      _capApplyDiagCount = (window.__capApplyDiagCount = (window.__capApplyDiagCount || 0) + 1);
-      if (_capApplyDiagCount <= 20) {
-        console.log('[caption-diag] applyVideoState', {
-          callIndex: _capApplyDiagCount,
-          branch: 'non-frozen',
-          outT: outT,
-          anchored: false,
-          srcT: srcT,
-          videoReady: videoReady,
-          curPreSeek: curPreSeek,
-          absDiffCurVsSrc: absDiffCurVsSrc,
-          threshold0p1: (absDiffCurVsSrc !== null) ? (absDiffCurVsSrc > 0.1) : false,
-          didSeek: didSeek,
-          curPostSeek: el ? (el.currentTime || 0) : null
-        });
-      }
-    } catch (_) {}
   }
 
   // ========= 时间轴 =========
@@ -10869,51 +11597,18 @@ window.testWechatConnection=function(){
         //   右键（button===2）走独立的 contextmenu（生成冻结/切点、显示菜单），不被本
         //   listener 拦截，避免右键导致播放头意外移动或贴左。
         if (ev.button !== 0) return;
-        // [caption-diag] 父容器 pointerdown 入口：打印 ev.target / 真实顶层 / 指针基础信息
-        try {
-          var _t = ev.target;
-          var _tKind = !_t ? 'null' : (_t.getAttribute ? (
-            _t.getAttribute('data-ph-handle') !== null ? 'ph(' + (_t.getAttribute('data-ph-track') || '?') + ')' :
-            _t.getAttribute('data-seg-resize') ? 'seg-resize/' + _t.getAttribute('data-seg-resize') :
-            _t.getAttribute('data-seg-id') ? 'seg' :
-            _t.getAttribute('data-seg-act') === 'menu' ? 'seg-menu' :
-            _t.getAttribute('data-cut-id') ? 'cut' :
-            _t.getAttribute('data-fz-id') ? 'fz' :
-            (_t.tagName ? _t.tagName.toLowerCase() : 'unknown')
-          ) : 'no-getAttribute');
-          var _top = document.elementFromPoint(ev.clientX, ev.clientY);
-          var _topKind = !_top ? 'null' : (_top.getAttribute ? (
-            _top.getAttribute('data-ph-handle') !== null ? 'ph(' + (_top.getAttribute('data-ph-track') || '?') + ')' :
-            _top.getAttribute('data-seg-resize') ? 'seg-resize/' + _top.getAttribute('data-seg-resize') :
-            _top.getAttribute('data-seg-id') ? 'seg' :
-            _top.getAttribute('data-seg-act') === 'menu' ? 'seg-menu' :
-            _top.getAttribute('data-cut-id') ? 'cut' :
-            _top.getAttribute('data-fz-id') ? 'fz' :
-            (_top.tagName ? _top.tagName.toLowerCase() : 'unknown')
-          ) : 'no-getAttribute');
-          console.log('[caption-diag] sub parent pointerdown', {
-            evTargetKind: _tKind,
-            elementFromPointKind: _topKind,
-            clientX: ev.clientX,
-            clientY: ev.clientY,
-            pointerId: ev.pointerId
-          });
-        } catch (_) {}
         // 播放头 hit 区域：自己的拖动 handler 处理
         if (ev.target && ev.target.getAttribute && ev.target.getAttribute('data-ph-handle') !== null) {
-          try { console.log('[caption-diag] sub branch: handle -> drag playhead'); } catch (_) {}
           _captionDragPlayhead(ev, 'subtitle');
           return;
         }
         // 字幕段 / 切点 / 冻结 拖动：让它们的 handler 处理（不进 seek 路径）
         if (ev.target && ev.target.closest) {
           if (ev.target.closest('[data-seg-id]') || ev.target.closest('[data-seg-resize]')) {
-            try { console.log('[caption-diag] sub branch: segment/resize (other handler owns)'); } catch (_) {}
             return;
           }
         }
         // 空白处：seek 到点击位置
-        try { console.log('[caption-diag] sub branch: seek'); } catch (_) {}
         _captionSeekFromEvent(ev, sub);
       });
       // 字幕轨道接收 drop
@@ -11054,47 +11749,14 @@ window.testWechatConnection=function(){
         //   右键（button===2）走独立的 contextmenu（生成冻结、显示菜单），不被本 listener 拦截，
         //   避免右键导致播放头意外移动或贴左。切点 / frozen 自己有 listener 处理右键菜单。
         if (ev.button !== 0) return;
-        // [caption-diag] 父容器 pointerdown 入口：打印 ev.target / 真实顶层 / 指针基础信息
-        try {
-          var _t2 = ev.target;
-          var _t2Kind = !_t2 ? 'null' : (_t2.getAttribute ? (
-            _t2.getAttribute('data-ph-handle') !== null ? 'ph(' + (_t2.getAttribute('data-ph-track') || '?') + ')' :
-            _t2.getAttribute('data-seg-resize') ? 'seg-resize/' + _t2.getAttribute('data-seg-resize') :
-            _t2.getAttribute('data-seg-id') ? 'seg' :
-            _t2.getAttribute('data-seg-act') === 'menu' ? 'seg-menu' :
-            _t2.getAttribute('data-cut-id') ? 'cut' :
-            _t2.getAttribute('data-fz-id') ? 'fz' :
-            (_t2.tagName ? _t2.tagName.toLowerCase() : 'unknown')
-          ) : 'no-getAttribute');
-          var _top2 = document.elementFromPoint(ev.clientX, ev.clientY);
-          var _top2Kind = !_top2 ? 'null' : (_top2.getAttribute ? (
-            _top2.getAttribute('data-ph-handle') !== null ? 'ph(' + (_top2.getAttribute('data-ph-track') || '?') + ')' :
-            _top2.getAttribute('data-seg-resize') ? 'seg-resize/' + _top2.getAttribute('data-seg-resize') :
-            _top2.getAttribute('data-seg-id') ? 'seg' :
-            _top2.getAttribute('data-seg-act') === 'menu' ? 'seg-menu' :
-            _top2.getAttribute('data-cut-id') ? 'cut' :
-            _top2.getAttribute('data-fz-id') ? 'fz' :
-            (_top2.tagName ? _top2.tagName.toLowerCase() : 'unknown')
-          ) : 'no-getAttribute');
-          console.log('[caption-diag] scene parent pointerdown', {
-            evTargetKind: _t2Kind,
-            elementFromPointKind: _top2Kind,
-            clientX: ev.clientX,
-            clientY: ev.clientY,
-            pointerId: ev.pointerId
-          });
-        } catch (_) {}
         if (ev.target && ev.target.getAttribute && ev.target.getAttribute('data-ph-handle') !== null) {
-          try { console.log('[caption-diag] scene branch: handle -> drag playhead'); } catch (_) {}
           _captionDragPlayhead(ev, 'scene');
           return;
         }
         // 切点 / frozen 右键自己有 listener，左键这里只关心空白
         if (isInFrozenOrCut(ev.target)) {
-          try { console.log('[caption-diag] scene branch: cut/frozen (other handler owns)'); } catch (_) {}
           return;
         }
-        try { console.log('[caption-diag] scene branch: seek'); } catch (_) {}
         _captionSeekFromEvent(ev, scene);
       });
     }
@@ -11106,53 +11768,6 @@ window.testWechatConnection=function(){
     // v1.20.10 第 1 阶段：每次重建 innerHTML 之前先 flush 当前编辑态，避免 input 被销毁导致修改丢失
     //   或"其他 row 看起来不能编辑"。
     _capFlushEditState();
-    // [caption-diag-pxps] P2-2：每次 render 时输出比例审计（仅读取字段，不修改任何状态）。
-    //   - callSeq：自增序号，方便关联 before / after / frozen change 三段日志。
-    //   - pxps / viewRange.start / viewRange.end / finalDur 的真实取值。
-    //   - 已存在字幕段的 outStart / outEnd / left / width，以及 frozen 段的 at / end / duration / outAt / outEnd。
-    //   - 仅这次任务诊断用，复现后删除 [caption-diag-pxps] 段。
-    try {
-      var _diagSeq = (window.__capPxpsDiagSeq = (window.__capPxpsDiagSeq || 0) + 1);
-      var _va = state.videoAsset;
-      var _vaDur = (_va && typeof _va.duration === 'number' && _va.duration > 0) ? _va.duration : 0;
-      var _pxps = _captionPxPerSec();
-      var _vr = _captionRange();
-      var _sumFrozenDuration = (sd && sd.frozenFrames || []).reduce(function(a, f){ return a + ((typeof f.duration === 'number' && f.duration > 0) ? f.duration : 0); }, 0);
-      var _finalDur = typeof _capFinalOutputDuration === 'function' ? _capFinalOutputDuration() : null;
-      var _subInnerWidth = Math.round((_vr.end || 0) * _pxps);
-      var _segs = sd ? (sd.segments || []) : [];
-      var _segAudit = _segs.map(function(s){
-        var oS = Number.isFinite(s.outStart) ? s.outStart : _capSourceToOutput(typeof s.start === 'number' ? s.start : 0);
-        var oE = Number.isFinite(s.outEnd)   ? s.outEnd   : _capSourceToOutput(typeof s.end   === 'number' ? s.end   : 0);
-        var left  = (oS - (_vr.start || 0)) * _pxps;
-        var width = Math.max(8, (oE - oS) * _pxps);
-        return { id: s.id, outStart: oS, outEnd: oE, left: left, width: width, audioSec: s.audioSec };
-      });
-      var _frAudit = (sd ? (sd.frozenFrames || []) : []).map(function(f){
-        var fAt = (typeof f.at === 'number') ? f.at : 0;
-        var fEnd = (typeof f.end === 'number' && f.end > fAt) ? f.end : (fAt + ((typeof f.duration === 'number') ? f.duration : 0));
-        return {
-          id: f.id, at: fAt, end: fEnd, duration: (typeof f.duration === 'number') ? f.duration : null,
-          outAt: _capSourceToOutput(fAt), outEnd: _capSourceToOutput(fEnd)
-        };
-      });
-      console.log('[caption-diag-pxps] _capRender before', {
-        callSeq: _diagSeq,
-        pxps: _pxps,
-        viewRangeStart: _vr.start,
-        viewRangeEnd: _vr.end,
-        viewRangeEnd_x_pxps: _subInnerWidth,
-        vaDuration: _vaDur,
-        sumFrozenDuration: _sumFrozenDuration,
-        finalDurSource: _vaDur > 0 ? 'vaDuration+sumFrozen' : '_captionGetDuration (sd._capBaseDuration)',
-        finalDur: _finalDur,
-        segCount: _segAudit.length,
-        segments: _segAudit,
-        frozenCount: _frAudit.length,
-        frozen: _frAudit
-      });
-    } catch (_) {}
-
     var box = document.querySelector('#captionTracks');
     var bank = document.querySelector('#captionBank');
     if (box) box.innerHTML = renderCaptionsTimelineHeader() + '<div style="height:8px"></div>' + renderCaptionsSubtitleTrack(sd) + '<div style="height:8px"></div>' + renderCaptionsSceneTrack(sd, state.videoAsset);
@@ -11182,32 +11797,6 @@ window.testWechatConnection=function(){
     } catch (_) {}
     // v1.20.x（本轮）：每次 render 同步刷新顶部时长 / 文件名 / 时间标签
     _capUpdateTopLabels();
-    // [caption-diag-pxps] P2-2：render 完成后的 after 快照。
-    //   渲染完毕 innerHTML 已经写入。sd 自身没被本次 render 修改 —— 验收"old cache 未被读到"
-    //   通过比对 callSeq 对齐的 before/after：pxps / viewRange / finalDur 必须一致。
-    try {
-      var _diagSeq2 = (window.__capPxpsDiagSeqAfter = (window.__capPxpsDiagSeqAfter || 0) + 1);
-      var _pxps2 = _captionPxPerSec();
-      var _vr2 = _captionRange();
-      var _finalDur2 = typeof _capFinalOutputDuration === 'function' ? _capFinalOutputDuration() : null;
-      console.log('[caption-diag-pxps] _capRender after', {
-        callSeq: _diagSeq2,
-        pxps: _pxps2,
-        viewRangeStart: _vr2.start,
-        viewRangeEnd: _vr2.end,
-        viewRangeEnd_x_pxps: Math.round((_vr2.end || 0) * _pxps2),
-        finalDur: _finalDur2,
-        // 实际写入 DOM 的 inner 宽：与 viewRange_end_x_pxps 应一致
-        subInnerWidthInDOM: (function(){
-          var el = document.querySelector('#captionSubTrack [data-sub-inner]');
-          return el ? el.clientWidth : null;
-        })(),
-        sceneInnerWidthInDOM: (function(){
-          var el = document.querySelector('#captionSceneTrack [data-scene-inner]');
-          return el ? el.clientWidth : null;
-        })()
-      });
-    } catch (_) {}
   }
   function _capPersist(){
     try { persistWorkSafely && persistWorkSafely(); } catch (_e) {}
@@ -11272,96 +11861,12 @@ window.testWechatConnection=function(){
     //   既不抓指针也不更新 sd.playheadSec。切点路径（[L10540](file:///c:/workspace/rokit/ai-launch-master/index.html#L10540)）若因真实顶层是
     //   [data-ph-handle] 而派发到本函数，同样被这道兜底防线挡住。
     if (ev.button !== 0) return;
-    // [caption-diag] ZERO entry: 不可绕过的最早期日志,放在 ev.preventDefault 之前并包 try{},
-    //   用于证伪「Electron 是否真的热加载了修改后的 HTML」：
-    //   - 若本行与下面的 drag entry pre-guard 都不打印,说明函数体根本未被进入(调用点调用的是一个别处重定义的副本)
-    //   - 若仅本行打印但 drag start 不打印,说明函数体进入但中途异常/早退
-    //   - 同时累加 window.__capDragEnterCount / LastAt,可独立于 console 在 DevTools 中观测
-    try {
-      window.__capDragEnterCount = (window.__capDragEnterCount || 0) + 1;
-      window.__capDragEnterLastAt = Date.now();
-      console.log('[caption-diag] drag ZERO entry', {
-        ver: 'pre-guard-v1-2026-10-17T03',
-        callCount: window.__capDragEnterCount,
-        evDefined: typeof ev !== 'undefined',
-        trackKind: trackKind,
-        sdType: typeof state.subtitleData,
-        sdTruthy: !!state.subtitleData,
-        globalStateIsObj: typeof state === 'object' && state !== null,
-        stateHasSub: !!(state && 'subtitleData' in state)
-      });
-    } catch (_) {}
-    // [caption-diag] DOM marker 1: 在 <body> 上写一个 data 属性,完全不依赖 console / hook / overlay,
-    //   用于证伪「函数是否真的执行过这一行」。如果 marker 1 都看不到,函数体内中断了。
-    try { document.body && document.body.setAttribute('data-cap-marker', 'after-zero-entry'); } catch (_) {}
-    // [caption-diag] 各自 try/catch 包住 ev.preventDefault / ev.stopPropagation: 已知 ZERO entry 能打印
-    //   但 drag entry pre-guard 不能打印,中间只剩这两行同步调用;其中之一必抛错。
-    //   抛错时打印 [warn] 日志(前缀仍是 [caption-diag] 让 overlay 镜像),不影响现有不抛错场景下的行为。
-    try {
-      ev.preventDefault();
-    } catch (e) {
-      try { console.warn('[caption-diag] preventDefault THREW', {
-        errMsg: (e && (e.message || String(e))) || '(no message)',
-        errName: (e && e.name) || '(no name)',
-        passiveLike: !!(ev && ev.cancelable === false),
-        isTrusted: !!(ev && ev.isTrusted),
-        eventType: ev && ev.type || '(no type)',
-        pointerId: ev && ev.pointerId
-      }); } catch (_) {}
-    }
-    // [caption-diag] DOM marker 2: 在 <body> 上写一个 data 属性,证伪「是否通过了 preventDefault」。
-    try { document.body && document.body.setAttribute('data-cap-marker', 'after-preventDefault'); } catch (_) {}
-    try {
-      ev.stopPropagation();
-    } catch (e) {
-      try { console.warn('[caption-diag] stopPropagation THREW', {
-        errMsg: (e && (e.message || String(e))) || '(no message)',
-        errName: (e && e.name) || '(no name)',
-        isTrusted: !!(ev && ev.isTrusted),
-        eventType: ev && ev.type || '(no type)'
-      }); } catch (_) {}
-    }
-    // [caption-diag] DOM marker 3: 在 <body> 上写一个 data 属性,证伪「是否通过了 stopPropagation」。
-    try { document.body && document.body.setAttribute('data-cap-marker', 'after-stopPropagation'); } catch (_) {}
-    // [caption-diag] drag entry pre-guard: 唯一一次从这条分支顶部捕获 state.subtitleData 的瞬时状态,
-    //   用于解释为何 sd 在 _capRecomputeViewRange after 打印时为 truthy,但 click 之后此函数早退。
-    //   必须放在 if (!sd) return; 之前并包 try{},即便 sd 为 null/undefined 也不抛错。
-    try { document.body && document.body.setAttribute('data-cap-marker', 'pre-guard-before-log'); } catch (_) {}
-    try {
-      var _sd = state.subtitleData;
-      var _sdOwnPH = false;
-      try { _sdOwnPH = !!(_sd && Object.prototype.hasOwnProperty.call(_sd, 'playheadSec')); } catch (_) {}
-      console.log('[caption-diag] drag entry pre-guard', {
-        trackKind: trackKind,
-        sdType: typeof _sd,
-        sdIsNull: _sd === null,
-        sdIsUndefined: typeof _sd === 'undefined',
-        sdTruthy: !!_sd,
-        sdHasPlayheadSec: _sdOwnPH,
-        playheadSecAtEntry: (_sd && _sd.playheadSec !== undefined ? _sd.playheadSec : '(missing)'),
-        stateReassigned: (typeof window !== 'undefined' && window.state !== undefined ? (window.state !== state) : 'no-window-state'),
-        callerChain: (_capIsSeeking === true ? 're-entry-during-drag' : 'fresh-entry')
-      });
-    } catch (_) {}
-    try { document.body && document.body.setAttribute('data-cap-marker', 'pre-guard-after-log'); } catch (_) {}
+    ev.preventDefault();
+    ev.stopPropagation();
     var sd = state.subtitleData;
     if (!sd) return;
     // 进入拖动状态
     _capIsSeeking = true;
-    // [caption-diag] 拖动开始
-    try {
-      var _phTargetTag = ev.target && ev.target.tagName;
-      var _phHasHandleAttr = !!(ev.target && ev.target.getAttribute && ev.target.getAttribute('data-ph-handle') !== null);
-      console.log('[caption-diag] drag start', {
-        trackKind: trackKind,
-        pointerId: ev.pointerId,
-        pointerType: ev.pointerType,
-        clientX: ev.clientX,
-        targetTag: _phTargetTag,
-        targetHasDataPhHandle: _phHasHandleAttr,
-        playheadSec: sd.playheadSec
-      });
-    } catch (_) {}
     var vid = document.getElementById('captionVideoEl');
     if (vid && !vid.paused) {
       try { vid.pause(); } catch (_) {}
@@ -11382,29 +11887,15 @@ window.testWechatConnection=function(){
         && typeof ev.pointerId === 'number' && ev.pointerId > 0) {
       try {
         handleEl.setPointerCapture(ev.pointerId);
-        try { console.log('[caption-diag] setPointerCapture ok', { pointerId: ev.pointerId }); } catch (_) {}
       } catch (e) {
         try { console.warn('[caption-diag] setPointerCapture fail', { pointerId: ev.pointerId, err: (e && (e.message || e.code || String(e))) }); } catch (_) {}
       }
-    } else {
-      try {
-        console.log('[caption-diag] setPointerCapture skipped', {
-          hasHandleEl: !!handleEl,
-          hasSetPointerCaptureFn: handleEl && typeof handleEl.setPointerCapture === 'function',
-          pointerId: ev.pointerId,
-          pointerIdType: typeof ev.pointerId
-        });
-      } catch (_) {}
     }
-    // [caption-diag] setPointerCapture 块整体通过的 confirm 标记
-    try { console.log('[caption-diag] post-setPointerCapture', { trackKind: trackKind, sdTruthy: !!sd, sdPlayheadSec: sd && sd.playheadSec }); } catch (_) {}
     // 找拖动起点对应的「轨道 inner 像素 → 输出时间」换算：
     //   - 起点可能落在 data-sub-inner 或 data-scene-inner；优先用 ev.target.closest 决定
     //   - x = clientX - rect.left + scrollLeft
     //   - outT = x / pxps
     function pxAtPoint(clientX, target){
-      // [caption-diag] pxAtPoint 第一次调用打印返回值(后续调用都通过 onMove 上的 counter 处理)
-      var _pxFirst = !(window.__capPxAtPointCalled);
       var inner = (target && target.closest && target.closest('[data-sub-inner],[data-scene-inner]')) || null;
       if (!inner) {
         // 兜底：用 captionSubTrack
@@ -11414,66 +11905,15 @@ window.testWechatConnection=function(){
       var rect = inner.getBoundingClientRect();
       var x = (clientX - rect.left) + (inner.scrollLeft || 0);
       var pxps = _captionPxPerSec();
-      var _pxRet = x / pxps;
-      if (_pxFirst) {
-        try {
-          window.__capPxAtPointCalled = true;
-          console.log('[caption-diag] pxAtPoint first-call', {
-            innerFound: !!inner,
-            innerTrack: inner && inner.getAttribute && (inner.getAttribute('data-sub-inner') !== null ? 'sub' : (inner.getAttribute('data-scene-inner') !== null ? 'scene' : '?')),
-            rectLeft: rect.left,
-            rectWidth: rect.width,
-            clientX: clientX,
-            x: x,
-            pxps: pxps,
-            ret: _pxRet,
-            isFinite: isFinite(_pxRet)
-          });
-        } catch (_) {}
-      }
-      return _pxRet;
+      return x / pxps;
     }
     var pxAtStart = pxAtPoint(ev.clientX, ev.target);
     var sdOutAtStart = sd.playheadSec || 0;
-    // [caption-diag] 仅在首次 onMove 打印一次
-    var _capDiagFirstMove = false;
     // 增量换算：startX 时已经处于 sdOutAtStart，鼠标移过 ds 像素 → outT = sdOutAtStart + ds
     function onMove(e){
-      // [caption-diag] onMove 入口: 全局计数器 + e.buttons / e.pointerId / trackKind
-      window.__capOnMoveCount = (window.__capOnMoveCount || 0) + 1;
-      var _omc = window.__capOnMoveCount;
-      var _omLog = (_omc <= 10 || _omc % 20 === 0);
-      if (_omLog) {
-        try {
-          console.log('[caption-diag] onMove entry', {
-            moveCount: _omc,
-            trackKind: trackKind,
-            evButtons: e.buttons,
-            evPointerId: e.pointerId,
-            evPointerType: e.pointerType,
-            evCancelable: !!(e.cancelable),
-            clientX: e.clientX,
-            clientY: e.clientY
-          });
-        } catch (_) {}
-      }
       var pxNow = pxAtPoint(e.clientX, e.target);
       var ds = pxNow - pxAtStart;
       var outT = sdOutAtStart + ds;
-      if (!_capDiagFirstMove) {
-        _capDiagFirstMove = true;
-        try {
-          console.log('[caption-diag] first onMove', {
-            clientX: e.clientX,
-            pxNow: pxNow,
-            pxAtStart: pxAtStart,
-            ds: ds,
-            outT: outT,
-            sdOutAtStart: sdOutAtStart,
-            finalDur: _capFinalOutputDuration()
-          });
-        } catch (_) {}
-      }
       // 钳制到 [0, outputDuration]
       var finalDur = _capFinalOutputDuration();
       if (outT < 0) outT = 0;
@@ -11482,28 +11922,6 @@ window.testWechatConnection=function(){
       // 轻量更新：直接改 DOM + 同步 video，不重建 timeline
       _capApplyVideoState();
       _capUpdatePlayheadUI();
-      // [caption-diag] onMove post-update: 读 playhead DOM style.left + sd.playheadSec
-      if (_omLog) {
-        try {
-          var _phLs = [];
-          var _phEls2 = document.querySelectorAll('[data-ph-handle]');
-          for (var _pi3 = 0; _pi3 < _phEls2.length; _pi3++) {
-            _phLs.push({
-              track: _phEls2[_pi3].getAttribute('data-ph-track'),
-              left: _phEls2[_pi3].style.left || '(unset)'
-            });
-          }
-          console.log('[caption-diag] onMove post-update DOM', {
-            moveCount: _omc,
-            sdPlayheadSec: sd.playheadSec,
-            outT: outT,
-            finalDur: finalDur,
-            handleLefts: _phLs,
-            isSeeking: _capIsSeeking,
-            dragDone: dragDone
-          });
-        } catch (_) {}
-      }
     }
     // v1.20.x（本轮）：pointercancel 与 window blur 异常结束路径。
     //   与 pointerup 共用 _capIsSeeking=false + 监听器清理，但**不**调用 _capPersist /
@@ -11513,8 +11931,6 @@ window.testWechatConnection=function(){
     //   不会出现双清理或双调 onUp 副作用（典型场景：OS 先发 pointercancel 又发 blur）。
     var dragDone = false;
     function teardown(){
-      // [caption-diag] teardown 入口: 记录 dragDone / _capIsSeeking 在清理时的状态,排查是否 drag 一开始就被打断
-      try { console.log('[caption-diag] teardown called', { dragDoneBefore: dragDone, isSeekingBefore: _capIsSeeking, sdPlayheadSec: sd && sd.playheadSec, trackKind: trackKind }); } catch (_) {}
       if (dragDone) return;
       dragDone = true;
       window.removeEventListener('pointermove', onMove);
@@ -11524,11 +11940,9 @@ window.testWechatConnection=function(){
       _capIsSeeking = false;
     }
     function onCancel(){
-      try { console.log('[caption-diag] drag end: pointercancel', { playheadSec: sd.playheadSec }); } catch (_) {}
       teardown();
     }
     function onBlur(){
-      try { console.log('[caption-diag] drag end: blur', { playheadSec: sd.playheadSec }); } catch (_) {}
       teardown();
     }
     function onUpSafe(){
@@ -11536,7 +11950,6 @@ window.testWechatConnection=function(){
       teardown();
       // 正常 pointerup：dragDone 在 teardown 内被置 true，但只在第一次进入时执行副作用。
       if (!wasDone) {
-        try { console.log('[caption-diag] drag end: pointerup (normal)', { playheadSec: sd.playheadSec }); } catch (_) {}
         _capPersist();
         _capUpdatePlayheadUI();
       }
@@ -11547,8 +11960,6 @@ window.testWechatConnection=function(){
     window.addEventListener('pointerup', onUpSafe);
     window.addEventListener('pointercancel', onCancel);
     window.addEventListener('blur', onBlur);
-    // [caption-diag] 监听器全部注册完毕后打印一行,确认 _captionDragPlayhead 走到了函数末尾
-    try { console.log('[caption-diag] drag listeners registered', { trackKind: trackKind, isSeeking: _capIsSeeking, sdPlayheadSec: sd && sd.playheadSec, pointerId: ev.pointerId }); } catch (_) {}
   }
 
   // 拖动片段
@@ -11855,15 +12266,6 @@ window.testWechatConnection=function(){
     var startEv = ev;
     var origAt = fz.at;
     var origEnd = (typeof fz.end === 'number' && fz.end > origAt) ? fz.end : (origAt + fz.duration);
-    // [diag-once] 冻结切点拖动入口：区分左/右切点；记 va.duration / finalDur / viewRange.end / fz 三件套
-    try { console.log('[caption-diag] _captionDragCut enter', {
-      cutId: cutId,
-      side: prefix,
-      vaDuration: state.videoAsset && typeof state.videoAsset.duration === 'number' ? state.videoAsset.duration : null,
-      finalDur: typeof _capFinalOutputDuration === 'function' ? _capFinalOutputDuration() : null,
-      viewRangeEnd: sd && sd.viewRange && sd.viewRange.end,
-      fzAt: fz.at, fzEnd: fz.end, fzDuration: fz.duration
-    }); } catch (_) {}
     // 固定修复：冻结主体拖动（prefix='m'）期间，_capRecomputeViewRange 不应抬高 viewRange / _capBaseDuration。
     //   - 主体拖动只改变 at/end 位置，不改变 Σfrozen.duration，所以 finalDur 不会因拖动而涨。
     //   - 但 lastEnd 可能因新位置而变，所以必须显式让 recompute 在此期间跳过"无视频一次性保底"分支。
@@ -11959,21 +12361,6 @@ window.testWechatConnection=function(){
       }
       sd.selectedFrozenId = fz.id;
       sd.selectedCutId = cutId;
-      // [caption-diag-frozen-cut] P2-3 运行时诊断：仅 prefix==='r' 时记录 fz.end / duration 与 finalDur 的对应关系，
-      //   用户报告"缩短冻结时 finalDur 不更新"。左切点 / 主体不写日志以免刷屏。
-      if (prefix === 'r') {
-        try {
-          console.log('[caption-diag-frozen-cut] onMove r', {
-            cutId: cutId,
-            fzAt: fz.at, fzEnd: fz.end, fzDuration: fz.duration,
-            baseDuration: (typeof sd._capBaseDuration === 'number' && isFinite(sd._capBaseDuration)) ? sd._capBaseDuration : null,
-            viewRangeEnd: sd.viewRange && sd.viewRange.end,
-            sumFrozen: (sd.frozenFrames || []).reduce(function(a, f){ return a + ((typeof f.duration === 'number' && f.duration > 0) ? f.duration : 0); }, 0),
-            finalDur: typeof _capFinalOutputDuration === 'function' ? _capFinalOutputDuration() : null,
-            vaDuration: state.videoAsset && typeof state.videoAsset.duration === 'number' ? state.videoAsset.duration : null
-          });
-        } catch (_) {}
-      }
       // v1.20.x（本轮）：切点拖动实时刷新顶部时长 / 文件名 / 时间标签，
       //   用户看到「冻结时长变 → 顶部视频总时长变」。
       _capUpdateTopLabels();
@@ -11984,17 +12371,6 @@ window.testWechatConnection=function(){
       window.removeEventListener('pointerup', onUp);
       // 先清 frozen body 拖动锁旗标，恢复 _capRecomputeViewRange 的正常行为。
       _clearFrozenMoveGuard();
-      // [diag-once] 冻结切点拖动出口：与 enter 对比，确认 vaDur / finalDur / viewRange.end / fz 三件套的实际变化
-      try { console.log('[caption-diag] _captionDragCut onUp', {
-        cutId: cutId,
-        side: prefix,
-        vaDuration: state.videoAsset && typeof state.videoAsset.duration === 'number' ? state.videoAsset.duration : null,
-        finalDur: typeof _capFinalOutputDuration === 'function' ? _capFinalOutputDuration() : null,
-        viewRangeEnd: sd && sd.viewRange && sd.viewRange.end,
-        fzAt: fz.at, fzEnd: fz.end, fzDuration: fz.duration,
-        baseDuration: (typeof sd._capBaseDuration === 'number' && isFinite(sd._capBaseDuration)) ? sd._capBaseDuration : null,
-        sumFrozen: (sd.frozenFrames || []).reduce(function(a, f){ return a + ((typeof f.duration === 'number' && f.duration > 0) ? f.duration : 0); }, 0)
-      }); } catch (_) {}
       // v1.20.x：只有拖动左切点（f.at 变了）才需要重抽帧；右切点只改 f.end / duration，
       //   帧画面 = frozen 起点最后一帧，应保持不变。
       //   冻结主体拖动（m）同步改了 at，端点帧画面也应重抽。
@@ -12036,15 +12412,6 @@ window.testWechatConnection=function(){
     opts = opts || {};
     var sd = state.subtitleData;
     if (!sd) return null;
-    // [caption-diag] 入口诊断
-    try { console.log('[caption-diag] _capAddFrozenAt enter', {
-      playheadSec: sd.playheadSec,
-      viewRangeStart: sd.viewRange && sd.viewRange.start,
-      viewRangeEnd: sd.viewRange && sd.viewRange.end,
-      frozenCount: (sd.frozenFrames || []).length,
-      atParam: t,
-      opts: opts
-    }); } catch (_) {}
     var va = state.videoAsset;
     var vaDur = (va && typeof va.duration === 'number' && va.duration > 0) ? va.duration : _captionGetDuration();
     var at = _captionSnap(t);
@@ -12087,13 +12454,6 @@ window.testWechatConnection=function(){
     _capRender();
     _capUpdateTopLabels();
     if (opts.extractFrame) _capExtractFrameFor(newFz);
-    // [caption-diag] 出口诊断
-    try { console.log('[caption-diag] _capAddFrozenAt exit', {
-      playheadSec: sd.playheadSec,
-      viewRangeStart: sd.viewRange && sd.viewRange.start,
-      viewRangeEnd: sd.viewRange && sd.viewRange.end,
-      frozenCount: (sd.frozenFrames || []).length
-    }); } catch (_) {}
     return newFz;
   }
 
@@ -12101,38 +12461,11 @@ window.testWechatConnection=function(){
   function _capDeleteFrozen(id){
     var sd = state.subtitleData;
     if (!sd) return;
-    // [caption-diag-frozen-delete] P2-3 运行时诊断：删除 frozen 前/中/后各采样一次基础时长字段。
-    //   - preFrozenCount：删除前 frozen 数组长度。
-    //   - postFrozenCount：删除后（filter 已生效）frozen 数组长度。
-    //   - 删除前后必须相差 1；如果不等于 1，说明存在重复 frozen / 异常路径。
-    try {
-      var _preFrozenCount = (sd.frozenFrames || []).length;
-      console.log('[caption-diag-frozen-delete] _capDeleteFrozen before', {
-        targetId: id,
-        preFrozenCount: _preFrozenCount,
-        preBaseDuration: (typeof sd._capBaseDuration === 'number' && isFinite(sd._capBaseDuration)) ? sd._capBaseDuration : null,
-        preViewRangeEnd: sd.viewRange && sd.viewRange.end,
-        preSumFrozen: (sd.frozenFrames || []).reduce(function(a, f){ return a + ((typeof f.duration === 'number' && f.duration > 0) ? f.duration : 0); }, 0),
-        preFinalDur: typeof _capFinalOutputDuration === 'function' ? _capFinalOutputDuration() : null
-      });
-    } catch (_) {}
     sd.frozenFrames = (sd.frozenFrames || []).filter(function(f){ return f.id !== id; });
     if (sd.selectedFrozenId === id) sd.selectedFrozenId = null;
     if (sd.selectedCutId && (sd.selectedCutId === _capFrozenLeftCutId({id:id}) || sd.selectedCutId === _capFrozenRightCutId({id:id}))) {
       sd.selectedCutId = null;
     }
-    try {
-      var _postFrozenCount = (sd.frozenFrames || []).length;
-      console.log('[caption-diag-frozen-delete] _capDeleteFrozen postFilter', {
-        targetId: id,
-        postFrozenCount: _postFrozenCount,
-        postBaseDuration: (typeof sd._capBaseDuration === 'number' && isFinite(sd._capBaseDuration)) ? sd._capBaseDuration : null,
-        postViewRangeEnd: sd.viewRange && sd.viewRange.end,
-        postSumFrozen: (sd.frozenFrames || []).reduce(function(a, f){ return a + ((typeof f.duration === 'number' && f.duration > 0) ? f.duration : 0); }, 0),
-        postFinalDur: typeof _capFinalOutputDuration === 'function' ? _capFinalOutputDuration() : null,
-        deltaFrozenCount: _postFrozenCount - _preFrozenCount
-      });
-    } catch (_) {}
     _capPersist();
     _capRender();
     _capUpdateTopLabels();
@@ -12823,22 +13156,46 @@ window.testWechatConnection=function(){
       _capGenerating[genKey] = true;
       var ve = state.voiceEngine || {};
       var engineId = ve.engineId || 'xtts-v2';
-      var baseUrl = (ve.local && ve.local.baseUrl) || '';
-      if (!baseUrl) {
-        delete _capGenerating[genKey];
-        noteFail(seg, 'no-baseUrl', '语音引擎服务地址未配置（step 13 未填写或未保存）');
-        return cb();
+      // v1.21：本地引擎看 baseUrl；线上引擎看「是否已配 Key」。
+      //   线上引擎的 baseUrl 走主进程 settings_kv 的默认值 / 用户配置，不在渲染层判空，
+      //   否则会把「已配好但地址是官方默认」误判成未配置。
+      var isOnline = (ve.kind === 'ONLINE_SERVICE') || (engineId === 'openai-tts' || engineId === 'elevenlabs-tts');
+      var cfg = {};
+      if (isOnline) {
+        if (!(ve.online && ve.online.apiKeyPresent)) {
+          delete _capGenerating[genKey];
+          noteFail(seg, 'no-api-key', '所选在线语音服务尚未配置 API Key（请到设置 →「线上配音」配置）');
+          return cb();
+        }
+        if (engineId === 'elevenlabs-tts' && !String((ve.online.cfg && ve.online.cfg.voiceId) || '').trim()) {
+          delete _capGenerating[genKey];
+          noteFail(seg, 'no-voice-id', 'ElevenLabs 未填写 Voice ID（请到设置 →「线上配音」配置）');
+          return cb();
+        }
+        // 透传非敏感参数；密钥由主进程自己从 keytar 读
+        cfg = Object.assign({ providerId: engineId }, (ve.online && ve.online.cfg) || {});
+      } else {
+        cfg.baseUrl = (ve.local && ve.local.baseUrl) || '';
+        if (!cfg.baseUrl) {
+          delete _capGenerating[genKey];
+          noteFail(seg, 'no-baseUrl', '语音引擎服务地址未配置（step 13 未填写或未保存）');
+          return cb();
+        }
       }
-      resolveRefAudio().then(function(ref){
+      // 线上引擎不需要参考音频（referenceAudio: no）；本地 XTTS 仍强制要 speaker_wav
+      var _needRef = !isOnline;
+      function _doGen(ref){
         // 诊断日志：确认每条字幕实际传入的文本（片段 id / 字符长度 / 摘要），
         // 不记录参考音频、密钥等敏感内容。
         _capVoiceLog('request', { segId: seg.id, chars: segText.length, preview: segText.slice(0, 24) });
         return window.api.voiceEngineTestGenerate({
           engineId: engineId,
-          config: { baseUrl: baseUrl },
-          payload: { text: segText, refBase64: ref.b64, refMime: ref.mime }
+          config: cfg,
+          payload: { text: segText, refBase64: (ref && ref.b64) || '', refMime: (ref && ref.mime) || '' }
         });
-      }).then(function(r){
+      }
+      var _start = _needRef ? resolveRefAudio().then(_doGen) : _doGen(null);
+      _start.then(function(r){
         delete _capGenerating[genKey];
         if (!r || !r.ok || !r.audioBase64) {
           // 如实记录服务端返回的真实原因，不再吞掉
@@ -12891,11 +13248,14 @@ window.testWechatConnection=function(){
         cb();
       });
     }
-    // 串行生成，避免一次性起 N 个并发到 XTTS
+    // 串行生成，避免一次性起 N 个并发到 XTTS / 在线 TTS
     // 失败原因分类标签（用于让用户一眼看出是哪一环坏了）
     var FAIL_KIND_LABEL = {
       'no-baseUrl': '服务地址未配置',
       'no-reference-audio': '缺少参考音频',
+      // v1.21：线上引擎的两类前置缺失
+      'no-api-key': '在线服务未配置 API Key',
+      'no-voice-id': 'ElevenLabs 未配置 Voice ID',
       'empty-text': '字幕文本为空',
       'service-unreachable': 'XTTS 服务连接失败',
       'request-exception': '请求异常',
@@ -13160,11 +13520,6 @@ window.testWechatConnection=function(){
       +       '<div style="font-size:18px;font-weight:600;color:#203134">成品视频预览</div>'
       +       '<div style="font-size:12px;color:var(--muted);margin-top:2px">原视频 ' + vaDur.toFixed(1) + 's + 冻结延长 ' + totalFrozen.toFixed(1) + 's = 最终 ' + finalDur.toFixed(1) + 's。' + (failSegs.length ? '其中 ' + failSegs.length + ' 段尚未配音，将保持原视频音轨。' : '') + '</div>'
       +     '</div>'
-      // 「保存视频」：放在现有操作按钮区域（返回上一步 之前），
-      //   不改动播放器尺寸 / 布局 / 播放控制。
-      +     '<button class="btn ghost" id="capSaveBtn" onclick="window.saveFinalVideo()">保存视频</button>'
-      +     '<button class="btn ghost" onclick="window.playbackBack()">返回上一步</button>'
-      +     '<button class="btn primary-main" onclick="window.playbackNext()">继续下一步</button>'
       +   '</div>'
       +   '<div style="position:relative;background:#000;aspect-ratio:16/9;border-radius:10px;overflow:hidden">'
       +     '<video id="capPlaybackVideo" playsinline style="width:100%;height:100%;display:block;background:#000"></video>'
@@ -13176,6 +13531,13 @@ window.testWechatConnection=function(){
       +     '<span style="font-size:12px;color:var(--muted)">🔊</span>'
       +     '<input id="capVolume" type="range" min="0" max="1" step="0.01" value="1" style="width:90px">'
       +     '<button id="capMuteBtn" class="btn sm ghost" style="min-width:54px">静音</button>'
+      +   '</div>'
+      // 底部按钮：与其他页面（字幕编辑页等）保持一致，放在视频下方
+      +   '<div style="display:flex;gap:10px;margin-top:18px;align-items:center">'
+      +     '<button class="btn ghost" onclick="window.playbackBack()">返回上一步</button>'
+      +     '<button class="btn ghost" id="capSaveBtn" onclick="window.saveFinalVideo()">保存视频</button>'
+      +     '<span style="flex:1"></span>'
+      +     '<button class="btn primary-main" onclick="window.playbackNext()">继续下一步</button>'
       +   '</div>'
       + '</div>';
     ctrl.innerHTML = h;
@@ -14278,15 +14640,21 @@ window.testWechatConnection=function(){
 
   // 为 YouTube 视频发布构造专用 payload（v1.6：走 Data API v3）
   // - Renderer 不知道 filePath，只携带 videoAssetId；main 用 video-source.getInternalAsset 反查
-  // - privacyStatus 默认 private（符合 Google 未审核项目限制）
+  // - privacyStatus 默认 public：作品首秀的目的就是公开分发，private 会让视频无法被检索、
+  //   也会让 Data API 的 statistics 与 YouTube Studio 后台口径不一致。
+  //   注意：未通过 YouTube API 审核的项目，即便请求 public，YouTube 仍可能落地为 private；
+  //   实际生效的可见性以 [youtube-publish] success 日志里的 privacyStatus 为准（主进程读上传响应体）。
+  //   用户若显式指定其它可见性（copy.privacyStatus），优先尊重用户选择。
   function youtubePublishPayload(){
     var a=state.videoAsset;
     var copy=(state.copies&&state.copies.youtube)||{};
+    var _ps = String((copy && copy.privacyStatus) || '').toLowerCase();
+    if(['private','unlisted','public'].indexOf(_ps)<0) _ps = 'public';
     return {
       title: copy.title || state.project.name || '',
       description: copy.body || state.project.intro || '',
       tags: (copy.tags && copy.tags.length) ? copy.tags : (state.project.type ? [state.project.type] : []),
-      privacyStatus: 'private',
+      privacyStatus: _ps,
       videoAssetId: a ? a.id : null,
       fileName: a ? a.fileName : null,
       fileSize: a ? a.fileSize : null
@@ -14376,6 +14744,23 @@ window.testWechatConnection=function(){
     if (id && /^[A-Za-z0-9_-]{11}$/.test(id)) return id;
     return null;
   }
+
+  // 「我的作品」播放量栏的**唯一**显示规则（renderWorks / 局部刷新 / 悬停预览三处共用）：
+  //   1) 用parseYoutubeVideoId 解析作品自身绑定的视频 ID（yt_url 优先，url 兜底，
+  //      与 main.js:530 / index.html:17238 的字段优先级完全一致）；
+  //   2) 解析不出有效视频 ID → 返回 '—'（**不**展示历史遗留的 yt_views）；
+  //   3) 有视频 ID 但还没取到统计值（yt_views == null）→ '—'；
+  //   4) API 返回的真实 0 是合法播放量，必须显示 '0'，不能被当成缺失值。
+  function ytViewsText(w){
+    if(!w) return '—';
+    var vid = parseYoutubeVideoId(w.yt_url) || parseYoutubeVideoId(w.url);
+    if(!vid) return '—';
+    if (w.yt_views === null || w.yt_views === undefined) return '—';
+    var n = Number(w.yt_views);
+    if (!isFinite(n) || n < 0) return '—';
+    return n.toLocaleString();
+  }
+
   function blobToBase64(blob){
     return new Promise(function(resolve,reject){
       if(!blob){resolve(null);return;}
@@ -14398,6 +14783,10 @@ window.testWechatConnection=function(){
 
   // 把作品保存为 posts/<title-slug>-<date>.md（默认路径）
   function buildArticlePath(name){
+    return 'posts/' + articleBaseName(name) + '.md';
+  }
+  // 文章 slug：<name-slug>-<YYYYMMDD>，文章与视频共用，保证同一次发布三者同名
+  function articleBaseName(name){
     var s = String(name||'project').trim().toLowerCase()
       .replace(/[^a-z0-9-_]+/g,'-')
       .replace(/-+/g,'-')
@@ -14407,7 +14796,151 @@ window.testWechatConnection=function(){
     var d=new Date();
     var pad=function(n){return n<10?('0'+n):(''+n);};
     var ds = d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate());
-    return 'posts/'+s+'-'+ds+'.md';
+    return s+'-'+ds;
+  }
+
+  // ===== GitHub 发布（单发 / 批量共用）=====
+  //
+  // 执行顺序（视频存在时）：
+  //   1) 校验最终成品视频 → 2) 提取封面 → 3) 上传 MP4 → 4) 上传封面
+  //   → 5) 在用户编辑后的正文末尾追加视频区域 → 6) 上传 Markdown
+  // 只有 6 也成功，才算整体成功并标记发布状态。
+  // 没有最终成品视频时，保持原有纯文章发布行为。
+  //
+  // 相对路径规则：文章在 posts/<slug>.md，视频在 videos/<slug>.mp4。
+  //   从文章所在目录出发回退到仓库根，再进入 videos/。
+  //   例：posts/a.md → ../videos/a.mp4；blog/2026/posts/a.md → ../../../videos/a.mp4
+  function githubRelPrefix(articlePath){
+    var p = String(articlePath||'').replace(/^\/+/,'');
+    var dir = p.indexOf('/')>=0 ? p.slice(0, p.lastIndexOf('/')) : '';
+    var depth = dir ? dir.split('/').filter(Boolean).length : 0;
+    // 文章位于仓库根时 depth=0，仍需回退一级才能进入 videos/
+    return new Array(Math.max(depth,1)+1).join('../');   // posts/a.md → '../'；blog/x/posts/a.md → '../../../'
+  }
+  // 视频区域（不含正文），供正文拼接复用
+  function videoSectionHtml(up){
+    var rel = githubRelPrefix(up.articlePath);
+    return '\n\n---\n\n## 视频演示\n\n'
+      + '[![' + rel + up.coverPath + '](' + rel + up.videoPath + ')\n\n'
+      + '[点击封面打开视频](' + rel + up.videoPath + ')\n';
+  }
+
+  // 返回 { ok, video?:{...}, error?, detail? }
+  //   video 为空表示「本次没有视频」，调用方按纯文章流程继续（不视为失败）。
+  window.publishGithubVideo = async function(articlePath){
+    var fv = state.__captionFinalVideo;
+    // 必须来自真实的最终视频状态：没有成品视频就纯文章发布
+    if(!fv || !fv.path) return { ok:true, video:null };
+    if(!window.api || typeof window.api.githubPutVideo !== 'function'){
+      return { ok:false, error:'ipc-unavailable', detail:'视频上传功能不可用（IPC 未就绪）' };
+    }
+    var base = articleBaseName(state.project.name || 'project');
+    // 路径规则与文章同名；日期由 articleBaseName 决定，保证重试复用同一组文件名
+    var videoPath = 'videos/' + base + '.mp4';
+    var coverPath = 'videos/' + base + '-cover.jpg';
+    var r;
+    try{
+      r = await window.api.githubPutVideo({
+        finalVideoPath: fv.path,   // 主进程按 userData/video/final 白名单校验
+        videoPath: videoPath,
+        coverPath: coverPath,
+        atSeconds: 0
+      });
+    }catch(e){
+      r = { ok:false, error:'exception', detail:String(e && e.message || e) };
+    }
+    if(!r || !r.ok){
+      return { ok:false, error:(r&&r.error)||'unknown', detail:(r&&r.detail)||'', stage:(r&&r.stage)||'' };
+    }
+    return {
+      ok:true,
+      video:{
+        videoPath: r.videoPath, coverPath: r.coverPath,
+        videoHtmlUrl: r.videoHtmlUrl, coverHtmlUrl: r.coverHtmlUrl,
+        videoBytes: r.videoBytes, coverBytes: r.coverBytes,
+        articlePath: articlePath
+      }
+    };
+  }
+
+  // GitHub 文章正文 + 可选视频区域
+  //   保留用户编辑过的正文原样，只在末尾追加视频区域
+  window.buildGithubArticleBody = function(body, video, pages){
+    if(!video && !pages) return body;
+    var out = String(body||'').replace(/\s+$/,'');
+    // Pages 网页链接：真正能在线播放视频的页面
+    if(pages && pages.pageUrl){
+      out += '\n\n---\n\n## 在线阅读与播放\n\n'
+        + '📄 [打开网页版（可在线播放视频）](' + pages.pageUrl + ')\n';
+    }
+    if(video) out += videoSectionHtml(video);
+    return out;
+  }
+
+  // ===== GitHub Pages 网页发布 =====
+  //
+  // 复用与视频发布完全相同的最终成品视频（state.__captionFinalVideo）。
+  // 无最终视频时不发布网页（保留纯文章流程）。
+  // 返回 { ok, pages? } 或 { ok:false, ... }；失败**不阻断** Markdown 文章发布，
+  // 由调用方决定如何提示，但绝不误报"网页已发布"。
+  window.publishGithubPages = async function(opts){
+    var fv = state.__captionFinalVideo;
+    if(!fv || !fv.path) return { ok:true, pages:null, skipped:'no-final-video' };
+    if(!window.api || typeof window.api.githubPublishPages !== 'function'){
+      return { ok:false, error:'ipc-unavailable', detail:'网页发布功能不可用（IPC 未就绪）' };
+    }
+    var base = articleBaseName(state.project.name || 'project');
+    var r;
+    try{
+      r = await window.api.githubPublishPages({
+        finalVideoPath: fv.path,
+        slug: base,
+        title: (opts && opts.title) || (state.project.name || 'Project'),
+        body: (opts && opts.body) || '',
+        date: (opts && opts.date) || ''
+      });
+    }catch(e){
+      r = { ok:false, error:'exception', detail:String(e && e.message || e) };
+    }
+    if(!r || !r.ok){
+      return {
+        ok:false, error:(r&&r.error)||'unknown', detail:(r&&r.detail)||'',
+        stage:(r&&r.stage)||'', needsPermission:!!(r&&r.needsPermission), repoUrl:(r&&r.repoUrl)||''
+      };
+    }
+    return { ok:true, pages:{
+      pageUrl:r.pageUrl, siteUrl:r.siteUrl, videoUrl:r.videoUrl,
+      deployStatus:r.deployStatus, videoPath:r.videoPath, pagePath:r.pagePath
+    }};
+  }
+
+  // 网页是否已真正上线（构建完成）
+  function githubPagesLive(pages){
+    return !!(pages && pages.deployStatus === 'built');
+  }
+
+  // 网页发布结果的可读文案
+  function githubPagesStatusText(r){
+    if(!r) return '';
+    if(r.ok && githubPagesLive(r.pages)) return '网页已发布并可访问：' + r.pages.pageUrl;
+    if(r.ok) return '文件上传成功，网页部署中（GitHub 正在构建）：' + (r.pages && r.pages.pageUrl || '');
+    if(r.needsPermission){
+      return 'GitHub Pages 需要额外权限（Pages:write + Administration:write）。请在 ' + (r.repoUrl||'仓库 Settings → Pages') + ' 手动启用，或换用具备该权限的 Token。';
+    }
+    if(r.error === 'pages-source-mismatch') return r.detail;
+    return '网页未发布：' + (r.detail || r.error || '未知原因');
+  }
+
+  // 发布目标预览（toast / 状态栏用）；不含任何 token
+  function githubVideoFailureText(r){
+    var stage = r && r.stage;
+    var base = r && r.detail ? r.detail : ('GitHub 视频发布失败：' + ((r&&r.error)||'unknown'));
+    if(stage==='final-video') return '视频未发布，文章也未发布：' + base;
+    if(stage==='cover') return '封面提取失败，视频与文章均未发布：' + base;
+    if(stage==='auth') return base;
+    if(stage==='video-upload') return '成品视频上传失败，文章未发布：' + base;
+    if(stage==='cover-upload') return '视频已上传但封面上传失败，文章未发布：' + base;
+    return base;
   }
 
   window.autoPubGithub=async function(){
@@ -14422,12 +14955,25 @@ window.testWechatConnection=function(){
     var body  = copy.body  || baseCopy.body  || (state.project.intro || '');
     var path  = buildArticlePath(state.project.name || title);
 
+    // 有最终成品视频时：先传视频 + 封面，成功后再追加正文并传文章
+    var vid = await window.publishGithubVideo(path);
+    if(!vid.ok){
+      // 视频链路失败 → 整体不算成功，不上传文章（避免文章引用不存在的视频）
+      toast('✗ ' + githubVideoFailureText(vid), true, 9000);
+      return { ok:false, stage: vid.stage || 'video', error: vid.error, detail: vid.detail };
+    }
+
+    // GitHub Pages 网页版：失败**不阻断** Markdown 文章发布，但如实提示状态
+    var pgs = await window.publishGithubPages({ title: title, body: body, date: '' });
+
+    var finalBody = window.buildGithubArticleBody(body, vid.video, pgs.ok ? pgs.pages : null);
+
     var opts = {
       // 注意：这里**故意不传 owner / repo**——由 main.js 从绑定配置读取 publishRepo 并强制使用
       path:  path,
       branch: 'main',
       message: 'Publish ' + (state.project.name || title) + ' via Rokit',
-      content: body
+      content: finalBody
     };
 
     toast('正在发布到 GitHub（使用绑定时设置的发布仓库 → ' + path + '）...');
@@ -14441,8 +14987,17 @@ window.testWechatConnection=function(){
       var via = r.tokenSource === 'oauth' ? '（BYOK Token）' : (r.tokenSource === 'pat' ? '（PAT）' : '');
       var action = r.action === 'updated' ? '已更新' : '已创建';
       var target = r.targetFullName || (r.targetOwner && r.targetRepo ? (r.targetOwner + '/' + r.targetRepo) : '');
-      toast('✓ GitHub 文件' + action + (target ? '（' + target + '）' : '') + via + (html ? ('\n' + html) : ''));
+      // 文章与视频都成功才算完整成功
+      toast('✓ GitHub 文件' + action + (target ? '（' + target + '）' : '') + via
+        + (vid.video ? ('\n已同时发布视频 ' + vid.video.videoPath) : '') + (html ? ('\n' + html) : ''));
+      // 网页状态单独提示：只有构建完成才说"已发布"，否则如实说"部署中/未发布"
+      if(pgs && pgs.pages){
+        toast(githubPagesStatusText(pgs), githubPagesLive(pgs.pages) ? false : true, 9000);
+      } else if(pgs && !pgs.ok){
+        toast('⚠ ' + githubPagesStatusText(pgs), true, 10000);
+      }
       markPub('github');
+      return { ok:true, article:r, video:vid.video };
     } else {
       var reason = r && r.error;
       var msg = {
@@ -14461,6 +15016,8 @@ window.testWechatConnection=function(){
         '422':'GitHub API 参数错误（HTTP 422）' + (r.detail ? ('（GitHub: ' + r.detail + '）') : '')
       }[reason] || ('GitHub 发布失败：' + (reason || 'unknown') + (r.detail ? ('（' + r.detail + '）') : ''));
       toast('✗ ' + msg, true);
+      // 视频已上传但文章失败：回传恢复信息，重试可复用同一组文件名
+      return { ok:false, article:r, video:vid.video, error:reason, detail:r && r.detail };
     }
   };
 
@@ -14908,18 +15465,28 @@ window.testWechatConnection=function(){
       if(pid==='github'){
         box.innerHTML+='<div class="rs">▶ GitHub L1 直发中（使用绑定时设置的发布仓库）…</div>';
         var gr=null;
+        var gvid=null;
+        var gpgs=null;
         try{
           var copy=state.copies['github']||{};
           var baseCopy=(function(){try{return(typeof genCopy==='function')?genCopy('github',0):null;}catch(_e){return null;}})()||{};
           var title=copy.title||baseCopy.title||(state.project.name||'Project');
           var body=copy.body||baseCopy.body||(state.project.intro||'');
           var path=buildArticlePath(state.project.name||title);
+          // 与单发流程完全一致：先传视频 + 封面，再发网页版，最后传文章
+          gvid=await window.publishGithubVideo(path);
+          if(!gvid.ok){
+            box.innerHTML+='<div class="rs fail">✗ '+esc(githubVideoFailureText(gvid))+'</div>';
+            continue;
+          }
+          // 网页版失败不阻断文章发布，但状态如实展示
+          gpgs=await window.publishGithubPages({ title: title, body: body, date: '' });
           var opts={
             // 注意：故意不传 owner / repo ——由 main.js 从 token record 读取 publishRepo 并强制覆盖
             path:path,
             branch:'main',
             message:'Publish '+(state.project.name||title)+' via Rokit',
-            content:body
+            content:window.buildGithubArticleBody(body, gvid.video, gpgs&&gpgs.ok?gpgs.pages:null)
           };
           gr=await window.api.githubPutFile(opts);
         }catch(e){gr={ok:false,error:'exception',detail:String(e&&e.message||e)};}
@@ -14928,6 +15495,17 @@ window.testWechatConnection=function(){
           var action=gr.action==='updated'?'更新':'创建';
           var tgt=gr.targetFullName || (gr.targetOwner && gr.targetRepo ? (gr.targetOwner + '/' + gr.targetRepo) : '');
           box.innerHTML+='<div class="rs ok">✓ GitHub 文件已'+action+(tgt ? '（'+esc(tgt)+'）' : '')+(url2?(' · <a href="'+esc(url2)+'" target="_blank">查看</a>'):'')+'</div>';
+          if(gvid&&gvid.video){
+            box.innerHTML+='<div class="rs ok">✓ 已同时发布视频 '+esc(gvid.video.videoPath)+'</div>';
+          }
+          // 网页状态：只有构建完成才算已发布
+          if(gpgs&&gpgs.pages){
+            var pl=githubPagesLive(gpgs.pages);
+            box.innerHTML+='<div class="rs '+(pl?'ok':'warn')+'">'+(pl?'✓':'⚠')+' '+esc(githubPagesStatusText(gpgs))
+              +(gpgs.pages.pageUrl?(' · <a href="'+esc(gpgs.pages.pageUrl)+'" target="_blank">打开</a>'):'')+'</div>';
+          } else if(gpgs&&!gpgs.ok){
+            box.innerHTML+='<div class="rs warn">⚠ '+esc(githubPagesStatusText(gpgs))+'</div>';
+          }
           okCount++;markPub('github');
         }else{
           var reason=gr&&(gr.error||gr.reason);
@@ -15125,6 +15703,24 @@ window.testWechatConnection=function(){
 
   };
 
+  // 防重复登记：过滤掉「本轮发布会话内已登记过」的平台。
+//   launch() 每完成一次发射就登记一次；重复调用 launch()（重试 / 重复回调）时
+//   同一平台的 done 标记仍然为 true，若不去重会重复登记同一篇作品。
+//   判定依据：本轮会话（state._launchBatchToken）内是否已登记过该平台。
+function dedupeLaunchDone(doneIds){
+    if(!state._launchBatchToken) state._launchBatchToken = 'tk' + Date.now() + '-' + Math.random().toString(36).slice(2,8);
+    if(!state._launchedInBatch) state._launchedInBatch = {};
+    var token = state._launchBatchToken;
+    var out = [];
+    doneIds.forEach(function(id){
+        var key = token + '|' + id;
+        if(state._launchedInBatch[key]) return;   // 本轮已登记过 → 跳过
+        state._launchedInBatch[key] = 1;
+        out.push(id);
+    });
+    return out;
+  }
+
   window.markPub=function(id){
 
     var c=state.copies[id];if(!c)return;
@@ -15184,6 +15780,11 @@ window.testWechatConnection=function(){
           var u=r.url || ('https://www.youtube.com/watch?v='+r.videoId);
           toast('✓ YouTube 发布成功 · '+r.videoId);
           markPub(id);
+          // 请求 public 不代表落地是 public（未过审项目会被降级为 private）→ 如实提示实际可见性。
+          if(r.actualPrivacy && r.requestedPrivacy && r.actualPrivacy!==r.requestedPrivacy){
+            console.warn('[YouTubePublish] 可见性被降级 requested=' + r.requestedPrivacy + ' actual=' + r.actualPrivacy + ' videoId=' + r.videoId);
+            toast('⚠ 视频已上传，但实际可见性为「'+r.actualPrivacy+'」（YouTube API 项目未通过审核时 public 会被降级），播放量统计可能读到 0', 'warn', 6000);
+          }
           // v5：发布成功后自动回写 YouTube 视频链接到当前作品，用于「我的作品」播放量统计
           // 优先使用发布接口返回的完整 URL；否则用 videoId 拼接标准 watch URL。
           // 不覆盖已有有效链接（仅当当前无链接或链接无法解析出视频 ID 时才写入）。
@@ -15193,6 +15794,28 @@ window.testWechatConnection=function(){
             if(shouldWrite && typeof parseYoutubeVideoId==='function' && parseYoutubeVideoId(u)){
               state.project.ytUrl = u;
               // P2-1 紧急修复：创作流程中间不调 persistCurrentWork()，避免把新作品 ytUrl 写到 curWork 已有作品上。
+              // 改为只 PATCH yt_url 字段立即落库，使「我的作品」播放量统计能读到链接。
+              var _yw = findWork(state.curWork);
+              // 身份确认：curWork 必须指向一条真实的、作品名与本轮向导一致的作品。
+              //   否则（例如 curWork 指向历史作品而用户在本轮登记了另一个项目）宁可不写，
+              //   也不把链接写到别的作品上；该作品会在 launch() 里带 yt_url 正常落库。
+              var _sameName = _yw && (!state.project.name || !_yw.name || _yw.name===state.project.name);
+              if(!_yw || _yw.isSample || isSampleWork(_yw.id) || !_sameName){
+                console.warn('[YouTubePublish] yt_url 未落库：无法确认作品身份 curWork=' + state.curWork + ' url=' + u);
+              } else {
+                _yw.yt_url = u;
+                try {
+                  var _ys = window.api.saveWork({ id: _yw.id, yt_url: u });
+                  if(_ys && typeof _ys.catch === 'function'){
+                    _ys.catch(function(_err){
+                      // 落库失败不撤销已成功的上传，但必须留下可诊断日志。
+                      console.error('[YouTubePublish] yt_url 落库失败 work=' + _yw.id + ' url=' + u, _err);
+                    });
+                  }
+                } catch(_ye){
+                  console.error('[YouTubePublish] yt_url 落库异常 work=' + _yw.id + ' url=' + u, _ye);
+                }
+              }
             }
           } catch(_e){ /* 回写失败不影响发布成功提示 */ }
           if(window.confirm('发布成功！\n\n视频链接：'+u+'\n\n点「确定」在浏览器打开查看。')){
@@ -15710,6 +16333,11 @@ window.testWechatConnection=function(){
 
     if(!doneIds.length)return;
 
+    // 防重复：同一平台的这次发布已在 pubLog 中记录过就不再累加，避免重复回调 / 重试产生多条记录
+    doneIds=dedupeLaunchDone(doneIds);
+
+    if(!doneIds.length)return;
+
     doneIds.forEach(function(id){var c=state.copies[id];state.pubLog.push({platform:pf(id).name,time:c.time,title:c.title,id:id});state.pubByPlatform[id]=(state.pubByPlatform[id]||0)+1;});
 
     state.kpis.lastPub=pf(doneIds[doneIds.length-1]).name;
@@ -15744,8 +16372,32 @@ window.testWechatConnection=function(){
       if(w.name){
         state.works=state.works.filter(function(x){return !(x.isSample && x.name===w.name);});
       }
+    } else if(state.project.name && w.name && w.name!==state.project.name){
+      // 修复：curWork 仍指向历史作品，但用户已经在向导里编辑了**另一个**项目（state.project.name 已改）。
+      //   原代码直接走 else 分支把 state.project.name 写入 w，等于把旧作品顶替成新项目的内容 ——「我的作品」列表数量不增加。
+      //   现在按「名称对不上」识别为不同项目：派生一条**新**记录，curWork 指向新记录，
+      //   旧作品原样保留（data 不变）。用户重发同一个项目（名称一致）时仍走 update 分支刷新状态。
+      var _exists=state.works.filter(function(x){return !x.isSample;}).map(function(x){return x.id;});
+      var _n=1;
+      while(_exists.indexOf('w'+_n)>=0||SAMPLE_WORK_IDS.indexOf('w'+_n)>=0)_n++;
+      var _nw={
+        id:'w'+_n,
+        name:state.project.name||'未命名作品',
+        type:state.project.type||'',
+        intro:state.project.intro||'',
+        url:state.project.url||'',
+        yt_url:state.project.ytUrl||'',
+        status:'首秀中',
+        color:STATUS_COLOR['首秀中']||'#F59E0B',
+        queue:'主推',
+        star:0,dl:0,play:'0',
+        next:'看反馈，准备迭代'
+      };
+      state.works.push(_nw);
+      state.curWork=_nw.id;
+      w=_nw;
     } else {
-      // 真实作品：把向导里最近填写的字段补齐（防止个别步骤未触发 persistCurrentWork）
+      // 真实作品（同一个项目被重新发射）：把向导里最近填写的字段补齐（防止个别步骤未触发 persistCurrentWork）
       if(state.project.name) w.name=state.project.name;
       if(state.project.type) w.type=state.project.type;
       if(state.project.intro) w.intro=state.project.intro;
@@ -15765,7 +16417,9 @@ window.testWechatConnection=function(){
     // 动态数据已由 esc() 转义，原生标签直接渲染。
     pushAIHtml('<div class="launch-wrap"><div class="launch-rocket"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3l2.2 5.3L20 10l-5.8 1.7L12 17l-2.2-5.3L4 10l5.8-1.7L12 3z" fill="#fff"/><circle cx="19" cy="18" r="2.4" fill="#FDE68A"/></svg></div><div style="font-size:16px;font-weight:700">发射成功</div><div style="font-size:13px;color:#5A6B72;margin-top:4px">《'+esc(state.project.name||'你的作品')+'》已发布到 '+doneIds.length+' 个平台：'+list+'。数据已回填看板，AI 大师会持续采集反馈。</div><div style="margin-top:12px;display:flex;justify-content:center;gap:8px;flex-wrap:wrap"><button class="btn" onclick="go(\'dashboard\')">查看数据看板</button><button class="btn ghost" onclick="addWork()">发布新作品</button></div></div>');
 
-    state.step=13;renderRail();renderFlow();
+    // v1.21：发射成功后流程结束 —— 用 STEP_DONE 哨兵值，让 renderStep 不再渲染
+    //   任何后续步骤控件（此前误设为 13，导致「选择语音生成方式」页追加在成功卡片下方）。
+    state.step=STEP_DONE;renderRail();renderFlow();
 
   };
 
@@ -16302,6 +16956,8 @@ window.testWechatConnection=function(){
   };
 
   // select 切换时更新 hint 与自定义字段显隐
+  // v1.21：GitHub / YouTube 凭据都已移到设置页，推广渠道不再有凭据输入区。
+  //   这里只保留抖音的双阶段凭据（chDouyinBox）。
   function updateKindHint(){
     var sel=document.getElementById('chKind');
     var hint=document.getElementById('chKindHint');
@@ -16311,26 +16967,8 @@ window.testWechatConnection=function(){
     var meta=CH_META[kind]||{};
     hint.textContent=meta.hint||'';
     custom.style.display=(kind==='custom')?'':'none';
-    // 账号授权 / 凭据区块：仅在支持的内置平台显示
-    //   - GitHub：BYOK 模式（粘贴 Personal Access Token）
-    //   - YouTube：OAuth 模式（点击按钮打开系统浏览器 → Google 官方授权页 → 自动回调）
-    //   - 抖音：双阶段（先 ClientKey/ClientSecret 配置，再 OAuth 授权）—— 单独 box
-    //   注意：YouTube / Google OAuth 的 Client ID + Client Secret 是**应用级开发者凭据**，
-    //         由 electron/config/youtube-oauth.local.js 提供，**不在 UI 中暴露**。
-    var oauthBox=document.getElementById('chOAuthBox');
     var douyinBox=document.getElementById('chDouyinBox');
     var info = CH_OAUTH[kind];
-    if(oauthBox){
-      oauthBox.style.display = (info && info.mode!=='douyin') ? '' : 'none';
-      if(info && info.mode!=='douyin'){
-        var label=document.getElementById('chOAuthLabel');
-        if(label) label.textContent = info.label;
-        var subHint=document.getElementById('chOAuthHint');
-        if(subHint) subHint.innerHTML = info.subHint;
-        cancelOAuthInput();
-        refreshOAuthStatus();
-      }
-    }
     if(douyinBox){
       douyinBox.style.display = (info && info.mode==='douyin') ? '' : 'none';
       if(info && info.mode==='douyin'){
@@ -16340,21 +16978,18 @@ window.testWechatConnection=function(){
   }
 
   // 内置支持账号授权的平台
-  //   mode: 'byok'    用户粘贴 Token（GitHub PAT 模式）
-  //   mode: 'oauth'   打开系统浏览器走官方 OAuth 授权（YouTube / Google 模式）
-  //   mode: 'douyin'  抖音双阶段：先 ClientKey/ClientSecret，再 BrowserWindow OAuth
+  //   mode: 'douyin'    抖音双阶段：先 ClientKey/ClientSecret，再 BrowserWindow OAuth
+  //   mode: 'external'  凭据在别处配置（GitHub / YouTube → 对应设置页分区），此处不提供输入
   var CH_OAUTH={
     github:{
-      mode:'byok',
+      mode:'external',
       providerId:'github',
-      label:'GitHub 账号（BYOK Token）',
-      subHint:'Token 由 Rokit 直接调用 GitHub API 提交，<b>不经第三方页面</b>，<b>不记录在日志</b>。'
+      label:'GitHub 账号'
     },
     youtube:{
-      mode:'oauth',
+      mode:'external',
       providerId:'youtube',
-      label:'YouTube 账号（Google 官方授权）',
-      subHint:'点击「添加 YouTube 账号」后 Rokit 会打开你的系统浏览器，跳转到 <b>Google 官方授权页</b>。请用你的 Google 账号登录并同意授权（<b>不会</b>让 Rokit 接触你的密码）。授权完成后 Token 仅存本机 OS 凭据管理器。'
+      label:'YouTube 账号'
     },
     douyin:{
       mode:'douyin',
@@ -16363,256 +16998,12 @@ window.testWechatConnection=function(){
     }
   };
 
-  // 展开 / 收起内联输入框
-  window.toggleOAuthInput=function(){
-    // YouTube 走 OAuth 分支（无 IDP 输入框）；BYOK 模式才有展开行为
-    var info = currentOAuthInfo();
-    if(!info) return;
-    if(info.mode==='oauth'){
-      startYoutubeOAuth();
-      return;
-    }
-    var box=document.getElementById('chOAuthInput');
-    var btn=document.getElementById('chOAuthBtn');
-    var input=document.getElementById('chOAuthToken');
-    var pubRow=document.getElementById('chOAuthPublishRepoRow');
-    var pubInput=document.getElementById('chOAuthPublishRepo');
-    if(!box||!btn)return;
-    var open = box.style.display!=='none';
-    if(open){ cancelOAuthInput(); return; }
-    box.style.display='';
-    btn.textContent='收起';
-    // v1.10：仅 GitHub 显示"发布仓库"行。预填已保存的 publishRepo
-    if(pubRow){
-      pubRow.style.display = (info.providerId === 'github') ? '' : 'none';
-    }
-    if(pubInput){
-      pubInput.value = '';
-    }
-    // 拉一次已连接状态，把 publishRepo 预填到输入框（编辑流程）
-    try {
-      window.api.oauthStatus(info.providerId).then(function(s){
-        if(s && s.connected && s.publishRepo && s.publishRepo.url && pubInput){
-          pubInput.value = s.publishRepo.url;
-          pubInput.placeholder = s.publishRepo.full_name ? ('已保存：' + s.publishRepo.full_name) : ('https://github.com/' + s.publishRepo.owner + '/' + s.publishRepo.repo);
-        }
-      }).catch(function(){});
-    } catch(_e) {}
-    if(input){ input.value=''; setTimeout(function(){input.focus();},30); }
-  };
-
-  window.cancelOAuthInput=function(){
-    var box=document.getElementById('chOAuthInput');
-    var btn=document.getElementById('chOAuthBtn');
-    var input=document.getElementById('chOAuthToken');
-    var pubInput=document.getElementById('chOAuthPublishRepo');
-    var st=document.getElementById('chOAuthInputStatus');
-    if(box) box.style.display='none';
-    if(input) input.value='';
-    if(pubInput) pubInput.value='';
-    if(st) st.textContent='';
-    // 按钮文字由 refreshOAuthStatus 决定（已配置 / 未配置）
-    refreshOAuthStatus();
-  };
-
-  // 拿当前渠道对应的 OAuth 配置
-  function currentOAuthInfo(){
-    var sel=document.getElementById('chKind');
-    if(!sel) return null;
-    return CH_OAUTH[sel.value] || null;
-  }
-
-  // 查询已连接状态并刷新文案
-  function refreshOAuthStatus(){
-    var info = currentOAuthInfo();
-    var btn=document.getElementById('chOAuthBtn');
-    var stEl=document.getElementById('chOAuthStatus');
-    if(!btn||!stEl) return;
-    if(!info){
-      btn.textContent='—'; stEl.textContent=''; return;
-    }
-    var addLabel = (info.mode==='oauth')
-      ? ('添加 ' + (info.providerId==='youtube' ? 'YouTube 账号' : '账号'))
-      : '添加 Personal Access Token';
-    if(!window.api||!window.api.oauthStatus){
-      btn.textContent=addLabel; stEl.innerHTML='<span style="color:var(--muted)">未配置</span>'; return;
-    }
-    window.api.oauthStatus(info.providerId).then(function(s){
-      if(s && s.connected){
-        // 按钮在已连接时一律改成「重新授权」/「更换 Token」
-        btn.textContent = (info.mode==='oauth') ? '重新授权' : '更换 Token';
-        var account = s.account || {};
-        var label = account.login || account.name || '';
-        var displayLabel = (info.providerId==='github' && label) ? ('@' + label) : label;
-        var reconnect = s.needsReconnect
-          ? ' <span style="color:var(--danger);font-weight:600">（授权已失效，请重新连接）</span>' : '';
-        // v1.10：GitHub 已连接时显示「发布仓库」状态（已设置 / 未设置）
-        var pubRepoLine = '';
-        if (info.providerId === 'github') {
-          if (s.publishRepo && s.publishRepo.owner && s.publishRepo.repo) {
-            pubRepoLine = ' · 发布仓库：<span style="color:var(--primary-dark);font-weight:600">' + esc(s.publishRepo.full_name || (s.publishRepo.owner + '/' + s.publishRepo.repo)) + '</span>';
-          } else {
-            pubRepoLine = ' · <span style="color:var(--danger)">未设置发布仓库（点击「更换 Token」补填）</span>';
-          }
-        }
-        stEl.innerHTML =
-          '<span style="color:var(--success);font-weight:600">✓ 已连接</span>' +
-          (displayLabel ? (' <span style="color:var(--ink)">' + esc(displayLabel) + '</span>') : '') +
-          reconnect +
-          pubRepoLine +
-          ' · <a href="javascript:void(0)" onclick="disconnectOAuth()" style="color:var(--danger)">解除绑定</a>';
-      } else {
-        btn.textContent=addLabel;
-        stEl.innerHTML='<span style="color:var(--muted)">未配置</span>';
-      }
-    }).catch(function(){
-      stEl.innerHTML='<span style="color:var(--muted)">未配置</span>';
-    });
-  }
-
-  // 触发 YouTube 官方 OAuth 授权流程
-  window.startYoutubeOAuth=async function(){
-    var info = currentOAuthInfo();
-    if(!info || info.mode!=='oauth') return;
-    var btn=document.getElementById('chOAuthBtn');
-    var stEl=document.getElementById('chOAuthStatus');
-    if(!window.api||!window.api.oauthStart){
-      toast('请在桌面端使用本功能'); return;
-    }
-    if(btn) btn.disabled=true;
-    // 不预先显示"已打开"——等主进程实际验证浏览器启动后再更新
-    stEl.innerHTML='<span style="color:var(--primary-dark)">正在打开系统浏览器...</span>';
-    var r;
-    try{ r = await window.api.oauthStart('youtube'); }
-    catch(e){ r = { ok:false, reason:'exception', detail:String(e && e.message || e) }; }
-    if(btn) btn.disabled=false;
-    if(r && r.ok){
-      // 区分：自动打开浏览器 vs 剪贴板兜底
-      if (r.via === 'clipboard') {
-        // 受限上下文（Low 完整性）下 Windows 会拦截把授权链接交给浏览器的动作。
-        // 这不是"启动失败"，而是系统层面的限制 —— 如实说明原因，避免用户反复重试。
-        var restrictedNote = r.restricted
-          ? '<span style="color:var(--muted);font-size:11.5px">原因：当前进程运行在受限（Low 完整性）上下文里，Windows 会拦截"把链接交给浏览器"的动作，所以无法自动弹窗。请自己从任务栏 / 开始菜单打开浏览器再粘贴，就能正常完成授权。</span><br>'
-          : '';
-        stEl.innerHTML=
-          '<span style="color:var(--danger);font-weight:600">⚠ 浏览器未自动打开</span><br>' +
-          restrictedNote +
-          '<span style="color:var(--ink)">已把授权链接复制到剪贴板。请打开系统浏览器（Edge / Chrome），<b>粘贴到地址栏并回车</b>完成 Google 登录。完成后本页面会自动显示「✓ 已连接」。</span>';
-        toast('⚠ 浏览器未自动打开，URL 已复制到剪贴板', true);
-      } else {
-        var note = r.note ? (' ' + r.note) : '';
-        stEl.innerHTML='<span style="color:var(--primary-dark)">✓ 已通过「' + esc(r.via || '系统默认浏览器') + '」打开授权页，请在浏览器中完成...' + esc(note) + '</span>';
-        toast('✓ 浏览器已打开，请在浏览器中完成 Google 授权');
-      }
-      refreshOAuthStatus();
-      var who = (r.account && (r.account.login || r.account.name)) || 'YouTube';
-      if (r.account) toast('✓ 已授权 YouTube（' + who + '）');
-    } else {
-      var reason = r && r.reason;
-      if (reason === 'browser_open_failed_clipboard' && r.authUrl) {
-        // 兜底：URL 已复制到剪贴板，让用户手动打开
-        stEl.innerHTML=
-          '<span style="color:var(--danger);font-weight:600">✗ 无法自动打开浏览器</span><br>' +
-          '<span style="color:var(--ink)">已把授权链接复制到剪贴板。请打开系统浏览器（Edge / Chrome），<b>粘贴地址栏并回车</b>完成授权（之后可以关掉 Rokit 的本提示）。</span><br>' +
-          '<span style="color:var(--muted);font-size:11.5px;word-break:break-all">链接前缀：' + esc(r.authUrl.slice(0, 60)) + '...（已复制完整 URL）</span>';
-        toast('✗ 浏览器启动失败，URL 已复制到剪贴板', true);
-      } else {
-        var msg = {
-          'missing_client_id':'未配置 Google OAuth Client ID（需设置环境变量 ROKIT_OAUTH_CLIENT_YOUTUBE；详见 README「YouTube 配置」一节）',
-          'provider_not_found':'当前版本未启用 YouTube provider',
-          'user_cancelled':'已在 Google 授权页取消',
-          'timeout':'授权超时（5 分钟内未完成），请重试',
-          'state_mismatch':'state 校验失败（可能被浏览器扩展劫持，请关闭代理类扩展后重试）',
-          'token_exchange_failed':'换取 access_token 失败：' + (r.detail || ''),
-          'token_response_invalid':'Google 返回的 token 格式异常',
-          'no_native_keytar':'OS 凭据管理器不可用（keytar 未加载），重启应用或安装系统组件后重试',
-          'loopback_listen_failed':'本机无法启动回调监听（端口被占用？）：' + (r.detail || ''),
-          'browser_open_failed':'所有浏览器启动方式均失败：' + (r.detail || ''),
-          'exception':'流程异常：' + (r.detail || '')
-        }[reason] || ('YouTube 授权失败：' + reason);
-        stEl.innerHTML='<span style="color:var(--danger)">' + esc(msg) + '</span>';
-        toast('✗ ' + msg, true);
-      }
-    }
-  };
-
-  // 保存用户输入的 GitHub PAT（Main 端会验证有效性；仅 BYOK 模式）
-  window.saveOAuthCredential=async function(){
-    var info = currentOAuthInfo();
-    if(!info || info.mode!=='byok') return;
-    var input=document.getElementById('chOAuthToken');
-    var btn=document.getElementById('chOAuthSave');
-    var st=document.getElementById('chOAuthInputStatus');
-    var pubInput=document.getElementById('chOAuthPublishRepo');
-    if(!input||!btn)return;
-    var token=String(input.value||'').trim();
-    var publishRepo=pubInput ? String(pubInput.value||'').trim() : '';
-    if(!token){ st.innerHTML='<span style="color:var(--danger)">请输入 Token</span>'; return; }
-    btn.disabled=true;
-    if (info.providerId === 'github' && publishRepo) {
-      st.innerHTML='<span style="color:var(--primary-dark)">验证 Token + 检查发布仓库 push 权限...</span>';
-    } else {
-      st.innerHTML='<span style="color:var(--primary-dark)">验证中...</span>';
-    }
-    var r;
-    try{ r = await window.api.oauthSaveCredential(info.providerId, {
-      access_token: token,
-      publishRepo: publishRepo || null
-    }); }
-    catch(e){ r = { ok:false, reason:'exception', detail: String(e && e.message || e) }; }
-    btn.disabled=false;
-    if(r && r.ok){
-      input.value='';
-      if (pubInput) pubInput.value='';
-      cancelOAuthInput();
-      refreshOAuthStatus();
-      var who = (r.account && r.account.login) ? ('@' + r.account.login) : (r.account && r.account.name) || info.providerId;
-      var pubNote = '';
-      if (info.providerId === 'github') {
-        if (r.publishRepo && r.publishRepo.full_name) {
-          pubNote = '，发布仓库：' + r.publishRepo.full_name;
-        } else {
-          pubNote = '，未设置发布仓库';
-        }
-      }
-      toast('✓ 已保存 Token（' + who + pubNote + '）');
-    } else {
-      var reason = r && r.reason;
-      var msg = {
-        'invalid_token':'Token 无效或已过期',
-        'insufficient_scope':'Token 权限不足（GitHub 需要勾选 repo scope）',
-        'forbidden':'Token 无权访问 /user',
-        'rate_limited':'API 速率限制，请稍后重试',
-        'network':'网络异常：' + (r.detail || ''),
-        'not_persisted':'OS 凭据管理器不可用（keytar 未加载），重启应用或安装系统组件后重试',
-        'exception':'流程异常：' + (r.detail || ''),
-        'invalid_input':'Token 格式不合法',
-        'invalid_repo_url':'发布仓库地址无效：' + (r.detail || '请输入 https://github.com/owner/repo 形式的 URL'),
-        'repo_not_found':'指定的 GitHub 仓库不存在或 Token 无权访问' + (r.owner && r.repo ? '（' + r.owner + '/' + r.repo + '）' : ''),
-        'no_push_permission':'当前 Token 没有此仓库的写入权限' + (r.owner && r.repo ? '（' + r.owner + '/' + r.repo + '）' : '') + '。请检查：(1) Fine-grained PAT 是否勾选 Contents: Read and write；(2) 目标仓库是否在 PAT 的 Repository access 列表中。'
-      }[reason] || ('保存失败：' + (reason || 'unknown'));
-      st.innerHTML='<span style="color:var(--danger)">' + esc(msg) + '</span>';
-      toast('✗ ' + msg, true);
-    }
-  };
-
-  // 清除已保存的 Token / OAuth（BYOK 与 OAuth 共用）
-  window.disconnectOAuth=async function(){
-    var info = currentOAuthInfo();
-    if(!info) return;
-    if(!window.api||!window.api.oauthDisconnect) return;
-    var name = (info.providerId==='youtube') ? 'YouTube 账号' : 'GitHub Token';
-    if(!confirm('确认解除「' + name + '」授权？后续发布将不再使用此账号。')) return;
-    try{ await window.api.oauthDisconnect(info.providerId); }catch(_e){}
-    refreshOAuthStatus();
-    toast('已解除「' + name + '」');
-  };
-
   // ---------------- YouTube / Google OAuth 凭据说明 ----------------
   // Client ID + Client Secret 是**应用级开发者凭据**，**不在 UI 中暴露**。
   // 由 Electron Main Process 读取 electron/config/youtube-oauth.local.js；
   // Renderer / preload 永远拿不到 client_secret。
   // 如果配置缺失，「添加 YouTube 账号」点击后会给出明确错误提示（来自 Main 端 oauth.js）
+  // v1.21：YouTube 账号授权入口已移到「设置 → YouTube 发布」（cfgYtStartOAuth）。
 
   // ---------------- 抖音专属：两阶段凭据 + 授权 ----------------
 
@@ -16848,7 +17239,7 @@ window.testWechatConnection=function(){
                   return '<span class="wstatus '+_chipClass+'" title="'+esc(_s)+'">'+esc(_chipLabel)+'</span>';
                 })()+
         '<span class="wq" style="background:'+(w.queue==='主推'?'#0E7C7B':'#E4ECEB')+';color:'+(w.queue==='主推'?'#fff':'#5A6B72')+'">'+w.queue+'</span>'+
-        '<div class="wm" onclick="openWork(\''+w.id+'\')"><div class="wv">Star<b>'+(w.star||0).toLocaleString()+'</b></div><div class="wv">下载<b>'+(w.dl||0).toLocaleString()+'</b></div><div class="wv"'+(function(){var _noYt=!(w.yt_url&&String(w.yt_url).trim())&&!(w.url&&/(?:youtube\.com|youtu\.be)/i.test(String(w.url)));return _noYt?' title="未配置 YouTube 视频链接，播放量无法统计"':'';})()+'>播放<b>'+(w.yt_views==null?'--':(w.yt_views||0).toLocaleString())+'</b></div></div>'+
+        '<div class="wm" onclick="openWork(\''+w.id+'\')"><div class="wv">Star<b>'+(w.star||0).toLocaleString()+'</b></div><div class="wv">下载<b>'+(w.dl||0).toLocaleString()+'</b></div><div class="wv"'+(function(){var _noYt=!(w.yt_url&&String(w.yt_url).trim())&&!(w.url&&/(?:youtube\.com|youtu\.be)/i.test(String(w.url)));return _noYt?' title="未配置 YouTube 视频链接，播放量无法统计"':'';})()+'>播放<b>'+ytViewsText(w)+'</b></div></div>'+
         '<div class="wnx" onclick="openWork(\''+w.id+'\')">下一步：'+esc(w.next||'登记推广')+'</div></div>';
 
     });
@@ -16944,7 +17335,7 @@ window.testWechatConnection=function(){
         } else if (u.yt_views_error) {
           ytFailCount++;
           try{ console.warn('[YouTubeStats]', w.name||w.id, 'views failed:', u.yt_views_error, 'reason=' + (u.yt_reason||'?'), 'http=' + (u.yt_http_status==null?'-':u.yt_http_status)); }catch(_e){}
-          if (u.yt_reason === 'no-api-key') ytNoKey = true;
+          if (u.yt_reason === 'no-auth') ytNoKey = true;
         }
         if (u.ytOnly) return; // 仅 YouTube 更新的条目不参与 GitHub 成败计数
         if(u.ok){
@@ -16999,11 +17390,11 @@ window.testWechatConnection=function(){
         var boxes = card.querySelectorAll('.wm .wv b');
         if (boxes[0]) boxes[0].textContent = (w.star || 0).toLocaleString();
         if (boxes[1]) boxes[1].textContent = (w.dl   || 0).toLocaleString();
-        if (boxes[2]) boxes[2].textContent = (w.yt_views == null ? '--' : (w.yt_views || 0).toLocaleString());
+        if (boxes[2]) boxes[2].textContent = ytViewsText(w);
       });
       // YouTube 播放量结果提示（独立于 GitHub 提示；失败已保留旧缓存）
       if (ytNoKey) {
-        try{ toast('未配置 YouTube Data API Key，播放量未更新；请到「设置」中配置', 'warn', 4200); }catch(_e){}
+        try{ toast('YouTube 未授权，播放量未更新；请到「推广渠道」完成 YouTube 授权', 'warn', 4200); }catch(_e){}
       } else if (ytFailCount && !ytOkCount && !updated && !failed) {
         // 仅 YouTube 刷新且全部失败时才单独提示（GitHub 提示逻辑在下方）
         try{ toast('YouTube 播放量获取失败，已保留上次数据', 'warn', 3000); }catch(_e){}
@@ -17162,17 +17553,14 @@ window.testWechatConnection=function(){
 
   window.addWork=function(){stopDemo();
 
-    // 真实作品 id 从 w1 起步，跳过示例作品占用的 id
-    var exists=state.works.filter(function(w){return !w.isSample;}).map(function(w){return w.id;});
-    var n=1;
-    while(exists.indexOf('w'+n)>=0||SAMPLE_WORK_IDS.indexOf('w'+n)>=0)n++;
-    var id='w'+n;
+    // 只进入登记向导，**不新增作品记录**。
+    // 正式记录在发布成功确认时由 window.launch() 依据真实结果创建。
+    // 这里不分配 id、不 push 到 state.works、不调用 saveWork。
+    state.curWork=null;
 
-    state.works.push({id:id,name:'新作品',type:'效率工具',status:'待启动',color:'#9CA3AF',queue:'排队',star:0,dl:0,play:'0',next:'登记推广',intro:'',url:'',yt_url:''});
-
-    state.curWork=id;
-
-    if(window.api){window.api.saveWork(state.works[state.works.length-1]).catch(function(){});}
+    // 新一轮登记：重置「本轮已登记」标记，避免上一轮的去重记录影响本次
+    state._launchBatchToken=null;
+    state._launchedInBatch={};
 
     state.project={name:'',type:'',intro:'',url:''};
 

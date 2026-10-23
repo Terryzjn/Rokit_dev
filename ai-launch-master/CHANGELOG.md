@@ -5,6 +5,39 @@
 
 ## [未发布]
 
+### Added (凭据入口统一到设置页)
+- **GitHub Token 配置迁入设置页**（[index.html](index.html)）：原「推广渠道 → GitHub → 添加 Personal Access Token」面板整体搬进「设置 → GitHub 发布」，共用同一套 `oauth:status` / `oauth:save-credential` / `oauth:disconnect` IPC，读写同一份凭据，不会出现两处 Token 不一致。保存改为点「保存 Token」即时生效（会先验证 Token 有效性 + 发布仓库 push 权限），不再随设置页底部「保存」提交
+- **YouTube 账号授权迁入设置页**（[index.html](index.html)）：原「推广渠道 → YouTube」面板搬进「设置 → YouTube 发布」，11 条错误文案与剪贴板兜底逻辑逐条原样迁移。新增 `cfgYtStartOAuth` / `cfgYtRefreshStatus` / `cfgYtDisconnect`
+- **发布通道连通性测试**（[index.html](index.html) + [electron/main.js](electron/main.js)）：设置页底部「测试连接」拆为「测试模型连接」（原 `testCfg` 逻辑不变）与「测试发布通道」。后者一次点击同时验证两个通道：GitHub 真实请求 `api.github.com/user`，YouTube 读本地授权状态（`connected && !needsReconnect`，方案 A 不发 tokeninfo 请求）。两个都通过弹绿色提示，一个不行标出具体哪个，两个都不行标红；**未配置一律算失败**
+- **旧凭据槽位一次性清理**（[electron/secrets.js](electron/secrets.js)）：新增 `purgeLegacySecretSlots()`，应用启动时异步执行。`github-pat` 若为老用户唯一凭据则**先迁移进 `oauth-github` 记录再删槽位**（避免 GitHub 发布静默失效），已有 oauth 记录则视为冗余直接删；`youtube-api-key` 直接删（播放量统计已有 `ROKIT_YOUTUBE_API_KEY` env 兜底）。操作幂等
+
+### Fixed
+- **上传 WebM 视频测不出时长**（[electron/video.js](electron/video.js) + [electron/video-source.js](electron/video-source.js)）：两个独立缺陷。① 浏览器 MediaRecorder 产出的 WebM 是**流式容器**（尾部不写 Segment Duration、无 Cues 索引），`ffmpeg -i` 把 Duration 报成 `N/A`，而 `getMetadata` 只认 `Duration: HH:MM:SS.ff` 正则，`durationMs` 根本不被赋值 —— 现新增 `probeDurationByScan()`，在容器报不出时长时用 `-c copy -f null -` 走一遍（只读包不解码，28 秒视频耗时 43ms），从 progress 行取最大 `time=` 兜底，带 30s 超时。② `probeMetadata` 读的是 `m.duration`(字符串) / `m.width` / `m.height`，而 `getMetadata` 实际返回 `m.durationMs`(数字) / `m.resolution.{width,height}` —— **字段名完全对不上，本地视频上传的时长从来就没成功过**，已改为读取真实字段名
+- **发射成功后错误渲染「选择语音生成方式」页**（[index.html](index.html)）：`launchAll` 结尾把 `state.step` 设成 `13`，而 `renderStep` 的 `s===13` 分支正是语音生成页，导致它被追加在「发射成功」卡片下方。新增 `STEP_DONE = 99` 哨兵值 + `renderStep` 终止分支（`ctrlBox` 留空），`stageOf(99)` 复用「发布清单」阶段。逐项核对所有 `state.step` 读点，99 与原 13 行为完全一致，唯一差异就是不再渲染后续步骤
+- **`github:probe` 读错数据源**（[electron/main.js](electron/main.js)）：只读已被清理的 `github-pat` 槽位，导致设置页连通性测试必然失败。改为与 `github:put-file` 一致地读 `oauth-github` 记录
+
+### Removed (废弃凭据接口清理)
+- **GitHub Token / YouTube Data API Key 的写入 IPC**（[electron/main.js](electron/main.js) + [electron/preload.js](electron/preload.js)）：`secrets:set-github-pat` / `secrets:clear-github-pat` / `secrets:set-youtube-api-key` / `secrets:clear-youtube-api-key` 及其 preload 导出，renderer 侧已无调用方
+- **`secrets:migrate-plaintext` IPC**（[electron/main.js](electron/main.js) + [electron/preload.js](electron/preload.js)）：renderer 从未调用；启动时的一次性明文迁移由 main 进程直调 `secrets.migratePlaintextApiKey(store)`，不经过 IPC
+- **`getGithubPat` / `getYoutubeApiKey` 及其 setter / clearer**（[electron/secrets.js](electron/secrets.js)）：槽位每次启动都被清理，这批接口已成空转。`github-pat` / `youtube-api-key` 槽位的读写仅供 `purgeLegacySecretSlots` 一次性清理使用，内部直接调 `getSecret` / `deleteSecret`
+- **`secrets:status` 的 `hasGithubPat` / `hasYoutubeApiKey` 字段**（[electron/main.js](electron/main.js)）：前者依赖已清理的槽位、后者依赖已删除的输入框。顶栏 tooltip 改用 `oauth:status('github')` 异步补 `+ GitHub Token` 后缀（[index.html](index.html)）
+- **发布渠道编辑器的凭据区**（[index.html](index.html)）：`chOAuthBox` / `chOAuthToken` / `chOAuthSave` / `chOAuthPublishRepo` 等 DOM 与 `saveOAuthCredential` / `cancelOAuthInput` 一并删除；`CH_OAUTH` 的 GitHub 与 YouTube 均改为 `mode:'external'`，只保留抖音的双阶段凭据
+
+### Changed
+- **YouTube 播放量统计的 API Key 来源**（[electron/main.js](electron/main.js)）：设置页的「Data API Key」输入框已移除，`resolveYoutubeApiKey()` 改为**仅**读环境变量 `ROKIT_YOUTUBE_API_KEY`
+- **GitHub 取 Token 的四处调用统一走 `oauth-github` 记录**（[electron/main.js](electron/main.js)）：`github:pick-repo` / `github:put-file` / `github:probe` 删除 `github-pat` 兜底分支；Star 限流提升改为读 oauth 记录（若只删不补，Authorization 头会丢失，rate limit 从 5000/h 退回 60/h）
+
+### Docs
+- **PRIVACY.md / README.md 同步 v1.21 凭据架构**：网络请求从 5 条扩到 9 条（新增 GitHub 连通性测试、YouTube OAuth 授权、视频上传、播放量统计）；数据存储表补 `oauth-github` / `oauth-youtube` / 公众号凭据三行；新增「v1.21 槽位清理说明」向用户交代旧槽位的迁移与删除行为
+
+### Tests
+- 新增 `tests/secrets.test.js` 的 `purgeLegacySecretSlots` 组 5 用例：老用户无 oauth 记录时迁移进 oauth 再删槽位 / 已有 oauth 记录时不覆盖 / youtube 槽位清理 / 无存量时报 absent / 幂等（连跑两次第二次全 absent）
+- 新增 `tests/oauth-browser-launch.test.js`（8 用例）：openExternal 成功则不降级且不动剪贴板 / `tasklist` 查询失败与进程数不增长均不影响判定（旧实现的两类误报回归）/ reject 才降级到 `cmd /c start` / 全部失败走剪贴板 / 剪贴板不可用返回 `browser_open_failed` / **受限（Low 完整性）上下文强制走剪贴板且不谎报成功** / 非受限上下文 `restricted` 为 false
+
+---
+
+## [未发布 · 浏览器启动]
+
 修复「调用系统浏览器不成功」——根因已定位为 **Low 完整性令牌下 Windows 拒绝把 URL 交给浏览器**（静默假成功），并据此修掉判定逻辑与 UI 提示。
 
 ### 根因（实测结论）

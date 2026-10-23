@@ -248,7 +248,50 @@ function trim(input, opts) {
   });
 }
 
-function getMetadata(input) {
+// 容器级时长兜底探测（仅在 `ffmpeg -i` 报不出 Duration 时才走）。
+//   背景：浏览器 MediaRecorder 产出的 WebM 是「流式」容器，尾部不写 Segment Duration、
+//         也没有 Cues 索引，纯探测（ffmpeg -i）会把 Duration 报成 `N/A`。
+//   方案：`-c copy -f null -` 走一遍 —— `-c copy` 只读包不解码，速度接近磁盘 IO；
+//         取 progress 行里**最大**的 `time=`（最后一条即总时长）。
+//   返回毫秒数；失败返回 0。
+function probeDurationByScan(input, timeoutMs) {
+  return new Promise(function (resolve) {
+    const exe = ffmpegPath();
+    if (!exe || !fs.existsSync(input)) return resolve(0);
+    let stderr = '';
+    let settled = false;
+    let proc;
+    let timer = null;
+    const finish = function (ms) {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolve(ms);
+    };
+    try {
+      proc = spawn(exe, ['-i', input, '-c', 'copy', '-f', 'null', '-'], { stdio: ['ignore', 'ignore', 'pipe'] });
+    } catch (_e) { return resolve(0); }
+    timer = setTimeout(function () {
+      try { proc.kill('SIGKILL'); } catch (_e) {}
+      finish(0);
+    }, typeof timeoutMs === 'number' && timeoutMs > 0 ? timeoutMs : 30000);
+    proc.stderr.on('data', function (b) { stderr += b.toString(); });
+    proc.on('error', function () { finish(0); });
+    proc.on('close', function () {
+      // progress 会反复打印 time=，取最大值即最终时长
+      const re = /time=\s*(\d+):(\d+):(\d+(?:\.\d+)?)/g;
+      let maxMs = 0;
+      let m;
+      while ((m = re.exec(stderr)) !== null) {
+        const ms = Math.round((parseInt(m[1], 10) * 3600 + parseInt(m[2], 10) * 60 + parseFloat(m[3])) * 1000);
+        if (ms > maxMs) maxMs = ms;
+      }
+      finish(maxMs);
+    });
+  });
+}
+
+function getMetadata(input, opts) {
   return new Promise(function (resolve) {
     const exe = ffmpegPath();
     if (!exe || !fs.existsSync(input)) return resolve(null);
@@ -281,6 +324,14 @@ function getMetadata(input) {
       if (fm) {
         const fpsNum = parseFloat(fm[1]);
         if (isFinite(fpsNum) && fpsNum > 0 && fpsNum <= 1000) out.fps = fpsNum;
+      }
+      // 容器报不出时长（MediaRecorder 产出的流式 WebM）时兜底扫一遍拿真实时长。
+      if (!(out.durationMs > 0)) {
+        probeDurationByScan(input, (opts && opts.durationScanTimeoutMs) || 0).then(function (ms) {
+          if (ms > 0) out.durationMs = ms;
+          resolve(out);
+        });
+        return;
       }
       resolve(out);
     });

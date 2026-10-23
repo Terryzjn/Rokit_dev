@@ -243,7 +243,7 @@ ipcMain.handle('works:delete', (_e, id) => store.deleteWork(id));
 //     publishRepo 完全独立——发布仓库用哪个账号 / 哪个仓库，Star 永远看作品链接
 //
 // 隔离原则：
-//   - 这里只读 `secrets.getGithubPat()` 用于 Star 限流提升；Token 仅作 Authorization 头
+//   - 这里只读 oauth-github record 里的 Token 用于 Star 限流提升；Token 仅作 Authorization 头
 //   - 不写回 publisher / 不修改 Token 存储 / 不要求用户重新绑定
 //   - 复用既有 fetchGithubMeta：它已支持可选 Authorization header
 async function refreshGithubStats(works) {
@@ -262,17 +262,28 @@ async function refreshGithubStats(works) {
   var targets = (works || []).filter(function(w){
     return w && w.id && typeof w.url === 'string' && /github\.com/i.test(w.url);
   });
+  // 无 GitHub 目标时**不再 return** —— 早期版本在这里 return [] 会让
+  // 「只发布到 YouTube、没有 GitHub 链接」的作品永远走不到下面的 YouTube 段，
+  // 播放量永远查不到（且 updates 为空，前端连失败原因都收不到）。
+  // 现在只跳过 GitHub 查询与其后续处理（results 为空数组，forEach 自然空转）。
   if (!targets.length) {
-    try { console.warn('[GitHub Stats][Stars] === no targets to refresh ==='); } catch(_e) {}
-    return [];
+    try { console.warn('[GitHub Stats][Stars] === no GitHub targets, skip GitHub stats only ==='); } catch(_e) {}
   }
 
   // 有 token 就带上 Authorization（公开仓库访问 + 提升 rate limit：60/h → 5000/h）
   // 不打印 token 任何字符
+  // v1.21：Token 统一来自 oauth-github record（设置 → GitHub 发布 写入）
   var optToken = '';
-  try { optToken = (await secrets.getGithubPat()) || ''; } catch (_e) {}
+  if (targets.length) {
+    try {
+      var _ghRec = await oauth.getTokenForInternal('github');
+      optToken = (_ghRec && _ghRec.access_token) || '';
+    } catch (_e) {}
+  }
   var hasToken = !!optToken;
-  try { console.warn('[GitHub Stats][Stars] tokenStatus=' + (hasToken ? 'configured (auth header will be sent)' : 'empty (公开仓库仍可访问)')); } catch(_e) {}
+  if (targets.length) {
+    try { console.warn('[GitHub Stats][Stars] tokenStatus=' + (hasToken ? 'configured (auth header will be sent)' : 'empty (公开仓库仍可访问)')); } catch(_e) {}
+  }
 
   var results = await Promise.allSettled(targets.map(async function(w){
     var repo = ghRepoPart(w.url);
@@ -395,6 +406,8 @@ async function refreshGithubStats(works) {
   }));
 
   var updates = [];
+  (function () {
+  if (!targets.length) return;   // 无 GitHub 目标 → 跳过 GitHub 结果组装；YouTube 段仍会继续
   results.forEach(function(r, i){
     var w = targets[i];
     if (r.status === 'fulfilled'){
@@ -508,6 +521,7 @@ async function refreshGithubStats(works) {
       updates.push({ id: w.id, ok: false, error: msg });
     }
   });
+  })();
   try { console.warn('[GitHub Stats][Stars] === refresh done === ok=' + updates.filter(function(u){return u.ok;}).length + ' failed=' + updates.filter(function(u){return !u.ok;}).length); } catch(_e) {}
 
   // ---------- YouTube 播放量（独立于 GitHub 统计；单作品失败不影响其他，绝不伪造 0） ----------
@@ -518,23 +532,23 @@ async function refreshGithubStats(works) {
     return !!(parseYoutubeVideoId(w.yt_url) || parseYoutubeVideoId(w.url));
   });
   if (ytTargets.length) {
-    var ytKey = await resolveYoutubeApiKey();
-    try { console.warn('[YouTube Stats] === refresh start === targetCount=' + ytTargets.length + ' hasApiKey=' + (ytKey ? 'true' : 'false')); } catch (_e) {}
+    var ytToken = await resolveYoutubeAccessToken();
+    try { console.warn('[YouTube Stats] === refresh start === targetCount=' + ytTargets.length + ' hasOAuthToken=' + (ytToken ? 'true' : 'false')); } catch (_e) {}
     var byId = {};
     updates.forEach(function (u) { if (u && u.id) byId[u.id] = u; });
     await Promise.allSettled(ytTargets.map(async function (w) {
       var vid = parseYoutubeVideoId(w.yt_url) || parseYoutubeVideoId(w.url);
       var entry = byId[w.id];
       if (!entry) { entry = { id: w.id, ok: true, ytOnly: true }; updates.push(entry); byId[w.id] = entry; }
-      if (!ytKey) {
-        // 未配置 API Key：不是错误，返回明确原因让前端提示用户去设置页配置
-        entry.yt_views_error = 'no-youtube-api-key';
-        entry.yt_reason = 'no-api-key';
-        try { console.warn('[YouTube Stats]', (w.id || ''), 'skipped: no API key configured'); } catch (_e) {}
+      if (!ytToken) {
+        // 未授权 / 缺少 readonly scope：不是数据错误，返回明确原因让前端提示去授权
+        entry.yt_views_error = 'no-youtube-auth';
+        entry.yt_reason = 'no-auth';
+        try { console.warn('[YouTube Stats]', (w.id || ''), 'skipped: YouTube OAuth not authorized'); } catch (_e) {}
         return;
       }
       try {
-        var yr = await fetchYoutubeViewCount(vid, ytKey);
+        var yr = await fetchYoutubeViewCount(vid, ytToken);
         entry.yt_views = yr.views;
         entry.yt_updated_at = new Date().toISOString();
         // 主进程侧持久化（与 GitHub 一致的双保险；失败时前端保留旧缓存）
@@ -548,15 +562,19 @@ async function refreshGithubStats(works) {
       }
     }));
   }
+  // GitHub 与 YouTube 都没有目标时返回空数组（前端 updates.forEach 空转，显示保持原值）。
   return updates;
 }
 
 // ============================================================
 // YouTube 播放量统计（「我的作品」卡片第三栏「播放」）
 //   - 只读公开数据：YouTube Data API v3 videos.list?part=statistics
-//   - API Key 来源：secrets.getYoutubeApiKey()（OS 凭据管理器）→ ROKIT_YOUTUBE_API_KEY env
+//   - 认证：复用发布链路的 OAuth 凭证（Authorization: Bearer <access_token>），
+//     令牌由 oauth.getValidAccessToken('youtube') 获取（过期自动 refresh）。
+//     不再使用 ROKIT_YOUTUBE_API_KEY，也不新增任何配置项。
 //   - 视频链接来源：作品 yt_url 字段优先；为空且作品 url 本身是 YouTube 链接时兜底解析
 //   - 失败语义：抛错 / 返回 error，绝不伪造 0；前端保留旧缓存
+//   - 私有视频拿不到 statistics 属于正常情况（video-not-found），不代表授权失效
 // ============================================================
 
 // 从常见 YouTube 链接中解析 videoId；非 YouTube 链接（如 GitHub 仓库）返回 null
@@ -592,15 +610,26 @@ function parseYoutubeVideoId(rawUrl) {
 }
 
 // 查询单个公开视频的总播放次数
+// 认证：复用发布链路的 OAuth access_token（Authorization: Bearer），不再使用 API Key。
+//   - URL 不带 key 参数；令牌只出现在请求头，绝不进 URL / 日志 / 返回值
+//   - 沿用 fetchWithTimeout（googleOAuthFetch 不支持 AbortSignal，会丢失 10s 超时保护）
 // 返回 { ok:true, views:Number }；失败抛错（err.httpStatus / err.ytReason 挂属性）
-async function fetchYoutubeViewCount(videoId, apiKey) {
+async function fetchYoutubeViewCount(videoId, accessToken) {
   if (!videoId) throw new Error('no-video-id');
-  if (!apiKey) { var e0 = new Error('no-youtube-api-key'); e0.ytReason = 'no-api-key'; throw e0; }
-  var api = 'https://www.googleapis.com/youtube/v3/videos?part=statistics&id='
-    + encodeURIComponent(videoId) + '&key=' + encodeURIComponent(apiKey);
+  if (!accessToken) { var e0 = new Error('no-youtube-auth'); e0.ytReason = 'no-auth'; throw e0; }
+  // part=statistics 是播放量的唯一来源；额外加 status 只是为了在诊断日志里读回
+  //   视频**实际生效**的可见性（判断 public 是否被降级为 private），两者同属一次调用，
+  //   YouTube Data API 仍只计 1 unit 配额，不改变播放量来源，也不新增任何请求。
+  var api = 'https://www.googleapis.com/youtube/v3/videos?part=statistics,status&id='
+    + encodeURIComponent(videoId);
   var res;
   try {
-    res = await fetchWithTimeout(api, { headers: { 'Accept': 'application/json' } }, 10000);
+    res = await fetchWithTimeout(api, {
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': 'Bearer ' + accessToken
+      }
+    }, 10000);
   } catch (netErr) {
     var name = (netErr && netErr.name) || '';
     var msg = String((netErr && netErr.message) || netErr);
@@ -643,6 +672,22 @@ async function fetchYoutubeViewCount(videoId, apiKey) {
   }
   var stats = j.items[0] && j.items[0].statistics;
   var vc = stats && stats.viewCount;
+  // 脱敏诊断日志：只记录 videoId / HTTP 状态 / items 数 / viewCount 原始值与类型 /
+  //   视频实际可见性。**绝不**记录 access_token / refresh_token / client_secret，
+  //   也不记录 Authorization 请求头。目的是区分「API 真的返回 0」与「响应结构异常」。
+  try {
+    var _it = j.items[0] || {};
+    var _ps = (_it.status && _it.status.privacyStatus) || '<absent>';
+    console.warn('[YouTube Stats] response ok'
+      + ' videoId=' + videoId
+      + ' http=' + res.status
+      + ' items=' + j.items.length
+      + ' returnedId=' + (_it.id || '<absent>')
+      + ' privacyStatus=' + _ps
+      + ' viewCountRaw=' + (vc === undefined ? '<undefined>' : String(vc))
+      + ' viewCountType=' + (vc === undefined ? '<undefined>' : typeof vc)
+    );
+  } catch (_e) {}
   if (vc === undefined || vc === null || vc === '') {
     var env2 = new Error('YouTube 响应缺 viewCount 字段');
     env2.ytReason = 'no-field';
@@ -657,12 +702,34 @@ async function fetchYoutubeViewCount(videoId, apiKey) {
   return { ok: true, views: Math.floor(views) };
 }
 
-// 取当前可用的 YouTube Data API Key：OS 凭据管理器优先，env 兜底（不打印任何字符）
-async function resolveYoutubeApiKey() {
-  var k = '';
-  try { k = (await secrets.getYoutubeApiKey()) || ''; } catch (_e) {}
-  if (!k) { try { k = process.env.ROKIT_YOUTUBE_API_KEY || ''; } catch (_e) {} }
-  return k;
+// 取当前可用的 YouTube access_token（复用发布链路的 OAuth 凭证）
+//   - 直接调用 oauth.getValidAccessToken('youtube')：过期自动 refresh，失败返回 null
+//   - 不再依赖 ROKIT_YOUTUBE_API_KEY，也不再新增任何配置项
+//   - 令牌只在 Main 进程内流转，绝不写入日志 / 返回值 / 配置文件
+//   - 作用域校验：仅做只读诊断，缺失时如实上报，**不自动触发重新授权**
+async function resolveYoutubeAccessToken() {
+  var tok = null;
+  try {
+    tok = await oauth.getValidAccessToken('youtube');
+  } catch (_e) {
+    tok = null;
+  }
+  if (!tok || typeof tok !== 'string') return null;
+
+  // 只读诊断：确认令牌是否带 youtube.readonly（读 statistics 需要）。
+  // 注意：这里只判断并记录，绝不因为缺失而发起授权或刷新。
+  var hasReadonly = true;
+  try {
+    var rec = await oauth.getTokenForInternal('youtube');
+    var scopeText = (rec && rec.scope) ? String(rec.scope) : '';
+    // 拿不到 scope 字段时不做悲观判断，避免误报
+    if (scopeText) hasReadonly = /youtube\.readonly/.test(scopeText);
+  } catch (_e) { /* 忽略：诊断失败不影响取数 */ }
+  try {
+    console.warn('[YouTube Stats] OAuth token ready (readonly scope present=' + hasReadonly + ')');
+  } catch (_e) {}
+  if (!hasReadonly) return null;
+  return tok;
 }
 
 
@@ -937,39 +1004,128 @@ function keytarErrorMessage() {
 ipcMain.handle('secrets:status', async () => {
   const hasNative = secrets.hasNative();
   const apiKey = await secrets.getApiKey();
-  const githubPat = await secrets.getGithubPat();
-  const youtubeApiKey = await secrets.getYoutubeApiKey();
   return {
     hasNative: hasNative,
     hasApiKey: !!apiKey,
-    hasGithubPat: !!githubPat,
-    // env 兜底也算"已配置"（与 resolveYoutubeApiKey 的实际取数逻辑一致）
-    hasYoutubeApiKey: !!youtubeApiKey || !!(process.env.ROKIT_YOUTUBE_API_KEY || ''),
     keytarError: keytarErrorMessage()
   };
 });
 
-ipcMain.handle('secrets:set-github-pat', async (_e, value) => {
-  if (!value) return { ok: false, error: 'empty-pat' };
-  const persisted = await secrets.setGithubPat(String(value));
-  return { ok: true, persisted: !!persisted };
+// v1.21：secrets:set-github-pat / secrets:clear-github-pat /
+//   secrets:set-youtube-api-key / secrets:clear-youtube-api-key 已移除。
+//   GitHub Token 改由 oauth:save-credential 写入（设置 → GitHub 发布）；
+//   YouTube 改用 Google 官方 OAuth 授权（设置 → YouTube 发布）。
+//   hasGithubPat / hasYoutubeApiKey 字段随之移除（前者依赖已被清理的 PAT 槽位，
+//   后者依赖已删除的 Data API Key 输入框）—— GitHub 状态请改用 oauth:status('github')。
+
+// ---------- v1.21：线上语音引擎凭据（OpenAI TTS / ElevenLabs TTS） ----------
+// 约定：
+//   - 明文密钥只写 OS 凭据管理器（keytar），不进 SQLite、不进配置文件、不进日志。
+//   - 渲染层只能读到 hasXxx 布尔值，**读不到**明文。
+//   - clear 后 keytar 槽位被删除，voice-engine.js 下次读到的就是空串。
+function _onlineTtsKeyTarget(provider) {
+  const p = String(provider || '').trim();
+  if (p === 'openai-tts') return { set: secrets.setOpenaiTtsKey, clear: secrets.clearOpenaiTtsKey, get: secrets.getOpenaiTtsKey };
+  if (p === 'elevenlabs-tts') return { set: secrets.setElevenlabsTtsKey, clear: secrets.clearElevenlabsTtsKey, get: secrets.getElevenlabsTtsKey };
+  return null;
+}
+
+ipcMain.handle('secrets:online-tts-key', async (_e, payload) => {
+  const t = _onlineTtsKeyTarget(payload && payload.provider);
+  if (!t) return { ok: false, error: 'unknown-provider' };
+  try {
+    const value = await t.get();
+    return { ok: true, provider: payload.provider, hasKey: !!value };
+  } catch (err) {
+    // 只回错误类型，**不**回任何 key 内容
+    return { ok: false, error: 'key-read-failed', detail: String((err && err.message) || err) };
+  }
 });
 
-ipcMain.handle('secrets:clear-github-pat', async () => {
-  await secrets.clearGithubPat();
-  return { ok: true };
-});
-
-// YouTube Data API Key：只写 OS 凭据管理器；仅用于 videos.list?part=statistics 只读查询
-ipcMain.handle('secrets:set-youtube-api-key', async (_e, value) => {
+ipcMain.handle('secrets:set-online-tts-key', async (_e, payload) => {
+  const t = _onlineTtsKeyTarget(payload && payload.provider);
+  if (!t) return { ok: false, error: 'unknown-provider' };
+  const value = String((payload && payload.value) || '').trim();
   if (!value) return { ok: false, error: 'empty-key' };
-  const persisted = await secrets.setYoutubeApiKey(String(value));
-  return { ok: true, persisted: !!persisted };
+  try {
+    // persisted=false 表示 keytar 不可用、只落在进程内存里（重启即失效），
+    // 必须如实回报给渲染层，不能显示成"已安全保存"。
+    const persisted = await t.set(value);
+    return { ok: true, persisted: !!persisted };
+  } catch (err) {
+    return { ok: false, error: 'key-save-failed', detail: String((err && err.message) || err) };
+  }
 });
 
-ipcMain.handle('secrets:clear-youtube-api-key', async () => {
-  await secrets.clearYoutubeApiKey();
+ipcMain.handle('secrets:clear-online-tts-key', async (_e, payload) => {
+  const t = _onlineTtsKeyTarget(payload && payload.provider);
+  if (!t) return { ok: false, error: 'unknown-provider' };
+  await t.clear();
   return { ok: true };
+});
+
+// ---------- v1.21：线上语音引擎的非敏感参数（Base URL / 模型 / 音色） ----------
+// 这些值不是凭据，允许明文存 settings_kv；API Key 永远不进这条路径。
+// 单独抽一个模块的原因：voice-engine.js 是纯函数模块，不该直接依赖 store。
+function _onlineTtsConfigLoad(provider) {
+  const p = String(provider || '').trim();
+  if (p !== 'openai-tts' && p !== 'elevenlabs-tts') return null;
+  let raw = null;
+  try { raw = store.getSettingKv('onlineTtsConfig.' + p); } catch (_e) {}
+  let cfg = {};
+  if (raw) { try { cfg = JSON.parse(raw) || {}; } catch (_e) { cfg = {}; } }
+  const d = voiceEngine.getEngineDefaults(p) || {};
+  const base = d.baseUrl || '';
+  return {
+    ok: true,
+    provider: p,
+    baseUrl: String(cfg.baseUrl || base),
+    isDefaultBaseUrl: !cfg.baseUrl || String(cfg.baseUrl) === base,
+    // 各引擎字段命名不同，原样透传给对应适配器
+    model: String(cfg.model || ''),
+    voice: String(cfg.voice || ''),
+    voiceId: String(cfg.voiceId || ''),
+    modelId: String(cfg.modelId || ''),
+    outputFormat: String(cfg.outputFormat || '')
+  };
+}
+
+function _onlineTtsConfigSave(provider, incoming) {
+  const cur = _onlineTtsConfigLoad(provider);
+  if (!cur) return { ok: false, error: 'unknown-provider' };
+  const p = String(provider);
+  const inc = incoming || {};
+  const next = {
+    baseUrl: String(inc.baseUrl != null ? inc.baseUrl : cur.baseUrl).trim(),
+    model: String(inc.model != null ? inc.model : cur.model).trim(),
+    voice: String(inc.voice != null ? inc.voice : cur.voice).trim(),
+    voiceId: String(inc.voiceId != null ? inc.voiceId : cur.voiceId).trim(),
+    modelId: String(inc.modelId != null ? inc.modelId : cur.modelId).trim(),
+    outputFormat: String(inc.outputFormat != null ? inc.outputFormat : cur.outputFormat).trim()
+  };
+  if (next.baseUrl && !/^https?:\/\//i.test(next.baseUrl)) {
+    return { ok: false, error: 'invalid-baseUrl:服务地址必须以 http:// 或 https:// 开头' };
+  }
+  try { store.upsertSettingKv('onlineTtsConfig.' + p, JSON.stringify(next)); }
+  catch (e) { return { ok: false, error: 'config-save-failed', detail: String((e && e.message) || e) }; }
+  return Object.assign({ ok: true, persisted: true }, _onlineTtsConfigLoad(p));
+}
+
+ipcMain.handle('online-tts:config', function (_e, payload) {
+  const r = _onlineTtsConfigLoad(payload && payload.provider);
+  if (!r) return { ok: false, error: 'unknown-provider' };
+  return r;
+});
+
+ipcMain.handle('online-tts:save-config', function (_e, payload) {
+  return _onlineTtsConfigSave((payload && payload.provider), (payload && payload.config) || {});
+});
+
+ipcMain.handle('online-tts:clear-config', function (_e, payload) {
+  const p = String((payload && payload.provider) || '');
+  if (p !== 'openai-tts' && p !== 'elevenlabs-tts') return { ok: false, error: 'unknown-provider' };
+  try { store.upsertSettingKv('onlineTtsConfig.' + p, null); } catch (_e) {}
+  return _onlineTtsConfigLoad(p);
 });
 
 const WECHAT_SECRET_KEYS = {
@@ -1112,9 +1268,9 @@ ipcMain.handle('wechat:draft-get', async (_e, mediaId) => {
   return wechat.getDraft(direct, mediaId, (url, options) => fetchWithTimeout(url, options, 15000));
 });
 
-ipcMain.handle('secrets:migrate-plaintext', async () => {
-  return secrets.migratePlaintextApiKey(store);
-});
+// v1.21：secrets:migrate-plaintext IPC 已移除 —— renderer 从未调用它。
+//   启动时的一次性明文迁移由 main 进程直接调 secrets.migratePlaintextApiKey(store)，
+//   不经过 IPC 通道。
 
 // ---------- OAuth（Phase 1：GitHub） ----------
 // 不暴露任何读 token 的 channel；Renderer 只能触发流程 / 查询连接状态 / 断开
@@ -1232,14 +1388,13 @@ video.attachIpc(ipcMain);
 // ---------- GitHub L1 直发 ----------
 // 找用户最近推送的仓库（兜底目标，给 step 2 没填链接时用）
 ipcMain.handle('github:pick-repo', async () => {
+  // v1.21：GitHub Token 只存在于 oauth-github record（设置 → GitHub 发布 写入）。
+  //   旧的 github-pat 槽位已被 purgeLegacySecretSlots 清理，不再需要兜底读取。
   let token = null;
   try {
     const oauthRec = await oauth.getTokenForInternal('github');
     if (oauthRec && oauthRec.access_token) token = oauthRec.access_token;
   } catch (_e) {}
-  if (!token) {
-    try { token = await secrets.getGithubPat(); } catch (_e) {}
-  }
   if (!token) return { ok: false, error: 'no-token' };
   const r = await pubex.githubPickRepo(token);
   if (!r) return { ok: false, error: 'no-repos' };
@@ -1247,7 +1402,7 @@ ipcMain.handle('github:pick-repo', async () => {
 });
 
 // v1.10：从已保存的 token record 读取 publishRepo（强约束发布目标）
-//   - OAuth 优先（推广渠道 → GitHub BYOK） → PAT 兜底（设置里的 GitHub PAT）
+//   - v1.21：GitHub Token 与发布仓库统一存在 oauth-github record 里
 //   - 返回 null 表示「未配置发布仓库」
 async function readPublishRepo() {
   try {
@@ -1256,14 +1411,12 @@ async function readPublishRepo() {
       return oauthRec.publishRepo;
     }
   } catch (_e) {}
-  // PAT 模式下，发布仓库也直接存在同一个 token record 里（secrets.setOauthToken 兼容 oauth/github）
-  // secrets.js 目前把 PAT 也存为 oauth-github（由 saveCredential 写入），这里保持同样读取路径
   return null;
 }
 
 ipcMain.handle('github:put-file', async (_e, opts) => {
   if (!opts) return { ok: false, error: 'no-opts' };
-  // Token 来源优先级：OAuth (推广渠道 → GitHub BYOK) > PAT (设置里的 GitHub PAT)
+  // v1.21：Token 统一来自 oauth-github record（设置 → GitHub 发布 写入）
   let token = null;
   let tokenSource = null;
   try {
@@ -1274,14 +1427,10 @@ ipcMain.handle('github:put-file', async (_e, opts) => {
     }
   } catch (_e) {}
   if (!token) {
-    token = await secrets.getGithubPat();
-    if (token) tokenSource = 'pat';
-  }
-  if (!token) {
     return {
       ok: false,
       error: 'no-token',
-      detail: '未配置 GitHub Token。请先到「推广渠道 → GitHub → 添加 Personal Access Token」（推荐，需勾选 Contents: Read and write），或在设置里配置 GitHub PAT。'
+      detail: '未配置 GitHub Token。请到「设置 → GitHub 发布」添加 Personal Access Token（推荐，需勾选 Contents: Read and write）并填写发布仓库。'
     };
   }
 
@@ -1391,10 +1540,385 @@ ipcMain.handle('github:put-file', async (_e, opts) => {
   }
 });
 
+// ---------- GitHub 成品视频 + 封面上传 ----------
+//
+// 安全约束（与 video-source.js 的 caption:read-final / caption:save-final 完全一致）：
+//   只接受 caption-burn 自己产出的目录 userData/video/final，
+//   渲染层无法借此读取或上传任意本地文件。
+//   最终成品视频没有 assetId（它不是 videoAsset 里的原始视频），所以只能用路径白名单约束。
+function resolveFinalVideoFile(filePath) {
+  if (!filePath || typeof filePath !== 'string') {
+    return { ok: false, error: 'no-final-video', detail: '尚未生成成品视频，请先完成字幕与配音生成' };
+  }
+  const resolved = path.resolve(filePath);
+  let allowedRoot = '';
+  try { allowedRoot = path.resolve(path.join(app.getPath('userData'), 'video', 'final')); } catch (_e) {}
+  if (!allowedRoot) return { ok: false, error: 'no-allowed-root' };
+  const rel = path.relative(allowedRoot, resolved);
+  if (!rel || rel.indexOf('..') === 0 || path.isAbsolute(rel)) {
+    return { ok: false, error: 'path-not-allowed', detail: '只能上传 Rokit 生成的成品视频' };
+  }
+  if (path.extname(resolved).toLowerCase() !== '.mp4') {
+    return { ok: false, error: 'not-mp4', detail: '成品视频必须是 .mp4' };
+  }
+  if (!fs.existsSync(resolved)) {
+    return { ok: false, error: 'file-missing', detail: '成品视频文件不存在，可能已被删除，请重新生成成品视频' };
+  }
+  const st = fs.statSync(resolved);
+  if (!st.isFile() || st.size <= 0) {
+    return { ok: false, error: 'file-empty', detail: '成品视频文件为空，无法上传' };
+  }
+  return { ok: true, filePath: resolved, size: st.size };
+}
+
+// 取 GitHub 发布目标：token + 绑定的 publishRepo（与 github:put-file 同一数据源）。
+//   owner/repo 一律来自绑定配置，绝不采用前端传值。
+async function resolveGithubTarget() {
+  let token = null;
+  let tokenSource = null;
+  try {
+    const oauthRec = await oauth.getTokenForInternal('github');
+    if (oauthRec && oauthRec.access_token) {
+      token = oauthRec.access_token;
+      tokenSource = 'oauth';
+    }
+  } catch (_e) {}
+  if (!token) {
+    return {
+      ok: false,
+      error: 'no-token',
+      detail: '未配置 GitHub Token。请到「设置 → GitHub 发布」添加 Personal Access Token（推荐，需勾选 Contents: Read and write）并填写发布仓库。'
+    };
+  }
+  const publishRepo = await readPublishRepo();
+  if (!publishRepo || !publishRepo.owner || !publishRepo.repo) {
+    return {
+      ok: false,
+      error: 'no-publish-repo',
+      detail: '请先在「推广渠道 → GitHub → 添加 Personal Access Token」时填写「发布仓库」并保存。Rokit 必须用你指定的仓库发布文章，不会根据其它线索猜测。'
+    };
+  }
+  return { ok: true, token: token, tokenSource: tokenSource, publishRepo: publishRepo };
+}
+
+// 上传成品 MP4 + 封面 JPEG 到同一仓库的 videos/ 目录。
+//   payload: { finalVideoPath, videoPath, coverPath, atSeconds? }
+//     finalVideoPath  渲染层当前合成出的成品 MP4 绝对路径（主进程做白名单校验）
+//     videoPath       仓库内目标路径，如 videos/demo-20260101.mp4
+//     coverPath       仓库内封面路径，如 videos/demo-20260101-cover.jpg
+//   执行顺序：校验最终视频 → 提取封面 → 上传 MP4 → 上传封面。
+//   任何一步失败都返回 ok:false，绝不把部分成功报告为成功。
+ipcMain.handle('github:put-video', async (_e, payload) => {
+  const p = payload || {};
+  try {
+    // 1) 校验最终成品视频（必须是真实存在、非空、位于白名单目录的 .mp4）
+    const fin = resolveFinalVideoFile(p.finalVideoPath);
+    if (!fin.ok) return { ok: false, stage: 'final-video', ...fin };
+    // 大小预检：超限时在读进内存之前就报错，避免白读一次大文件
+    if (fin.size > pubex.GH_MAX_FILE_BYTES) {
+      return {
+        ok: false,
+        stage: 'final-video',
+        error: 'file-too-large',
+        size: fin.size,
+        max: pubex.GH_MAX_FILE_BYTES,
+        detail: '成品视频 ' + (fin.size / 1024 / 1024).toFixed(1) + 'MB 超过 GitHub Contents API 上限 100MB，请压缩后再发布'
+      };
+    }
+    if (!p.videoPath || !p.coverPath) {
+      return { ok: false, stage: 'final-video', error: 'missing-params', detail: 'videoPath / coverPath 必填' };
+    }
+
+    // 2) 从最终视频提取封面（复用 video.generateThumbnail，不重复实现解码逻辑）
+    const atSeconds = Number(p.atSeconds) || 0;
+    let coverBuf;
+    try {
+      const thumb = await video.generateThumbnail(fin.filePath, { atSeconds: atSeconds, width: 1280 });
+      if (!thumb || !thumb.ok || !thumb.path || !fs.existsSync(thumb.path)) {
+        return { ok: false, stage: 'cover', error: 'cover-extract-failed', detail: '封面提取失败，未发布视频' };
+      }
+      coverBuf = fs.readFileSync(thumb.path);
+    } catch (e) {
+      return {
+        ok: false,
+        stage: 'cover',
+        error: 'cover-extract-failed',
+        detail: '封面提取失败（' + String((e && e.message) || e) + '），未发布视频'
+      };
+    }
+    if (!coverBuf || coverBuf.length <= 0) {
+      return { ok: false, stage: 'cover', error: 'cover-empty', detail: '封面文件为空，未发布视频' };
+    }
+
+    // 3) 取发布目标（token + 绑定仓库）
+    const target = await resolveGithubTarget();
+    if (!target.ok) return { ok: false, stage: 'auth', ...target };
+
+    const branch = 'main';
+    const base = { owner: target.publishRepo.owner, repo: target.publishRepo.repo, branch: branch };
+
+    // 4) 上传 MP4（二进制，绝不当 UTF-8 文本编码）
+    let videoBuf;
+    try {
+      videoBuf = fs.readFileSync(fin.filePath);
+    } catch (e) {
+      return { ok: false, stage: 'video-upload', error: 'video-read-failed', detail: '读取成品视频失败' };
+    }
+    const vr = await pubex.githubPutBinary(target.token, Object.assign({}, base, {
+      path: p.videoPath,
+      buffer: videoBuf,
+      message: 'Publish video via Rokit'
+    }));
+    if (!vr || !vr.ok) {
+      // 不回传 base64 / 绝对路径，只回错误码与可展示的 detail
+      return { ok: false, stage: 'video-upload', error: vr && vr.error, status: vr && vr.status, detail: vr && vr.detail };
+    }
+
+    // 5) 上传封面
+    const cr = await pubex.githubPutBinary(target.token, Object.assign({}, base, {
+      path: p.coverPath,
+      buffer: coverBuf,
+      message: 'Publish video cover via Rokit'
+    }));
+    if (!cr || !cr.ok) {
+      return {
+        ok: false,
+        stage: 'cover-upload',
+        error: cr && cr.error,
+        status: cr && cr.status,
+        detail: cr && cr.detail,
+        videoPath: p.videoPath,
+        videoHtmlUrl: vr.content && vr.content.html_url
+      };
+    }
+
+    try {
+      logger.info('[GitHub Publisher] video uploaded', {
+        path: String(p.videoPath),
+        cover: String(p.coverPath),
+        bytes: videoBuf.length,
+        coverBytes: coverBuf.length
+      });
+    } catch (_e) {}
+
+    // 6) 回传仓库内真实路径，供渲染层拼相对引用（不含本地绝对路径）
+    return {
+      ok: true,
+      videoPath: String(p.videoPath).replace(/^\/+/, ''),
+      coverPath: String(p.coverPath).replace(/^\/+/, ''),
+      videoHtmlUrl: vr.content && vr.content.html_url,
+      coverHtmlUrl: cr.content && cr.content.html_url,
+      videoBytes: videoBuf.length,
+      coverBytes: coverBuf.length,
+      targetFullName: target.publishRepo.full_name || (target.publishRepo.owner + '/' + target.publishRepo.repo),
+      targetOwner: target.publishRepo.owner,
+      targetRepo: target.publishRepo.repo,
+      tokenSource: target.tokenSource
+    };
+  } catch (e) {
+    return { ok: false, stage: 'exception', error: 'exception', detail: String((e && e.message) || e) };
+  }
+});
+
+// ---------- GitHub Pages：站点文章页 + 视频 ----------
+//
+// 目录约定（Pages 发布源硬限制：source.path 只允许 '/' 或 '/docs'）：
+//   docs/index.html              站点首页
+//   docs/posts/<slug>.html       文章页
+//   docs/assets/<slug>.mp4       最终成片
+//   docs/assets/<slug>-cover.jpg 封面
+//
+// 权限：读 Pages 需 Pages:read；创建/改配置需 Pages:write + Administration:write。
+//   Contents 权限**不足以**改 Pages 设置，权限不足时如实告知用户，不假装成功。
+ipcMain.handle('github:pages-status', async () => {
+  const target = await resolveGithubTarget();
+  if (!target.ok) return target;
+  const info = await pubex.githubGetPages(target.token, target.publishRepo.owner, target.publishRepo.repo);
+  return Object.assign({}, info, {
+    owner: target.publishRepo.owner,
+    repo: target.publishRepo.repo,
+    // 项目站点 URL 形如 https://owner.github.io/repo（用户站点则是 https://owner.github.io）
+    siteUrl: 'https://' + target.publishRepo.owner + '.github.io/'
+      + (target.publishRepo.owner === target.publishRepo.repo ? '' : target.publishRepo.repo),
+    repoPath: target.publishRepo.owner + '/' + target.publishRepo.repo
+  });
+});
+
+// 发布站点：视频 + 封面 + 文章 HTML + 首页，然后请求构建。
+//   payload: { finalVideoPath, slug, title, body, date? }
+//   流程：校验视频 → 提取封面 → 查 Pages → 传视频/封面 → 生成并传 HTML → 传首页 → 请求构建
+//   只有「文件都上传并校验通过」才返回 uploaded；页面是否已上线由 deployStatus 表达。
+ipcMain.handle('github:publish-pages', async (_e, payload) => {
+  const p = payload || {};
+  try {
+    // 1) 必须是真实存在的最终成品视频
+    const fin = resolveFinalVideoFile(p.finalVideoPath);
+    if (!fin.ok) return { ok: false, stage: 'final-video', ...fin };
+    if (fin.size > pubex.GH_MAX_FILE_BYTES) {
+      return {
+        ok: false, stage: 'final-video', error: 'file-too-large',
+        size: fin.size, max: pubex.GH_MAX_FILE_BYTES,
+        detail: '成品视频 ' + (fin.size / 1024 / 1024).toFixed(1) + 'MB 超过 GitHub 上限 100MB'
+      };
+    }
+    const slug = String(p.slug || '').trim();
+    if (!/^[a-z0-9._-]{1,60}$/i.test(slug)) {
+      return { ok: false, stage: 'params', error: 'bad-slug', detail: 'slug 非法' };
+    }
+
+    // 2) 提取封面（复用 video.generateThumbnail）
+    let coverBuf;
+    try {
+      const thumb = await video.generateThumbnail(fin.filePath, { atSeconds: 0, width: 1280 });
+      if (!thumb || !thumb.ok || !thumb.path || !fs.existsSync(thumb.path)) {
+        return { ok: false, stage: 'cover', error: 'cover-extract-failed', detail: '封面提取失败，未发布网页' };
+      }
+      coverBuf = fs.readFileSync(thumb.path);
+    } catch (e) {
+      return { ok: false, stage: 'cover', error: 'cover-extract-failed', detail: '封面提取失败，未发布网页' };
+    }
+
+    // 3) 取绑定目标 + Pages 状态
+    const target = await resolveGithubTarget();
+    if (!target.ok) return { ok: false, stage: 'auth', ...target };
+    const owner = target.publishRepo.owner;
+    const repo = target.publishRepo.repo;
+    const branch = 'main';
+
+    let pages = await pubex.githubGetPages(target.token, owner, repo);
+    // 未启用时尝试自动启用；失败（多为权限不足）如实返回，让用户去 Settings 处理
+    if (!pages.enabled && pages.error === 'pages-not-enabled') {
+      const en = await pubex.githubEnablePages(target.token, owner, repo, branch);
+      if (!en.ok) {
+        return {
+          ok: false, stage: 'pages-enable', error: en.error, status: en.status,
+          needsPermission: !!en.needsPermission,
+          detail: en.detail || '',
+          repoUrl: 'https://github.com/' + owner + '/' + repo + '/settings/pages'
+        };
+      }
+      pages = await pubex.githubGetPages(target.token, owner, repo);
+    }
+    if (!pages.enabled) {
+      return {
+        ok: false, stage: 'pages-status',
+        error: pages.error || 'pages-unavailable',
+        needsPermission: !!pages.needsPermission,
+        detail: '无法读取 GitHub Pages 状态',
+        repoUrl: 'https://github.com/' + owner + '/' + repo + '/settings/pages'
+      };
+    }
+    // Pages 存在但发布源不是 docs/：如实提示，不擅自改用户站点配置
+    if (pages.servesDocs === false) {
+      return {
+        ok: false, stage: 'pages-source',
+        error: 'pages-source-mismatch',
+        detail: '该仓库的 Pages 发布源是 ' + (pages.sourcePath || '/') + '，不是 /docs。请在 Settings → Pages 中改为 main 分支 /docs 目录后再发布。',
+        repoUrl: 'https://github.com/' + owner + '/' + repo + '/settings/pages'
+      };
+    }
+
+    const base = { owner: owner, repo: repo, branch: branch };
+    const assetDir = pubex.GH_PAGES_ASSET_DIR;
+    const videoPath = assetDir + '/' + slug + '.mp4';
+    const coverPath = assetDir + '/' + slug + '-cover.jpg';
+    const pagePath = pubex.GH_PAGES_POST_DIR + '/' + slug + '.html';
+
+    // 4) 上传 MP4 + 封面，并校验远端确实存在
+    let videoBuf;
+    try { videoBuf = fs.readFileSync(fin.filePath); }
+    catch (_e) { return { ok: false, stage: 'video-upload', error: 'video-read-failed', detail: '读取成品视频失败' }; }
+
+    const vr = await pubex.githubPutBinary(target.token, Object.assign({}, base, {
+      path: videoPath, buffer: videoBuf, message: 'Publish site video via Rokit'
+    }));
+    if (!vr || !vr.ok) {
+      return { ok: false, stage: 'video-upload', error: vr && vr.error, status: vr && vr.status, detail: vr && vr.detail };
+    }
+    const vVerify = await pubex.githubVerifyFile(target.token, owner, repo, videoPath, branch);
+    if (!vVerify.ok) {
+      return { ok: false, stage: 'video-verify', error: 'video-verify-failed', detail: '视频上传后校验失败' };
+    }
+
+    const cr = await pubex.githubPutBinary(target.token, Object.assign({}, base, {
+      path: coverPath, buffer: coverBuf, message: 'Publish site cover via Rokit'
+    }));
+    if (!cr || !cr.ok) {
+      return { ok: false, stage: 'cover-upload', error: cr && cr.error, status: cr && cr.status, detail: cr && cr.detail, videoPath: videoPath };
+    }
+
+    // 5) 生成文章页 HTML（仓库内路径前缀 → 兼容 https://owner.github.io/repo/）
+    const repoPath = owner + '/' + repo;
+    const renderer = require('./gh-pages-render');
+    const html = renderer.renderPostPage({
+      title: p.title || '文章',
+      body: p.body || '',
+      videoUrl: videoPath,
+      repoPath: repoPath,
+      date: p.date || ''
+    });
+    const pr = await pubex.githubPutPagesHtml(target.token, Object.assign({}, base, {
+      path: pagePath, message: 'Publish site page via Rokit', html: html
+    }));
+    if (!pr || !pr.ok) {
+      return { ok: false, stage: 'page-upload', error: pr && pr.error, detail: pr && pr.detail, videoPath: videoPath };
+    }
+    const pVerify = await pubex.githubVerifyFile(target.token, owner, repo, pagePath, branch);
+    if (!pVerify.ok) {
+      return { ok: false, stage: 'page-verify', error: 'page-verify-failed', detail: '页面上传后校验失败' };
+    }
+
+    // 6) 首页（列出当前文章）
+    const siteBase = 'https://' + owner + '.github.io/' + (owner === repo ? '' : repo + '/');
+    const indexHtml = renderer.renderIndexPage({
+      title: 'Rokit 发布',
+      items: [{ href: 'posts/' + slug + '.html', title: p.title || '文章', date: p.date || '' }]
+    });
+    await pubex.githubPutPagesHtml(target.token, Object.assign({}, base, {
+      path: pubex.GH_PAGES_DIR + '/index.html', message: 'Update site index via Rokit', html: indexHtml
+    }));
+
+    // 7) 请求一次构建；构建未完成不算"网页已发布"
+    let deploy = 'unknown';
+    const br = await pubex.githubRequestPagesBuild(target.token, owner, repo);
+    if (br.ok) {
+      deploy = 'building';
+      // 轮询几次确认最终状态
+      for (let i = 0; i < 3; i++) {
+        await new Promise(function (r) { setTimeout(r, 2500); });
+        const lb = await pubex.githubGetLatestPagesBuild(target.token, owner, repo);
+        if (!lb.ok) break;
+        if (lb.status === 'built') { deploy = 'built'; break; }
+        if (lb.status === 'errored') { deploy = 'errored'; break; }
+      }
+    }
+
+    return {
+      ok: true,
+      uploaded: true,
+      deployStatus: deploy,                       // built | building | errored | unknown
+      pageUrl: siteBase + 'posts/' + slug + '.html',
+      siteUrl: siteBase,
+      videoUrl: siteBase + videoPath,
+      coverUrl: siteBase + coverPath,
+      videoPath: videoPath, coverPath: coverPath, pagePath: pagePath,
+      videoBytes: videoBuf.length,
+      targetFullName: repoPath
+    };
+  } catch (e) {
+    return { ok: false, stage: 'exception', error: 'exception', detail: String((e && e.message) || e) };
+  }
+});
+
 ipcMain.handle('github:probe', async () => {
   // 仅验证凭据是否有效（用 /user 端点）
-  const token = await secrets.getGithubPat();
-  if (!token) return { ok: false, error: 'missing-github-pat' };
+  // v1.21：Token 统一来自 oauth-github record（设置 → GitHub 发布 写入）
+  let token = null;
+  try {
+    const oauthRec = await oauth.getTokenForInternal('github');
+    if (oauthRec && oauthRec.access_token) token = oauthRec.access_token;
+  } catch (_e) {}
+  if (!token) return { ok: false, error: 'missing-github-token' };
   try {
     const res = await fetchWithTimeout('https://api.github.com/user', {
       headers: {
@@ -1403,7 +1927,7 @@ ipcMain.handle('github:probe', async () => {
         'User-Agent': 'Rokit-L1/1.5'
       }
     }, 9000);
-    if (!res.ok) return { ok: false, status: res.status, error: res.status === 401 ? 'PAT 失效或权限不足' : ('HTTP ' + res.status) };
+    if (!res.ok) return { ok: false, status: res.status, error: res.status === 401 ? 'Token 失效或权限不足' : ('HTTP ' + res.status) };
     const j = await res.json().catch(function () { return null; });
     return { ok: true, login: j && j.login, avatar: j && j.avatar_url };
   } catch (e) {
@@ -3460,12 +3984,23 @@ async function pubExecYouTube(payload) {
   }
 
   if (result && result.ok) {
-    logger.info('[youtube-publish] success', { videoId: result.videoId, durationMs: Date.now() - startedAt });
+    // requestedPrivacy = 我们请求的；actualPrivacy = YouTube 落地后的实际可见性。
+    //   两者不一致说明项目未通过 YouTube API 审核（public 被强制降级为 private），
+    //   这会直接影响 statistics 的可读性，必须如实记录而不是只记请求值。
+    logger.info('[youtube-publish] success', {
+      videoId: result.videoId,
+      requestedPrivacy: payload.privacyStatus || 'private',
+      actualPrivacy: result.privacyStatus || '<empty>',
+      privacyMismatch: !!(result.privacyStatus && payload.privacyStatus && result.privacyStatus !== payload.privacyStatus),
+      durationMs: Date.now() - startedAt
+    });
     return {
       status: 'ok',
       platformId: 'youtube',
       videoId: result.videoId,
       url: result.url,
+      requestedPrivacy: payload.privacyStatus || 'private',
+      actualPrivacy: result.privacyStatus || '',
       fileSize: result.fileSize,
       mimeType: result.mimeType
     };
@@ -4203,6 +4738,16 @@ app.whenReady().then(() => {
     secrets.migratePlaintextApiKey(store).then(function (m) {
       if (m && m.migrated) logger.info('[secrets] plaintext migration', m);
     }).catch(function (e) { logger.warn('[secrets] migration failed', { error: String((e && e.message) || e) }); });
+  } catch (_e) {}
+
+  // v1.21：清理旧版独立凭据槽位（github-pat / youtube-api-key）。
+  //   github-pat 若为老用户唯一凭据，会先迁移进 oauth-github 再删，避免 GitHub 发布失效。
+  try {
+    secrets.purgeLegacySecretSlots().then(function (r) {
+      if (r && (r.githubPat !== 'absent' || r.youtubeApiKey !== 'absent')) {
+        logger.info('[secrets] legacy secret slots purged', r);
+      }
+    }).catch(function (e) { logger.warn('[secrets] purge legacy slots failed', { error: String((e && e.message) || e) }); });
   } catch (_e) {}
 
   app.on('activate', () => {

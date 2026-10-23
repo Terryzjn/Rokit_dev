@@ -240,6 +240,8 @@ async function uploadResumable(opts) {
   return {
     ok: true,
     videoId: videoId,
+    // uploadChunks 已从上传响应体取回实际生效的可见性；此处原样透传给调用方用于如实上报。
+    privacyStatus: (uploadResult && uploadResult.privacyStatus) || '',
     url: 'https://www.youtube.com/watch?v=' + videoId,
     mimeType: mimeType,
     fileSize: fileSize
@@ -416,7 +418,10 @@ async function uploadChunks(uploadUrl, filePath, totalBytes, chunkSize, accessTo
         try {
           const j = JSON.parse(final);
           if (j && j.id) {
-            return { ok: true, videoId: String(j.id) };
+            // 上传响应体带回了**实际生效**的可见性 —— 请求里写 public 不代表落地就是 public
+            // （未通过 YouTube API 审核的项目会被强制降级为 private），必须如实上报。
+            const actualPrivacy = (j.status && j.status.privacyStatus) || '';
+            return { ok: true, videoId: String(j.id), privacyStatus: actualPrivacy };
           }
         } catch (_e) {}
         return {
