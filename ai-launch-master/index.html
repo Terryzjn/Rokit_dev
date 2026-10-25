@@ -501,18 +501,24 @@
 
   .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
 
-  .kpi{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 15px;display:flex;flex-direction:column;min-height:130px;position:relative}
 
-  .kpi .kl{font-size:12px;color:var(--muted)}
+  .kpi .kt{display:flex;align-items:center;gap:8px}
 
-  .kpi .kv{font-family:'Space Grotesk','Noto Sans SC',sans-serif;font-size:26px;font-weight:700;color:var(--ink);margin-top:4px}
+  .kpi .kpi-ico{width:24px;height:24px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;flex:none}
 
-  .kpi .kd{font-size:12px;margin-top:4px;font-weight:600}
+  .kpi .kl{font-size:12px;color:var(--muted);line-height:1.4}
+
+  .kpi .kv{font-family:'Space Grotesk','Noto Sans SC',sans-serif;font-size:26px;font-weight:700;color:var(--ink);margin-top:10px;line-height:1.1}
+
+  .kpi .kv.kv-sm{font-size:19px;margin-top:13px}
+
+  .kpi .kd{font-size:11.5px;margin-top:5px;font-weight:500;color:var(--muted);line-height:1.5}
 
   .kpi.up .kd{color:var(--success)}
 
   /* v1.5 UX：KPI sparkline（任务 6 之一） */
-  .kpi-spark{margin-top:8px;height:28px;width:100%;position:relative}
+  .kpi-spark{margin-top:auto;padding-top:10px;height:28px;width:100%;position:relative}
   .kpi-spark svg{width:100%;height:100%;display:block;overflow:visible}
   .kpi-spark .spark-line{stroke:var(--primary);stroke-width:1.5;fill:none}
   .kpi-spark .spark-fill{fill:url(#sparkFill);opacity:.85}
@@ -520,6 +526,9 @@
   .kpi-spark .spark-baseline{stroke:var(--line);stroke-width:1;stroke-dasharray:2 3}
   .kpi-spark.empty .spark-line{stroke:var(--line)}
   .kpi-spark.empty .spark-dot{display:none}
+  /* 渠道卡没有时间序列，用「已启用/总数」的真实占比条代替虚构折线 */
+  .mini-ratio{height:6px;border-radius:4px;background:var(--bg);overflow:hidden;margin-top:4px}
+  .mini-ratio>i{display:block;height:100%;border-radius:4px;background:var(--primary)}
 
   /* v1.5 UX：时段筛选 chips（任务 6 之二） */
   .filter-row{display:flex;gap:6px;margin:8px 0 12px;flex-wrap:wrap}
@@ -533,17 +542,98 @@
 
   .panel .sub{font-size:12px;color:var(--muted);margin-bottom:12px}
 
-  .bars{display:flex;flex-direction:column;gap:10px}
+  /* ===== 数据看板 v2：页头 / 平台统计卡 / 环形占比 / 里程碑时间线 / 发布记录表 ===== */
+  .dash-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap}
+  .dash-head .dh-l{display:flex;align-items:center;gap:10px;min-width:0}
+  .dash-head .dh-ico{width:36px;height:36px;border-radius:11px;background:var(--primary-soft);border:1px solid var(--line);color:var(--primary-dark);display:flex;align-items:center;justify-content:center;flex:none}
+  .dash-head .dh-title{font-size:16.5px;font-weight:700;margin:0;line-height:1.3}
+  .dash-head .dh-sub{font-size:11.5px;color:var(--muted);margin-top:2px}
+  .dash-head .filter-row{margin:0}
+  .dash-split{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+  @media (max-width:820px){ .dash-split{grid-template-columns:1fr} }
+  .p-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}
+  .p-head h3{margin-bottom:2px}
+  .link-btn{border:none;background:transparent;color:var(--primary-dark);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;padding:2px 0;white-space:nowrap}
+  .link-btn:hover{text-decoration:underline}
 
-  .bar-row{display:flex;align-items:center;gap:10px;font-size:12.5px}
+  /* 各渠道发布次数：平台统计卡 */
+  .pstat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}
+  .pstat{position:relative;border:1px solid var(--line);border-radius:12px;padding:12px 13px 13px;background:var(--card);cursor:pointer;transition:all .15s;text-align:left;font-family:inherit;width:100%;display:block;color:inherit}
+  .pstat:hover{border-color:var(--primary);box-shadow:var(--shadow-md);transform:translateY(-2px)}
+  .pstat:focus-visible{outline:none;box-shadow:var(--focus-ring)}
+  .pstat .ps-head{display:flex;align-items:center;gap:8px;margin-bottom:11px}
+  .pstat .ps-ico{width:28px;height:28px;border-radius:9px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700;flex:none}
+  .pstat .ps-name{font-size:12.5px;font-weight:600;color:var(--ink);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pstat .ps-go{font-size:12px;color:var(--muted);opacity:0;transition:opacity .15s;flex:none}
+  .pstat:hover .ps-go{opacity:1;color:var(--primary)}
+  .pstat .ps-row{display:flex;align-items:baseline;gap:4px}
+  .pstat .ps-n{font-family:'Space Grotesk','Noto Sans SC',sans-serif;font-size:21px;font-weight:700;color:var(--ink);line-height:1}
+  .pstat .ps-unit{font-size:11px;color:var(--muted)}
+  .pstat .ps-pct{margin-left:auto;font-size:11.5px;font-weight:600;color:var(--muted);font-variant-numeric:tabular-nums}
+  .pstat .ps-bar{height:4px;border-radius:3px;background:var(--bg);margin-top:11px;overflow:hidden}
+  .pstat .ps-bar>i{display:block;height:100%;border-radius:3px}
+  .pstat .ps-ch{font-size:10.5px;color:var(--muted);margin-top:8px;display:flex;align-items:center;gap:4px}
 
-  .bar-row .bn{width:56px;flex:none;color:var(--muted)}
+  /* 已启用渠道状态条 */
+  .ch-status{margin-top:14px;border-top:1px dashed var(--line);padding-top:12px}
+  .ch-status .cs-head{font-size:11.5px;color:var(--muted);margin-bottom:9px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .ch-status .cs-list{display:flex;flex-wrap:wrap;gap:7px}
+  .ch-chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--bg);border-radius:999px;padding:3px 10px 3px 4px;font-size:11.5px;color:var(--ink);cursor:pointer;font-family:inherit;transition:all .15s}
+  .ch-chip:hover{border-color:var(--primary);background:var(--primary-soft);color:var(--primary-dark)}
+  .ch-chip .cs-ico{width:18px;height:18px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:9.5px;font-weight:700;flex:none}
+  .ch-chip.off{opacity:.6}
 
-  .bar-row .bt{flex:1;height:22px;background:var(--bg);border-radius:6px;overflow:hidden}
+  /* 各平台发布占比：环形图 + 图例 */
+  .donut-wrap{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  .donut{position:relative;width:140px;height:140px;flex:none}
+  .donut svg{display:block;width:100%;height:100%;transform:rotate(-90deg)}
+  .donut .dc-track{fill:none;stroke:var(--bg);stroke-width:16}
+  .donut .dc-seg{fill:none;stroke-width:16;stroke-linecap:butt}
+  .donut-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none}
+  .donut-center .dc-t{font-size:10.5px;color:var(--muted)}
+  .donut-center .dc-n{font-family:'Space Grotesk','Noto Sans SC',sans-serif;font-size:19px;font-weight:700;color:var(--ink);line-height:1.25}
+  .donut-legend{flex:1;min-width:160px;display:flex;flex-direction:column;gap:7px}
+  .dl-row{display:flex;align-items:center;gap:8px;font-size:12.5px}
+  .dl-dot{width:9px;height:9px;border-radius:3px;flex:none}
+  .dl-name{flex:1;min-width:0;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .dl-n{color:var(--muted);font-variant-numeric:tabular-nums}
+  .dl-p{width:46px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
 
-  .bar-row .bf{height:100%;background:linear-gradient(90deg,var(--primary),var(--primary-light));border-radius:6px}
+  /* 里程碑报喜：时间线 */
+  .tl{display:flex;flex-direction:column}
+  .tl-item{display:flex;gap:11px;align-items:flex-start;padding:9px 0;cursor:pointer}
+  .tl-item+.tl-item{border-top:1px dashed var(--line)}
+  .tl-ic{width:26px;height:26px;border-radius:9px;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700}
+  .tl-body{flex:1;min-width:0}
+  .tl-title{font-size:13px;font-weight:600;color:var(--ink)}
+  .tl-desc{font-size:12px;color:var(--muted);margin-top:2px;line-height:1.55}
+  .tl-meta{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:11px;color:var(--muted);flex-wrap:wrap}
+  .tl-badge{display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:1px 9px;font-size:10.5px;font-weight:600;border:1px solid transparent}
+  .tl-badge.done{background:var(--success-soft);color:var(--success);border-color:color-mix(in srgb,var(--success) 30%,transparent)}
+  .tl-badge.live{background:var(--primary-soft);color:var(--primary-dark);border-color:color-mix(in srgb,var(--primary) 30%,transparent)}
+  .tl-badge.pend{background:var(--bg);color:var(--muted);border-color:var(--line)}
+  .tl-item.pending .tl-title{color:var(--muted)}
+  .tl-item.pending .tl-ic{background:var(--bg)!important;color:var(--muted)!important;border:1px dashed var(--line)}
 
-  .bar-row .bv{width:52px;flex:none;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12.5px}
+  /* 最近发布记录：表格 */
+  .ptable-wrap{border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .ptable-wrap.flash{animation:kpiFlash 1.4s ease-out}
+  .ptable{width:100%;border-collapse:collapse;font-size:12.5px}
+  .ptable th{text-align:left;font-size:11px;font-weight:600;color:var(--muted);padding:8px 12px;background:var(--bg);white-space:nowrap;border-bottom:1px solid var(--line)}
+  .ptable td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:middle;color:var(--ink)}
+  .ptable tr:last-child td{border-bottom:none}
+  .ptable tbody tr:hover td{background:var(--bg)}
+  .ptable .pt-time{color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+  .ptable .pt-title{font-weight:600;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ptable .pt-plat{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+  .ptable .pt-ico{width:20px;height:20px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:700;flex:none}
+  .ptable .pt-state{white-space:nowrap}
+  .ptable .pt-acts{text-align:right;white-space:nowrap}
+  .ptable .pt-link{border:1px solid var(--line);background:var(--card);color:var(--primary-dark);border-radius:7px;padding:3px 10px;font-size:11.5px;cursor:pointer;font-family:inherit;transition:all .15s}
+  .ptable .pt-link:hover{border-color:var(--primary);background:var(--primary-soft)}
+  .ptable .pt-none{font-size:11.5px;color:var(--muted)}
+  .ptable-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;font-size:11.5px;color:var(--muted);flex-wrap:wrap}
+  .ptable-foot .pf-count b{color:var(--ink)}
 
   .feed{display:flex;flex-direction:column;gap:9px;margin-top:6px}
 
@@ -1439,41 +1529,76 @@
     <section data-route="dashboard" style="display:none">
 
       <div class="dash">
-        <!-- v1.5 上线：4 个 KPI / 渠道发布次数 / 里程碑报喜 / 发布回填均来自本机真实推广动作；外部统计仍是占位 -->
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-          <div style="font-size:11px;color:var(--muted);letter-spacing:.4px">看板 · 真实数据</div>
-          <span id="dashSourceTag" style="background:rgba(14,124,123,.12);color:var(--primary);padding:2px 8px;border-radius:10px;font-size:10.5px;font-weight:600">本地回填 · 未接统计服务</span>
-        </div>
-
-        <!-- v1.5 UX：时段筛选 chips（任务 6） -->
-        <div class="filter-row" id="dashRangeFilter" role="tablist" aria-label="时段筛选">
-          <button class="filter-chip on" data-range="session" role="tab" aria-selected="true">本会话</button>
-          <button class="filter-chip" data-range="today" role="tab" aria-selected="false">今天</button>
-          <button class="filter-chip" data-range="7d" role="tab" aria-selected="false">近 7 天</button>
-          <button class="filter-chip" data-range="all" role="tab" aria-selected="false">全部</button>
+        <!-- v2：看板结构对齐设计稿（页头 / KPI / 渠道统计 / 占比 / 里程碑 / 发布记录）；数据全部来自本机真实发布回填 -->
+        <div class="dash-head">
+          <div class="dh-l">
+            <div class="dh-ico" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l3.5-4 3 2.5L20 7"/></svg></div>
+            <div>
+              <h2 class="dh-title">数据看板</h2>
+              <div class="dh-sub">本机真实发布数据 · 渠道表现与里程碑进度</div>
+            </div>
+          </div>
+          <!-- v1.5 UX：时段筛选 chips（任务 6）；data-range / aria-pressed 为 AI 演示计划与自动化脚本依赖，禁止改动 -->
+          <div class="filter-row" id="dashRangeFilter" role="tablist" aria-label="时段筛选">
+            <button class="filter-chip" data-range="session" role="tab" aria-selected="false" aria-pressed="false">本次启动</button>
+            <button class="filter-chip" data-range="today" role="tab" aria-selected="false" aria-pressed="false">今天</button>
+            <button class="filter-chip" data-range="7d" role="tab" aria-selected="false" aria-pressed="false">近 7 天</button>
+            <button class="filter-chip on" data-range="all" role="tab" aria-selected="true" aria-pressed="true">全部</button>
+          </div>
         </div>
 
         <div class="kpis">
 
-          <div class="kpi clickable" onclick="kpiJump('pub')" role="button" tabindex="0" title="点看本次会话发布回填"><div class="kpi-arrow">↗</div><div class="kl">总发布次数</div><div class="kv" id="kpiPub">0</div><div class="kd" id="kpiPubSub">本机会话</div><div class="kpi-spark" id="kpiPubSpark"></div></div>
+          <div class="kpi clickable" onclick="kpiJump('pub')" role="button" tabindex="0" title="查看发布记录"><div class="kpi-arrow">↗</div><div class="kt"><div class="kpi-ico" style="background:var(--primary)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg></div><div class="kl">总发布次数</div></div><div class="kv" id="kpiPub">0</div><div class="kd" id="kpiPubSub">—</div><div class="kpi-spark" id="kpiPubSpark"></div></div>
 
-          <div class="kpi clickable" onclick="kpiJump('channels')" role="button" tabindex="0" title="点跳推广渠道页"><div class="kpi-arrow">↗</div><div class="kl">被启用渠道</div><div class="kv" id="kpiChannels">0</div><div class="kd" id="kpiChannelsSub">启用的推广渠道数</div><div class="kpi-spark" id="kpiChannelsSpark"></div></div>
+          <div class="kpi clickable" onclick="kpiJump('channels')" role="button" tabindex="0" title="点跳推广渠道页"><div class="kpi-arrow">↗</div><div class="kt"><div class="kpi-ico" style="background:#E5484D"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M12 9v4"/><path d="M10 11h4"/></svg></div><div class="kl">被启用渠道</div></div><div class="kv" id="kpiChannels">0</div><div class="kd" id="kpiChannelsSub">—</div><div class="kpi-spark" id="kpiChannelsSpark"></div></div>
 
-          <div class="kpi clickable" onclick="kpiJump('works')" role="button" tabindex="0" title="点跳我的作品页"><div class="kpi-arrow">↗</div><div class="kl">首发作品</div><div class="kv" id="kpiWorks">0</div><div class="kd" id="kpiWorksSub">本机登记的正式作品</div><div class="kpi-spark" id="kpiWorksSpark"></div></div>
+          <div class="kpi clickable" onclick="kpiJump('works')" role="button" tabindex="0" title="点跳我的作品页"><div class="kpi-arrow">↗</div><div class="kt"><div class="kpi-ico" style="background:#7C5CFF"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></div><div class="kl">首发作品</div></div><div class="kv" id="kpiWorks">0</div><div class="kd" id="kpiWorksSub">—</div><div class="kpi-spark" id="kpiWorksSpark"></div></div>
 
-          <div class="kpi clickable" onclick="kpiJump('last')" role="button" tabindex="0" title="点看发布回填最后一条"><div class="kpi-arrow">↗</div><div class="kl">最近发布</div><div class="kv" id="kpiLastPub" style="font-size:18px">—</div><div class="kd" id="kpiLastPubSub">未发布</div><div class="kpi-spark" id="kpiLastPubSpark"></div></div>
+          <div class="kpi clickable" onclick="kpiJump('last')" role="button" tabindex="0" title="点看最近一条发布记录"><div class="kpi-arrow">↗</div><div class="kt"><div class="kpi-ico" style="background:#2F80ED"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div><div class="kl">最近发布</div></div><div class="kv kv-sm" id="kpiLastPub">—</div><div class="kd" id="kpiLastPubSub">—</div><div class="kpi-spark" id="kpiLastPubSpark"></div></div>
 
         </div>
 
+        <!-- 各渠道发布次数：平台统计卡（可点击进入渠道详情） -->
         <div class="panel">
-          <h3>各渠道发布次数</h3>
-          <div class="sub" id="barsSub">本机会话 · 按平台统计</div>
-          <div class="bars" id="barsBox"></div>
+          <div class="p-head">
+            <div>
+              <h3>各渠道发布次数</h3>
+              <div class="sub" id="barsSub">按平台统计</div>
+            </div>
+            <button class="link-btn" onclick="go('channels')">查看全部渠道 →</button>
+          </div>
+          <div class="pstat-grid" id="barsBox"></div>
+          <div class="ch-status" id="chStatusBox"></div>
         </div>
 
-        <div class="panel"><h3>里程碑报喜</h3><div class="sub" id="feedSub">本机会话 · AI 大师会主动汇报关键节点</div><div class="feed" id="feedBox"></div></div>
+        <div class="dash-split">
+          <!-- 各平台发布占比 -->
+          <div class="panel">
+            <h3>各平台发布占比</h3>
+            <div class="sub" id="donutSub">按平台统计</div>
+            <div class="donut-wrap" id="donutBox"></div>
+          </div>
+          <!-- 里程碑报喜 -->
+          <div class="panel">
+            <h3>里程碑报喜</h3>
+            <div class="sub" id="feedSub">AI 大师会主动汇报关键节点</div>
+            <div class="tl" id="feedBox"></div>
+          </div>
+        </div>
 
-        <div class="panel"><h3>本次会话 · 发布回填</h3><div class="sub"><span style="color:var(--success);font-weight:600">真实数据</span> · 由刚才的发布队列实时回填，非演示数据</div><div class="pub-log" id="pubLogBox"><div class="empty-state" id="pubLogEmpty"><div class="es-icon">📊</div><div class="es-title">还没有发布记录</div><div class="es-sub">完成一次首秀发射后，真实的发布数据会出现在这里</div></div></div></div>
+        <!-- 最近发布记录 -->
+        <div class="panel">
+          <div class="p-head">
+            <div>
+              <h3>最近发布记录</h3>
+              <div class="sub" id="pubLogSub">真实数据 · 由发布队列实时回填</div>
+            </div>
+            <button class="link-btn" id="pubLogToggle" onclick="toggleDashPubList()">展开全部 →</button>
+          </div>
+          <div class="ptable-wrap" id="pubLogBox"></div>
+          <div class="ptable-foot" id="pubLogFoot"></div>
+        </div>
 
       </div>
 
@@ -2164,7 +2289,7 @@
 
     ],
 
-    platforms:{},linked:0,ck:{a:false,b:false,c:false,d:false},messages:[],sel:{},copies:{},pubLog:[],plan:defaultPlan(),dashRange:'session',settings:{base_url:'https://api.deepseek.com/v1',api_key:'',model:'deepseek-chat',autoPub:{enabled:false,platforms:{github:true,ph:true}}},aiPickMain:false,milestones:[],
+    platforms:{},linked:0,ck:{a:false,b:false,c:false,d:false},messages:[],sel:{},copies:{},pubLog:[],plan:defaultPlan(),dashRange:'all',dashPubExpanded:false,settings:{base_url:'https://api.deepseek.com/v1',api_key:'',model:'deepseek-chat',autoPub:{enabled:false,platforms:{github:true,ph:true}}},aiPickMain:false,milestones:[],
 
     curWork:'w1',
 
@@ -6221,8 +6346,8 @@ window.testWechatConnection=function(){
       });
       plan.steps.push({
         id:'s_d7_filter_back',
-        name:'切回「本会话」时段芯片，恢复初始视图',
-        click:'[data-range=\"session\"]',
+        name:'切回「全部」时段芯片，恢复初始视图',
+        click:'[data-range=\"all\"]',
         optional:true,
         dwellAfter:1200
       });
@@ -15729,14 +15854,20 @@ function dedupeLaunchDone(doneIds){
 
     var pObj=pf(id);
 
+    var w=findWork(state.curWork);
+
     // 看板真实计数 + 里程碑
-    state.pubLog.push({platform:pObj.name,time:c.time,title:c.title,id:id});
+    // created_at / session：让看板能区分「本次运行新增」与「历史回填」，并按真实时间聚合
+    state.pubLog.push({
+      platform:pObj.name,time:c.time,title:c.title,id:id,
+      work_id:(w&&!w.isSample)?w.id:'',
+      created_at:new Date().toISOString(),
+      session:true
+    });
     state.pubByPlatform[id]=(state.pubByPlatform[id]||0)+1;
     state.kpis.lastPub=pObj.name;
     state.kpis.lastPubAt=c.time;
     pushMilestoneIfFirst();
-
-    var w=findWork(state.curWork);
 
     if(window.api&&w){window.api.addPub({work_id:w.id,platform:pf(id).name,title:c.title,body:c.body,tags:(c.tags||[]).join(' '),time:c.time}).catch(function(){});}
 
@@ -15745,10 +15876,13 @@ function dedupeLaunchDone(doneIds){
   // 首发完成后追加一条里程碑
   function pushMilestoneIfFirst(){
     state.milestones=state.milestones||[];
-    if(state.pubLog.length===1){
-      state.milestones.unshift({icon:'发',color:'#0E7C7B',title:'首发布完成',detail:'你刚完成第一次发布，去数据看板查看本次会话的汇总。',unread:true});
-    }else if(state.pubLog.length===10){
-      state.milestones.unshift({icon:'周',color:'#0E7C7B',title:'本机会话发布 10 次',detail:'各平台数据已按渠道汇总到看板。',unread:true});
+    // 只统计「本次运行」新增的发布：state.pubLog 里还包含从 DB 回填的历史记录，
+    // 用总长度判断会让里程碑永远不触发。
+    var n=(state.pubLog||[]).filter(function(r){return !!r.session;}).length;
+    if(n===1){
+      state.milestones.unshift({icon:'发',color:'#0E7C7B',title:'首发布完成',detail:'你刚完成第一次发布，去数据看板查看本次会话的汇总。',unread:true,at:Date.now()});
+    }else if(n===10){
+      state.milestones.unshift({icon:'周',color:'#0E7C7B',title:'本机会话发布 10 次',detail:'各平台数据已按渠道汇总到看板。',unread:true,at:Date.now()});
     }
   }
 
@@ -16338,11 +16472,7 @@ function dedupeLaunchDone(doneIds){
 
     if(!doneIds.length)return;
 
-    doneIds.forEach(function(id){var c=state.copies[id];state.pubLog.push({platform:pf(id).name,time:c.time,title:c.title,id:id});state.pubByPlatform[id]=(state.pubByPlatform[id]||0)+1;});
-
-    state.kpis.lastPub=pf(doneIds[doneIds.length-1]).name;
-    state.kpis.lastPubAt=state.copies[doneIds[doneIds.length-1]].time;
-    pushMilestoneIfFirst();
+    // 注意：发布记录回填放到作品解析之后（见下方 w 落定处），这样记录里能带上真实 work_id。
 
     var w=null;
     for(var i=0;i<state.works.length;i++){if(state.works[i].id===state.curWork && !state.works[i].isSample){w=state.works[i];break;}}
@@ -16411,6 +16541,17 @@ function dedupeLaunchDone(doneIds){
     if(window.api){window.api.saveWork(w).catch(function(){});}
     renderWorks();
 
+    // 看板真实计数 + 里程碑（放在作品落定之后：记录里带真实 work_id，看板「查看」可直接跳作品）
+    var _pubAt=new Date().toISOString();
+    doneIds.forEach(function(id){
+      var c=state.copies[id];
+      state.pubLog.push({platform:pf(id).name,time:c.time,title:c.title,id:id,work_id:w.id,created_at:_pubAt,session:true});
+      state.pubByPlatform[id]=(state.pubByPlatform[id]||0)+1;
+    });
+    state.kpis.lastPub=pf(doneIds[doneIds.length-1]).name;
+    state.kpis.lastPubAt=state.copies[doneIds[doneIds.length-1]].time;
+    pushMilestoneIfFirst();
+
     var list=doneIds.map(function(id){return esc(pf(id).name);}).join('、');
 
     // 「发射成功」依赖原生 HTML 结构（圆形脉冲图标 + 居中布局 + 嵌入按钮），不走 miniMd。
@@ -16429,34 +16570,108 @@ function dedupeLaunchDone(doneIds){
 
   /* ===== 数据看板 ===== */
 
-  // v1.5 UX：时段筛选 + sparkline 微组件（任务 6）
-    // 返回匹配 dashRange 的子集。time 字段为 HH:MM，归为今天；ISO 日期则原样按本地日期判定
+  /* ---------- 数据来源与归一化 ----------
+     发布记录有两个来源：
+       1) 本机 SQLite 的 pubs 表（listPubs 返回：platform=平台名称、time=HH:MM、created_at=ISO）
+       2) 本次运行内实时回填的 state.pubLog（带平台 id 与精确时间戳）
+     两者统一成同一结构后再统计，避免「平台名称当 id 用」造成统计与配色错位。 */
+
+  var DASH_RANGE_LABEL = {session:'本次启动', today:'今天', '7d':'近 7 天', all:'全部历史'};
+
+  function platformMetaById(id){
+    if(!id) return null;
+    for(var i=0;i<PLATFORMS.length;i++){ if(PLATFORMS[i].id===id) return PLATFORMS[i]; }
+    return null;
+  }
+  function platformMetaByName(name){
+    if(!name) return null;
+    var n=String(name).trim();
+    for(var i=0;i<PLATFORMS.length;i++){ if(PLATFORMS[i].name===n) return PLATFORMS[i]; }
+    for(var j=0;j<PLATFORMS.length;j++){ if(PLATFORMS[j].name.toLowerCase()===n.toLowerCase()) return PLATFORMS[j]; }
+    return null;
+  }
+  // channels.kind 与 PLATFORMS.id 存在历史别名（ph / xhs），比对前先统一映射
+  var DASH_KIND_ALIAS = {ph:'producthunt', xhs:'xiaohongshu'};
+  function platformIdOfKind(kind){
+    if(!kind) return '';
+    var k=String(kind);
+    if(DASH_KIND_ALIAS[k]) k=DASH_KIND_ALIAS[k];
+    return platformMetaById(k)?k:'';
+  }
+  function findChannelByPlatform(pid){
+    if(!pid) return null;
+    var list=state.channels||[];
+    for(var i=0;i<list.length;i++){
+      if(platformIdOfKind(list[i].kind)===pid) return list[i];
+    }
+    return null;
+  }
+  function channelEnabled(c){ return !!(c && (c.enabled===1 || c.enabled===true)); }
+  function channelVisual(c){
+    var pid=platformIdOfKind(c.kind);
+    var pm=pid?platformMetaById(pid):null;
+    var name=(c&&c.name)||(pm&&pm.name)||(c&&c.kind)||'?';
+    return {pid:pid, name:name, char:String(name).charAt(0)||'?', color:(pm&&pm.color)||'#5A6B72'};
+  }
+  function pubChar(name){ return String(name||'?').trim().charAt(0)||'?'; }
+  function pubMeta(name,id){ return platformMetaById(id)||platformMetaByName(name)||{id:id||'',name:name||'未知平台',color:'#5A6B72'}; }
+  // 内联 onclick 的参数转义（esc 不处理单引号）
+  function dashArg(s){ return String(s==null?'':s).replace(/'/g,'&#39;').replace(/"/g,'&quot;'); }
+  function absTime(ts){
+    if(!ts) return '';
+    var d=new Date(ts); if(isNaN(d.getTime())) return '';
+    var p2=function(n){ return (n<10?'0':'')+n; };
+    return (d.getMonth()+1)+'-'+p2(d.getDate())+' '+p2(d.getHours())+':'+p2(d.getMinutes());
+  }
+  // 把一条发布记录归一化：{id,platform,title,time,ts,work_id,session}
+  function normalizePub(r){
+    r=r||{};
+    var m=platformMetaById(r.id)||platformMetaByName(r.platform);
+    var ts=r.created_at||'';
+    if(!ts && r.session && r.time) ts=hmToLocalIso(r.time);
+    return {
+      id:(m&&m.id)||r.id||'',
+      platform:(m&&m.name)||r.platform||'',
+      title:r.title||'',
+      time:r.time||'',
+      ts:ts,
+      work_id:r.work_id||'',
+      session:!!r.session
+    };
+  }
+  function hmToLocalIso(hm){
+    var m=/^(\d{1,2}):(\d{2})/.exec(String(hm||''));
+    if(!m) return '';
+    var d=new Date(); d.setHours(parseInt(m[1],10)||0, parseInt(m[2],10)||0, 0, 0);
+    return d.toISOString();
+  }
+  // 归一化全部发布记录（按时间正序，末条即「最近发布」）
+  function normalizedPubLog(){
+    var raw=Array.isArray(state.pubLog)?state.pubLog:[];
+    return raw.map(normalizePub).filter(function(r){ return !!(r.platform||r.id); });
+  }
+
+  /* ---------- 时段筛选 ---------- */
+    // session=本次运行新增的发布；today / 7d 按真实时间戳判定；all=全部历史
     function pubInRange(log, range){
       if(!Array.isArray(log)) return [];
       if(range==='all') return log.slice();
-      var now = new Date();
-      var todayKey = now.getFullYear()+'-'+(now.getMonth()+1)+'-'+now.getDate();
-      var cutoff = null;
-      if(range==='today'){
-        // today=今天（含），等价于 1 天
-        cutoff = new Date(now.getFullYear(),now.getMonth(),now.getDate()-1);
-      } else if(range==='7d'){
-        cutoff = new Date(now.getFullYear(),now.getMonth(),now.getDate()-7);
-      } else {
-        return log.slice(); // session: 不过滤历史，由添加顺序即可
-      }
+      if(range==='session') return log.filter(function(r){ return !!r.session; });
+      var n=new Date();
+      var start;
+      if(range==='today') start=new Date(n.getFullYear(),n.getMonth(),n.getDate());
+      else if(range==='7d') start=new Date(n.getFullYear(),n.getMonth(),n.getDate()-6);
+      else return log.slice();
+      var cut=start.getTime();
       return log.filter(function(r){
-        var t = (r && r.time) ? String(r.time) : '';
-        if(!t) return false;
-        // HH:MM 或 HH:MM:SS → 归为今天
-        if(/^\d{1,2}:\d{2}(:\d{2})?$/.test(t)) return true;
-        var d = new Date(t);
-        if(isNaN(d.getTime())) return true;
-        return d.getTime() >= cutoff.getTime();
+        if(!r||!r.ts) return false;
+        var t=new Date(r.ts).getTime();
+        if(isNaN(t)) return false;
+        return t>=cut;
       });
     }
   
-    // 生成 7 个时段的桶 key（Y-M-D）
+    // 生成 N 个自然日的桶 key（Y-M-D），最后一天是今天
     function dayKeys(days){
       var now = new Date();
       var out = [];
@@ -16467,21 +16682,31 @@ function dedupeLaunchDone(doneIds){
       return out;
     }
   
-    // 把 pubLog 按日期桶聚合。HH:MM 归今天，其他按 new Date() 判本地日
+    // 按自然日聚合（使用归一化后的真实时间戳 ts）
     function bucketByDay(log, days){
       var keys = dayKeys(days);
       var counts = {};
       keys.forEach(function(k){counts[k]=0;});
       (log||[]).forEach(function(r){
-        var t = String(r.time||'');
-        var key;
-        if(/^\d{1,2}:\d{2}(:\d{2})?$/.test(t)){
-          var n=new Date(); key=n.getFullYear()+'-'+(n.getMonth()+1)+'-'+n.getDate();
-        } else {
-          var d = new Date(t);
-          if(isNaN(d.getTime())) return;
-          key=d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate();
-        }
+        if(!r||!r.ts) return;
+        var d = new Date(r.ts);
+        if(isNaN(d.getTime())) return;
+        var key = d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate();
+        if(counts[key]!==undefined) counts[key]++;
+      });
+      return keys.map(function(k){return counts[k];});
+    }
+  
+    // 作品按自然日聚合（works.created_at，DB 真实登记时间）
+    function bucketWorksByDay(works, days){
+      var keys = dayKeys(days);
+      var counts = {};
+      keys.forEach(function(k){counts[k]=0;});
+      (works||[]).forEach(function(w){
+        if(!w||!w.created_at) return;
+        var d = new Date(w.created_at);
+        if(isNaN(d.getTime())) return;
+        var key = d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate();
         if(counts[key]!==undefined) counts[key]++;
       });
       return keys.map(function(k){return counts[k];});
@@ -16533,6 +16758,8 @@ function dedupeLaunchDone(doneIds){
         var on = c.getAttribute('data-range') === r;
         c.classList.toggle('on', on);
         c.setAttribute('aria-selected', on ? 'true' : 'false');
+        // aria-pressed：AI 演示计划（s_d2_filter_7d）依赖此属性做点击后校验
+        c.setAttribute('aria-pressed', on ? 'true' : 'false');
       });
       renderDash();
     }
@@ -16549,121 +16776,362 @@ function dedupeLaunchDone(doneIds){
       });
     }
   
-    function renderDash(){
+    /* ---------- 各平台发布占比（环形图） ---------- */
+    // 品牌色可能彼此接近（如 X=#000 与 GitHub=#24292F），同屏出现时无法区分。
+    // 这里在不改变主品牌色的前提下，为「颜色过近」的后续平台做确定性的色相/明度偏移，
+    // 保证同一看板内任意两个平台的颜色都可分辨。
+    function dashHex2Rgb(h){
+      var s=String(h||'').replace('#','').trim();
+      if(s.length===3) s=s[0]+s[0]+s[1]+s[1]+s[2]+s[2];
+      if(!/^[0-9a-fA-F]{6}$/.test(s)) return {r:90,g:107,b:114};
+      var n=parseInt(s,16);
+      return {r:(n>>16)&255,g:(n>>8)&255,b:n&255};
+    }
+    function dashRgb2Hsl(r,g,b){
+      r/=255;g/=255;b/=255;
+      var mx=Math.max(r,g,b), mn=Math.min(r,g,b), d=mx-mn, h=0, s=0, l=(mx+mn)/2;
+      if(d){
+        if(mx===r) h=((g-b)/d)%6;
+        else if(mx===g) h=(b-r)/d+2;
+        else h=(r-g)/d+4;
+        h*=60; if(h<0) h+=360;
+        s=d/(1-Math.abs(2*l-1));
+      }
+      return {h:h,s:s,l:l};
+    }
+    function dashHsl2Rgb(h,s,l){
+      var c=(1-Math.abs(2*l-1))*s, x=c*(1-Math.abs((h/60)%2-1)), m=l-c/2, r,g,b;
+      if(h<60){r=c;g=x;b=0;} else if(h<120){r=x;g=c;b=0;}
+      else if(h<180){r=0;g=c;b=x;} else if(h<240){r=0;g=x;b=c;}
+      else if(h<300){r=x;g=0;b=c;} else {r=c;g=0;b=x;}
+      return {r:Math.round((r+m)*255),g:Math.round((g+m)*255),b:Math.round((b+m)*255)};
+    }
+    function dashRgb2Css(rgb){
+      return 'rgb('+rgb.r+','+rgb.g+','+rgb.b+')';
+    }
+    function dashColorDist(a,b){
+      return Math.abs(a.r-b.r)*0.3+Math.abs(a.g-b.g)*0.59+Math.abs(a.b-b.b)*0.11;
+    }
+    // 为 entries 分配可区分的颜色，结果写入 e.c2
+    function dashAssignColors(entries){
+      var assigned=[];
+      (entries||[]).forEach(function(e){
+        var base=e.c||'#5A6B72';
+        var rgb=dashHex2Rgb(base);
+        var hsl=dashRgb2Hsl(rgb.r,rgb.g,rgb.b);
+        var cand=base, candRgb=rgb;
+        var clash=assigned.some(function(a){ return dashColorDist(a,rgb)<70; });
+        if(clash){
+          for(var step=1; step<=8; step++){
+            var h2=(hsl.h+step*17)%360;
+            var l2=Math.min(0.82, Math.max(0.24, hsl.l + (step%2?0.18:-0.15)*Math.ceil(step/2)));
+            var s2=Math.min(0.95, Math.max(0.32, hsl.s+(step>3?0.22:0)));
+            var c2=dashHsl2Rgb(h2,s2,l2);
+            var ok=!assigned.some(function(a){ return dashColorDist(a,c2)<70; });
+            if(ok){ cand=dashRgb2Css(c2); candRgb=c2; break; }
+          }
+        }
+        e.c2=cand;
+        assigned.push(candRgb);
+      });
+    }
 
-    // v1.5 UX：时段筛选 + sparkline（任务 6）
+    function renderDashDonut(entries, total){
+      var box = document.getElementById('donutBox');
+      var sub = document.getElementById('donutSub');
+      if(!box) return;
+      if(!entries.length || !total){
+        if(sub) sub.textContent = '所选时段内暂无发布数据';
+        box.innerHTML = '<div class="empty-state" style="padding:14px 8px"><div class="es-icon">◔</div><div class="es-title">暂无占比数据</div><div class="es-sub">所选时段内还没有发布记录</div></div>';
+        return;
+      }
+      if(sub) sub.textContent = '共 ' + total + ' 次发布 · 按平台占比';
+      var r = 56, C = 2 * Math.PI * r, acc = 0, segs = '';
+      entries.forEach(function(e){
+        var len = e.v / total * C;
+        segs += '<circle class="dc-seg" cx="70" cy="70" r="'+r+'" stroke="'+esc(e.c2||e.c)+'" stroke-dasharray="'+len.toFixed(2)+' '+(C-len).toFixed(2)+'" stroke-dashoffset="'+(-acc).toFixed(2)+'"></circle>';
+        acc += len;
+      });
+      var legend = '';
+      entries.forEach(function(e){
+        legend += '<div class="dl-row"><span class="dl-dot" style="background:'+esc(e.c2||e.c)+'"></span>'
+          +'<span class="dl-name">'+esc(e.n)+'</span>'
+          +'<span class="dl-n">'+e.v+' 次</span>'
+          +'<span class="dl-p">'+(e.v/total*100).toFixed(1)+'%</span></div>';
+      });
+      box.innerHTML = '<div class="donut"><svg viewBox="0 0 140 140" aria-hidden="true">'
+        +'<circle class="dc-track" cx="70" cy="70" r="'+r+'"></circle>'+segs+'</svg>'
+        +'<div class="donut-center"><div class="dc-t">总计</div><div class="dc-n">'+total+' 次</div></div></div>'
+        +'<div class="donut-legend">'+legend+'</div>';
+    }
+  
+    /* ---------- 渠道详情入口（真实可用：打开该渠道的详情弹窗） ---------- */
+    window.openDashChannel = function(platId){
+      try{
+        var pm = platformMetaById(platId);
+        var ch = pm ? findChannelByPlatform(pm.id) : null;
+        if(ch){ openChannelEditor(ch.id, {view:'detail'}); return; }
+        go('channels');
+        toast('「'+(pm?pm.name:platId)+'」还没有配置推广渠道，已跳转到推广渠道页');
+      }catch(err){ console.warn('openDashChannel failed', err); }
+    };
+    window.openDashChannelById = function(chId){
+      try{
+        var c=null;
+        var list=state.channels||[];
+        for(var i=0;i<list.length;i++){ if(list[i].id===chId){ c=list[i]; break; } }
+        if(!c){ toast('该渠道已不存在','warn'); return; }
+        openChannelEditor(c.id, {view:'detail'});
+      }catch(err){ console.warn('openDashChannelById failed', err); }
+    };
+    // 发布记录「查看」：跳到该作品（沿用既有 openWork 入口）
+    window.openDashWork = function(workId){
+      try{ openWork(workId); }catch(err){ console.warn('openDashWork failed', err); }
+    };
+    window.toggleDashPubList = function(){
+      state.dashPubExpanded = !state.dashPubExpanded;
+      renderDash();
+    };
+  
+    function renderDash(){
+  
+    // v2：时段筛选 + sparkline（任务 6）
       bindDashFilter();
-      var range = state.dashRange || 'session';
-      var filteredPub = pubInRange(state.pubLog, range);
-      var bucketCount = (range === '7d') ? 7 : (range === 'today' ? 1 : 7);
-      var spark7 = bucketByDay(filteredPub, bucketCount);
-      var rangeLabel = ({session:'本机会话',today:'今天','7d':'近 7 天',all:'全部历史'})[range] || '本机会话';
+      var range = state.dashRange || 'all';
+      var allPub = normalizedPubLog();
+      var filteredPub = pubInRange(allPub, range);
+      var bucketCount = (range === '7d') ? 7 : (range === 'today' ? 1 : (range === 'all' ? 14 : 7));
+      var sparkPub = bucketByDay(filteredPub, bucketCount);
+      var rangeLabel = DASH_RANGE_LABEL[range] || '全部历史';
 
       // ===== KPI 顶部 4 项（全部读自真实状态）=====
     var realWorks = (state.works || []).filter(function(w){return !w.isSample;});
+    var allChans = state.channels || [];
+    var enabledChans = allChans.filter(channelEnabled);
     state.kpis.works = realWorks.length;
     state.kpis.pub = filteredPub.length;
-    state.kpis.channelsEnabled = Object.keys(state.platforms || {}).filter(function(k){return state.platforms[k];}).length;
+    // 注意：真实「被启用渠道」来自 channels 表的 enabled 字段；
+    //       state.platforms 是「本次向导勾选的平台」，恒为 false，不能拿来统计。
+    state.kpis.channelsEnabled = enabledChans.length;
 
-    // v1.5：顶部"规划中"提示卡已下线，仅保留 KPI / 回填逻辑
     var elKpiPub = document.getElementById('kpiPub');
     if (elKpiPub) elKpiPub.textContent = filteredPub.length;
     var elKpiPubSub = document.getElementById('kpiPubSub');
-    if (elKpiPubSub) elKpiPubSub.textContent = rangeLabel;
+    if (elKpiPubSub) elKpiPubSub.textContent = rangeLabel + ' · 真实发布 ' + filteredPub.length + ' 次';
     var elKpiCh = document.getElementById('kpiChannels');
-    if (elKpiCh) elKpiCh.textContent = state.kpis.channelsEnabled;
+    if (elKpiCh) elKpiCh.textContent = enabledChans.length;
+    var elKpiChSub = document.getElementById('kpiChannelsSub');
+    if (elKpiChSub) elKpiChSub.textContent = allChans.length
+      ? ('已启用 ' + enabledChans.length + ' / 共 ' + allChans.length + ' 个推广渠道')
+      : '还没有配置推广渠道';
     var elKpiWk = document.getElementById('kpiWorks');
-    if (elKpiWk) elKpiWk.textContent = state.kpis.works;
+    if (elKpiWk) elKpiWk.textContent = realWorks.length;
+    var elKpiWkSub = document.getElementById('kpiWorksSub');
+    if (elKpiWkSub) elKpiWkSub.textContent = realWorks.length
+      ? ('本机登记的 ' + realWorks.length + ' 个正式作品')
+      : '还没有登记正式作品';
     var elKpiLast = document.getElementById('kpiLastPub');
     var elKpiLastSub = document.getElementById('kpiLastPubSub');
     var lastEntry = filteredPub.length ? filteredPub[filteredPub.length-1] : null;
     if (lastEntry) {
-      if (elKpiLast) elKpiLast.textContent = lastEntry.platform || '—';
-      if (elKpiLastSub) elKpiLastSub.textContent = lastEntry.time || '';
+      var rel = formatRelTime(lastEntry.ts);
+      if (elKpiLast) elKpiLast.textContent = rel || absTime(lastEntry.ts) || '—';
+      if (elKpiLastSub) elKpiLastSub.textContent = lastEntry.platform + (absTime(lastEntry.ts) ? (' · ' + absTime(lastEntry.ts)) : '');
     } else {
       if (elKpiLast) elKpiLast.textContent = '—';
       if (elKpiLastSub) elKpiLastSub.textContent = rangeLabel + ' 暂无发布';
     }
 
-    // v1.5 UX：sparkline 渲染（任务 6 之一）
+    // v1.5 UX：sparkline 渲染（任务 6 之一）——全部来自真实数据，不做假趋势
     var sparkHosts = {
-      kpiPubSpark: spark7,
-      kpiChannelsSpark: bucketCount === 1 ? [state.kpis.channelsEnabled] : [0,0,state.kpis.channelsEnabled,0,0,0,state.kpis.channelsEnabled],
-      kpiWorksSpark: bucketCount === 1 ? [state.kpis.works] : [0,state.kpis.works,0,0,0,0,state.kpis.works],
-      kpiLastPubSpark: bucketCount === 1 ? [lastEntry ? 1 : 0] : [0,0,0,0,0,1, lastEntry ? 1 : 0]
+      kpiPubSpark: sparkPub,
+      kpiChannelsSpark: null,   // 渠道卡改用「启用占比」实心条，见下
+      kpiWorksSpark: bucketWorksByDay(realWorks, bucketCount),
+      kpiLastPubSpark: sparkPub
     };
     Object.keys(sparkHosts).forEach(function(id){
       var el = document.getElementById(id);
       if(!el) return;
-      el.innerHTML = renderSparkline(sparkHosts[id]);
-      el.classList.toggle('empty', !sparkHosts[id].some(function(v){return v>0;}));
+      var vals = sparkHosts[id];
+      if(!vals){ return; }
+      el.innerHTML = renderSparkline(vals);
+      el.classList.toggle('empty', !vals.some(function(v){return v>0;}));
     });
+    // 渠道卡：没有时间序列，用「已启用 / 总数」的真实占比条代替虚构折线
+    var elChSpark = document.getElementById('kpiChannelsSpark');
+    if (elChSpark){
+      var ratio = allChans.length ? Math.round(enabledChans.length / allChans.length * 100) : 0;
+      elChSpark.innerHTML = allChans.length
+        ? '<div class="mini-ratio" title="已启用 '+enabledChans.length+' / 共 '+allChans.length+'"><i style="width:'+ratio+'%;background:var(--primary)"></i></div>'
+        : '';
+      elChSpark.classList.toggle('empty', !allChans.length);
+    }
 
     // ===== 各渠道发布次数（随时段筛选重算）=====
     var barsBox = document.getElementById('barsBox');
     var barsSub = document.getElementById('barsSub');
-    var filteredByPlatform = {};
+    var total = filteredPub.length;
+    var byPlat = {};
     filteredPub.forEach(function(r){
-      var id = r.id || r.platform || '';
-      if(!id) return;
-      filteredByPlatform[id] = (filteredByPlatform[id]||0) + 1;
+      var key = r.id || r.platform;
+      if(!key) return;
+      byPlat[key] = (byPlat[key]||0) + 1;
     });
-    var entries = Object.keys(filteredByPlatform).map(function(k){
-      var meta = PLATFORMS.filter(function(p){return p.id === k;})[0] || {name: k, color: '#0E7C7B'};
-      return {n: meta.name, v: filteredByPlatform[k], c: meta.color};
+    var entries = Object.keys(byPlat).map(function(k){
+      var m = pubMeta(k, platformMetaById(k)?k:'');
+      return {id:(m.id||''), n:m.name, v:byPlat[k], c:m.color||'#5A6B72', ch:m.id?findChannelByPlatform(m.id):null};
     }).sort(function(a,b){return b.v-a.v;});
+    dashAssignColors(entries);
 
-    if (entries.length === 0) {
-      if (barsSub) barsSub.textContent = rangeLabel + ' · 尚未发布 · 完成后这里会自动出现';
-      if (barsBox) barsBox.innerHTML = '<div class="empty-state"><div class="es-icon">📊</div><div class="es-title">所选时段内还没有发布</div><div class="es-sub">尝试切换时段芯片，或完成一次首秀发射让真实数据回填</div></div>';
+    if (!entries.length) {
+      if (barsSub) barsSub.textContent = rangeLabel + ' · 尚未发布';
+      if (barsBox) barsBox.innerHTML = '<div class="empty-state" style="padding:22px 12px"><div class="es-icon">📊</div><div class="es-title">所选时段内还没有发布</div><div class="es-sub">尝试切换上方的时段筛选，或完成一次首秀发射让真实数据回填</div></div>';
     } else {
-      if (barsSub) barsSub.textContent = rangeLabel + ' · 按平台统计（总计 ' + entries.reduce(function(s,e){return s+e.v;},0) + ' 次）';
-      var max = Math.max.apply(null, entries.map(function(d){return d.v;}));
+      if (barsSub) barsSub.textContent = rangeLabel + ' · 按平台统计（总计 ' + total + ' 次）';
       var html = '';
       entries.forEach(function(d){
-        html += '<div class="bar-row"><div class="bn">'+esc(d.n)+'</div><div class="bt"><div class="bf" style="width:'+Math.round(d.v/max*100)+'%;background:'+d.c+'"></div></div><div class="bv">'+d.v+'</div></div>';
+        var pct = total ? (d.v/total*100) : 0;
+        html += '<button type="button" class="pstat" onclick="openDashChannel(\''+dashArg(d.id)+'\')" title="查看 '+dashArg(d.n)+' 渠道详情">'
+          +'<div class="ps-head"><span class="ps-ico" style="background:'+esc(d.c2||d.c)+'">'+esc(pubChar(d.n))+'</span>'
+          +'<span class="ps-name">'+esc(d.n)+'</span><span class="ps-go">›</span></div>'
+          +'<div class="ps-row"><span class="ps-n">'+d.v+'</span><span class="ps-unit">次</span>'
+          +'<span class="ps-pct">'+pct.toFixed(1)+'%</span></div>'
+          +'<div class="ps-bar"><i style="width:'+pct.toFixed(1)+'%;background:'+esc(d.c2||d.c)+'"></i></div>'
+          +'<div class="ps-ch">'+(d.ch ? ('已配置渠道 · '+esc(d.ch.name)) : '未配置推广渠道')+'</div>'
+          +'</button>';
       });
       if (barsBox) barsBox.innerHTML = html;
     }
 
-    // ===== 本次会话发布回填（pubLog，随时段筛选）=====
-    var pl = document.getElementById('pubLogBox');
-    if (pl) {
-      if (filteredPub && filteredPub.length) {
-        var ph = ''; filteredPub.forEach(function(r){
-          ph += '<div class="pl"><div class="ic" style="background:#0E7C7B">' + esc((r.platform || '').charAt(0)) + '</div><div class="pt">' + esc(r.platform) + '</div><div class="pm">' + esc(r.title) + '</div><div class="ptm">' + esc(r.time) + '</div></div>';
-        });
-        pl.innerHTML = ph;
+    // ===== 已启用渠道状态（真实 channels 表）=====
+    var csBox = document.getElementById('chStatusBox');
+    if (csBox) {
+      if (!allChans.length) {
+        csBox.innerHTML = '';
       } else {
-        pl.innerHTML = '<div class="empty-state"><div class="es-icon">📊</div><div class="es-title">'+rangeLabel+' · 还没有发布记录</div><div class="es-sub">完成一次首秀发射后，真实的发布数据会出现在这里</div></div>';
+        var csHead = '<div class="cs-head"><span>推广渠道状态</span>'
+          +'<span class="tl-badge '+(enabledChans.length===allChans.length?'done':'live')+'">'+enabledChans.length+' / '+allChans.length+' 已启用</span></div>';
+        var csList = '<div class="cs-list">';
+        // 渠道 chip 沿用同一套可区分配色，避免同屏出现接近色（如 X 与 GitHub）
+        var chipEntries=allChans.map(function(c){
+          var v=channelVisual(c);
+          return {c:v.color, v:v};
+        });
+        dashAssignColors(chipEntries);
+        allChans.forEach(function(c, ci){
+          var v=chipEntries[ci].v;
+          var on = channelEnabled(c);
+          csList += '<button type="button" class="ch-chip'+(on?'':' off')+'" onclick="openDashChannelById(\''+dashArg(c.id)+'\')" title="查看渠道详情">'
+            +'<span class="cs-ico" style="background:'+esc(chipEntries[ci].c2||v.color)+'">'+esc(v.char)+'</span>'
+            +esc(v.name)+(on?'':' · 已停用')+'</button>';
+        });
+        csList += '</div>';
+        csBox.innerHTML = csHead + csList;
       }
     }
 
-    // ===== 里程碑报喜（卡片化 + 点击已读，任务 10）=====
+    // ===== 各平台发布占比 =====
+    renderDashDonut(entries, total);
+
+    // ===== 最近发布记录（表格）=====
+    var pl = document.getElementById('pubLogBox');
+    var plSub = document.getElementById('pubLogSub');
+    var plToggle = document.getElementById('pubLogToggle');
+    var plFoot = document.getElementById('pubLogFoot');
+    if (pl) {
+      var rows = filteredPub.slice().sort(function(a,b){
+        var ta=new Date(a.ts||0).getTime()||0, tb=new Date(b.ts||0).getTime()||0;
+        return tb-ta;
+      });
+      if (!rows.length) {
+        if (plSub) plSub.textContent = rangeLabel + ' · 暂无发布记录';
+        if (plToggle) plToggle.style.display = 'none';
+        if (plFoot) plFoot.innerHTML = '';
+        pl.innerHTML = '<div class="empty-state" style="padding:26px 12px"><div class="es-icon">📊</div><div class="es-title">'+esc(rangeLabel)+' 还没有发布记录</div><div class="es-sub">完成一次首秀发射后，真实的发布数据会出现在这里</div></div>';
+      } else {
+        if (plSub) plSub.textContent = '真实数据 · 本机登记的发布回填';
+        var expanded = !!state.dashPubExpanded;
+        var shown = expanded ? rows : rows.slice(0, 6);
+        var th = '<table class="ptable"><thead><tr><th>时间</th><th>作品标题</th><th>平台</th><th>状态</th><th class="pt-acts">操作</th></tr></thead><tbody>';
+        shown.forEach(function(r){
+          var m = pubMeta(r.platform, r.id);
+          var w = r.work_id ? findWork(r.work_id) : null;
+          var title = r.title || (w ? w.name : '') || '未填写标题';
+          th += '<tr>'
+            +'<td class="pt-time">'+esc(absTime(r.ts)||r.time||'—')+'</td>'
+            +'<td class="pt-title" title="'+esc(title)+'">'+esc(title)+'</td>'
+            +'<td><span class="pt-plat"><span class="pt-ico" style="background:'+esc(m.color)+'">'+esc(pubChar(m.name))+'</span>'+esc(m.name)+'</span></td>'
+            +'<td class="pt-state"><span class="tl-badge done">已发布</span></td>'
+            +'<td class="pt-acts">'+ (w && !w.isSample
+                ? '<button type="button" class="pt-link" onclick="openDashWork(\''+dashArg(w.id)+'\')">查看</button>'
+                : '<span class="pt-none">作品已移除</span>')
+            +'</td></tr>';
+        });
+        th += '</tbody></table>';
+        pl.innerHTML = th;
+        if (plToggle) {
+          plToggle.style.display = '';
+          plToggle.textContent = expanded ? '收起 ↑' : ('展开全部（'+rows.length+'） →');
+        }
+        if (plFoot) {
+          plFoot.innerHTML = '<span class="pf-count">共 <b>'+rows.length+'</b> 条记录</span>'
+            +'<span>点击「查看」可进入对应作品</span>';
+        }
+      }
+    }
+
+    // ===== 里程碑报喜（时间线 + 点击已读，任务 10）=====
     var fb = document.getElementById('feedBox');
     var feedSub = document.getElementById('feedSub');
     if (fb) {
       var milestones = state.milestones || [];
+      var totalAll = allPub.length;
       if (milestones.length === 0) {
-        if (feedSub) feedSub.textContent = '本机会话 · 完成后 Rokit 会主动报喜（首发布、10+ 发布等）';
-        fb.innerHTML = '<div class="empty-state"><div class="es-icon">🎉</div><div class="es-title">还没有里程碑报喜</div><div class="es-sub">完成首次发射、累计 10+ 发布等关键节点，AI 大师会主动报喜</div></div>';
+        if (feedSub) feedSub.textContent = '本次运行 · AI 大师会主动汇报关键节点';
+        var pending = nextMilestoneHint(totalAll);
+        fb.innerHTML = '<div class="empty-state" style="padding:16px 12px"><div class="es-icon">🎉</div><div class="es-title">还没有里程碑报喜</div>'
+          +'<div class="es-sub">'+(totalAll>0
+              ? '本机累计发布 '+totalAll+' 次，完成关键节点时 AI 大师会主动报喜'
+              : '完成首次发射、累计 10 次发布等关键节点，AI 大师会主动报喜')+'</div></div>'
+          + (pending ? '<div class="tl-item pending"><div class="tl-ic">🎯</div><div class="tl-body">'
+              +'<div class="tl-title">'+esc(pending.title)+'</div>'
+              +'<div class="tl-desc">'+esc(pending.desc)+'</div>'
+              +'<div class="tl-meta"><span class="tl-badge pend">未达成</span></div></div></div>' : '');
       } else {
-        if (feedSub) feedSub.textContent = '本机会话 · AI 大师会主动汇报关键节点 · 点击标记已读';
+        if (feedSub) feedSub.textContent = '本次运行 · AI 大师会主动汇报关键节点 · 点击标记已读';
         var fbHtml = '';
         milestones.forEach(function(m, idx){
-          var ts = m.time || m.readAt || m.at || '';
+          var ts = m.at || m.time || m.readAt || '';
           var relTime = formatRelTime(ts);
-          fbHtml += '<div class="f '+(m.unread?'new':'read')+'" onclick="markMilestoneRead('+idx+')" role="button" tabindex="0" style="cursor:pointer">'+
-            '<div class="ic" style="background:'+(m.color || '#0E7C7B')+'">' + esc(m.icon || '·') + '</div>'+
-            '<div class="fx"><div class="ft">' + esc(m.title) + '</div><div class="fm">' + esc(m.detail || '') + '</div></div>'+
-            (relTime ? '<div class="ftime">'+relTime+'</div>' : '')+
-          '</div>';
+          var abs = absTime(ts);
+          fbHtml += '<div class="tl-item" onclick="markMilestoneRead('+idx+')" role="button" tabindex="0">'
+            +'<div class="tl-ic" style="background:'+esc(m.color || '#0E7C7B')+'">' + esc(m.icon || '·') + '</div>'
+            +'<div class="tl-body"><div class="tl-title">' + esc(m.title || '里程碑') + '</div>'
+            + (m.detail ? '<div class="tl-desc">' + esc(m.detail) + '</div>' : '')
+            +'<div class="tl-meta"><span class="tl-badge '+(m.unread?'live':'done')+'">'+(m.unread?'新进展':'已达成')+'</span>'
+            + (relTime ? '<span>'+esc(relTime)+'</span>' : '')
+            + (abs ? '<span>'+esc(abs)+'</span>' : '')
+            +'</div></div></div>';
         });
         fb.innerHTML = fbHtml;
       }
     }
 
   }
+
+    // 下一个未达成的里程碑（阈值与 pushMilestoneIfFirst 保持一致，不新增虚构节点）
+    function nextMilestoneHint(total){
+      var thresholds=[
+        {n:1,  title:'完成首次发布', desc:'任意平台完成一次发布即达成'},
+        {n:10, title:'累计发布 10 次', desc:'本机累计发布满 10 次即达成'}
+      ];
+      for(var i=0;i<thresholds.length;i++){
+        if(total < thresholds[i].n){
+          return {title:thresholds[i].title, desc:'还差 '+(thresholds[i].n-total)+' 次 · '+thresholds[i].desc};
+        }
+      }
+      return null;
+    }
 
 
 
@@ -16901,14 +17369,19 @@ function dedupeLaunchDone(doneIds){
   };
 
   // 打开编辑弹窗：id 为 null 时是新增
+  // opts.view='detail' 时以「渠道详情」口吻展示（数据看板的渠道统计卡点进来用），字段仍可直接编辑
   var __editingId=null;
-  window.openChannelEditor=function(id){
+  window.openChannelEditor=function(id, opts){
+    opts=opts||{};
     __editingId=id||null;
     var isEdit=!!id;
+    var isDetail=!!(isEdit && opts.view==='detail');
     var c=null;
     if(isEdit){for(var i=0;i<state.channels.length;i++){if(state.channels[i].id===id){c=state.channels[i];break;}}}
-    document.getElementById('channelModalTitle').textContent=isEdit?'编辑推广渠道':'新增推广渠道';
-    document.getElementById('channelModalSub').textContent=isEdit?'修改该渠道的接入信息。停用后不会出现在首秀发射列表。':'填写渠道名称与类型；自定义类型需要填 API 地址或 Webhook 才能正常推送。';
+    document.getElementById('channelModalTitle').textContent=isDetail?('渠道详情 · '+(c&&c.name?c.name:'')):(isEdit?'编辑推广渠道':'新增推广渠道');
+    document.getElementById('channelModalSub').textContent=isDetail
+      ? '该渠道的真实接入信息（来自本机渠道库）。停用后不会出现在首秀发射列表。'
+      : (isEdit?'修改该渠道的接入信息。停用后不会出现在首秀发射列表。':'填写渠道名称与类型；自定义类型需要填 API 地址或 Webhook 才能正常推送。');
     // 填充 select
     var sel=document.getElementById('chKind');sel.innerHTML='';
     // 分组：内置 + 自定义
@@ -17635,6 +18108,9 @@ function dedupeLaunchDone(doneIds){
     out.yt_views = (w.yt_views === null || w.yt_views === undefined) ? null : (Number(w.yt_views) || 0);
     out.yt_updated_at = w.yt_updated_at || null;
 
+    // 登记时间（DB works.created_at）：看板「首发作品」的趋势图按真实登记日聚合
+    out.created_at = w.created_at || '';
+
     if(w.isSample)out.isSample=true;
 
     return out;
@@ -17740,7 +18216,38 @@ function dedupeLaunchDone(doneIds){
 
       if(ps&&ps.length){
 
-        state.pubLog=ps.map(function(p){return {platform:p.platform||'',time:p.time||'',title:p.title||''};});
+        // 看板统计需要真实的时间戳与平台 id：pubs 表里 platform 存的是**平台名称**，
+        // time 只有 HH:MM，必须带上 created_at 才能做「今天 / 近 7 天」聚合。
+        // listPubs 按 created_at 倒序返回，这里反转成时间正序（末条 = 最近一次发布）。
+        var rows=ps.map(function(p){
+          return {
+            platform:p.platform||'',
+            time:p.time||'',
+            title:p.title||'',
+            work_id:p.work_id||'',
+            created_at:p.created_at||''
+          };
+        }).reverse();
+
+        // 与本次运行内已产生的记录合并（避免用历史数据覆盖刚刚发生的真实发布）。
+        // 注意：不能按 platform|title|time 去重 —— 真实数据里存在「同一平台、同一标题、同一分钟」
+        // 但确属两次发布的记录（DB 中 id / created_at 不同），按三元组去重会把它们误合并、少算次数。
+        // 因此只把「本次运行刚写入 DB 的孪生行」剔除：平台/时间/作品一致，且写入时刻相差 2 分钟内。
+        var sessionRows=(state.pubLog||[]).filter(function(r){return !!r.session;});
+        function isTwinOf(dbRow){
+          for(var i=0;i<sessionRows.length;i++){
+            var s=sessionRows[i];
+            if((s.platform||'')!==(dbRow.platform||''))continue;
+            if((s.time||'')!==(dbRow.time||''))continue;
+            if((s.work_id||'')!==(dbRow.work_id||''))continue;
+            var a=Date.parse(s.created_at||''), b=Date.parse(dbRow.created_at||'');
+            if(!isNaN(a)&&!isNaN(b)&&Math.abs(a-b)<=120000) return true;
+          }
+          return false;
+        }
+        var merged=rows.filter(function(r){ return !isTwinOf(r); });
+        // 时间正序：历史记录在前（末条为最近一次历史发布），本次运行的记录追加在末尾
+        state.pubLog=merged.concat(sessionRows);
 
       }
 
