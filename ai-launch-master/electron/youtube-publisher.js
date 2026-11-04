@@ -27,7 +27,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const { URL } = require('url');
 
 // 复用现有的 OAuth 模块（不重新实现 token 流程）
 const oauth = require('./oauth');

@@ -90,11 +90,64 @@ contextBridge.exposeInMainWorld('api', {
   listWorks: () => ipcRenderer.invoke('works:list'),
   saveWork: (w) => ipcRenderer.invoke('works:save', w),
   deleteWork: (id) => ipcRenderer.invoke('works:delete', id),
+  // 唯一主推：setMainWork 设为主推（原主推自动降级），clearMainWork 取消主推
+  setMainWork: (id) => ipcRenderer.invoke('works:set-main', id),
+  clearMainWork: (id) => ipcRenderer.invoke('works:clear-main', id),
   // v1.8：我的作品 → GitHub 数据刷新（仅更新 star，全量并发 + 单点失败保留旧数据）
   refreshGithubStats: (works) => ipcRenderer.invoke('works:refresh-github-stats', works),
   // 发布记录
   listPubs: () => ipcRenderer.invoke('pubs:list'),
   addPub: (r) => ipcRenderer.invoke('pubs:add', r),
+  // 删除发布记录：只传稳定唯一标识（记录行 id / pub_key），不传作品 id 或平台 id
+  deletePubs: (targets) => ipcRenderer.invoke('pubs:delete', targets),
+  // 撤销「标记已发布」：只传完整的新格式四段式手动键 manual|<platform_id>|<scope>|<op_id>
+  //   （自动发布记录 / 首秀计划记录 / 旧三段式历史键会被主进程拒绝，删不到）
+  revokePub: (pubKey) => ipcRenderer.invoke('pubs:revoke', pubKey),
+  // 发布记录变更通知（主进程 → renderer）：
+  //   主进程只在发布记录**真正落库之后**发这个信号，且**不携带记录内容**；
+  //   renderer 收到后自行调用 listPubs() 重新读取，避免两端口径漂移。
+  // 返回取消监听的函数（调用后不再收到通知）。
+  onPubsChanged: (cb) => {
+    if (typeof cb !== 'function') return function () {};
+    const listener = function () { try { cb(); } catch (_e) {} };
+    ipcRenderer.on('pubs:changed', listener);
+    return function () { ipcRenderer.removeListener('pubs:changed', listener); };
+  },
+  // 首秀计划：计划配置（阶段）+ 平台执行任务
+  // 本阶段只做持久化与跨作品查询，不触发任何真实平台发布
+  planList: (workId) => ipcRenderer.invoke('plan:list', workId),
+  planSave: (workId, stages) => ipcRenderer.invoke('plan:save', workId, stages),
+  planDeleteStage: (workId, stageId) => ipcRenderer.invoke('plan:delete-stage', workId, stageId),
+  // 删除整份计划（只影响该作品；未执行任务取消，已执行历史与发布记录保留）
+  planDelete: (workId) => ipcRenderer.invoke('plan:delete', workId),
+  planTasks: (workId) => ipcRenderer.invoke('plan:tasks', workId),
+  planAll: () => ipcRenderer.invoke('plan:all'),
+  planCancelTask: (workId, taskId) => ipcRenderer.invoke('plan:cancel-task', workId, taskId),
+  planUpdateTask: (workId, taskId, patch) => ipcRenderer.invoke('plan:update-task', workId, taskId, patch),
+  planReassign: (fromOwner, toOwner) => ipcRenderer.invoke('plan:reassign', fromOwner, toOwner),
+  // v1.25：模拟调度器状态（只读；不提供任何手动触发执行的接口）
+  planSchedulerStatus: () => ipcRenderer.invoke('plan:scheduler-status'),
+  // v1.26：存储信息（只读）：当前数据库文件 / 数据目录 / 存储模式与驱动
+  planStoreInfo: () => ipcRenderer.invoke('plan:store-info'),
+  // v1.26：把一条模拟完成的任务重新排队 → 进入「等待真实执行」（只允许模拟任务）
+  planRequeueSimulated: (workId, taskId, opts) => ipcRenderer.invoke('plan:requeue-simulated', workId, taskId, opts || {}),
+  // v1.26：发布前幂等安全检查（只读；本次不触发任何真实发布）
+  planPublishGuard: (workId, taskId) => ipcRenderer.invoke('plan:publish-guard', workId, taskId),
+  // 「待核实」任务的人工处理（仅 YouTube 首秀计划）：都不触发任何上传
+  //   - planConfirmPublished：人工核实确实已发布 → 任务置为已完成 + 补全发布记录
+  //   - planConfirmRetry：人工核实确实未发布 → 只重新排队，由调度器按既有检查接手
+  planConfirmPublished: (workId, taskId, opts) => ipcRenderer.invoke('plan:confirm-published', workId, taskId, opts || {}),
+  planConfirmRetry: (workId, taskId, opts) => ipcRenderer.invoke('plan:confirm-retry', workId, taskId, opts || {}),
+  // 作品最新成品视频映射（settings_kv）：主进程做白名单 + 存在性校验
+  //   每个作品只维护一个最新成品视频；计划通过 copy.github.videoPath 引用它。
+  planSaveFinalVideo: (workId, videoPath) => ipcRenderer.invoke('plan:save-final-video', workId, videoPath),
+  planGetFinalVideo: (workId) => ipcRenderer.invoke('plan:get-final-video', workId),
+  // 逾期计划（仅 GitHub 首秀计划）：列出 / 立即执行 / 延后一天 / 放弃
+  planOverdue: (opts) => ipcRenderer.invoke('plan:overdue', opts || {}),
+  planOverdueRun: (workId, taskId, opts) => ipcRenderer.invoke('plan:overdue-run', workId, taskId, opts || {}),
+  planOverdueDelay: (workId, taskId, opts) => ipcRenderer.invoke('plan:overdue-delay', workId, taskId, opts || {}),
+  planOverdueAbandon: (workId, taskId, opts) => ipcRenderer.invoke('plan:overdue-abandon', workId, taskId, opts || {}),
+  // v1.26：总开关已移除（计划任务的真实执行资格由阶段上的「自动发布」勾选决定）
   // 推广渠道（增删改 + 连通性测试）
   listChannels: () => ipcRenderer.invoke('channels:list'),
   saveChannel: (c) => ipcRenderer.invoke('channels:save', c),

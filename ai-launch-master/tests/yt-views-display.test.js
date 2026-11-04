@@ -27,6 +27,7 @@ const fs = require('fs');
 const path = require('path');
 
 const htmlSrc = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+const worksStatsSrc = fs.readFileSync(path.join(__dirname, '..', 'renderer-utils', 'works-stats.js'), 'utf8');
 const mainSrc = fs.readFileSync(path.join(__dirname, '..', 'electron', 'main.js'), 'utf8');
 
 // ============================================================
@@ -293,7 +294,10 @@ describe('源码断言 · 三处渲染统一走 ytViewsText', () => {
   });
 
   it('局部 DOM 更新走 ytViewsText', () => {
-    expect(htmlSrc).toContain('if (boxes[2]) boxes[2].textContent = ytViewsText(w);');
+    // 第二阶段已把 refreshWorksGithubStats 迁到 renderer-utils/works-stats.js；
+    // 契约不变，断言跟随实现文件，并确保主文件不保留第二份实现。
+    expect(worksStatsSrc).toContain('if (boxes[2]) boxes[2].textContent = ytViewsText(w);');
+    expect(htmlSrc).not.toContain('if (boxes[2]) boxes[2].textContent = ytViewsText(w);');
   });
 
   it('悬停预览走 ytViewsText', () => {

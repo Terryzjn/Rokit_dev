@@ -257,15 +257,21 @@ describe('Store · YouTube 字段持久化（yt_url / yt_views / yt_updated_at�
   });
 
   // better-sqlite3 是原生模块：本仓库的开发机常把它编译为 Electron ABI（供真实应用运行），
-  // 而 vitest 跑在系统 Node 上，ABI 不匹配时 `new Store()` 会抛 NODE_MODULE_VERSION 错误
-  // （与 tests/store-patch.test.js 的基线失败同源）。此处优雅跳过，
-  // 真实 SQLite 驱动下的持久化验证由 tests/_yt-store-probe.js（Electron 进程内）承担。
+  // 而 vitest 跑在系统 Node 上，ABI 不匹配时无法打开 SQLite（与 tests/store-patch.test.js 的基线失败同源）。
+  //   v1.26 起 Store 初始化失败不再向外抛，而是记为 mode='error' + initError（便于应用给出可理解的提示），
+  //   这里对同样的已知环境问题优雅跳过；
+  //   真实 SQLite 驱动下的持久化验证由 tests/_yt-store-probe.js（Electron 进程内）承担。
   function makeStore() {
     const { Store } = require('../electron/store');
-    try { return new Store(dbPath); } catch (e) {
+    let s = null;
+    try {
+      s = new Store(dbPath);
+    } catch (e) {
       if (/NODE_MODULE_VERSION|compiled against/.test(String(e && e.message))) return null;
       throw e;
     }
+    if (s && s.mode === 'error' && /NODE_MODULE_VERSION|compiled against/.test(String(s.initError || ''))) return null;
+    return s;
   }
 
   it('INSERT 默认值：yt_url 为空串、yt_views 为 null、yt_updated_at 为 null', () => {

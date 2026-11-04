@@ -330,6 +330,15 @@ describe('main.js / index.html 约束', () => {
   const preSrc = fs.readFileSync(path.join(__dirname, '..', 'electron', 'preload.js'), 'utf8');
 
   function pagesFn(name) {
+    // github:publish-pages 的处理逻辑已提取为主进程命名函数（IPC 只做委托）：
+    //   普通自动发布与首秀计划执行器共用同一实现。
+    if (name === 'github:publish-pages') {
+      const start = mainSrc.indexOf('async function githubPublishPages(payload)');
+      expect(start).toBeGreaterThan(0);
+      const end = mainSrc.indexOf('\nipcMain.handle(', start);
+      expect(end).toBeGreaterThan(start);
+      return mainSrc.slice(start, end);
+    }
     const start = mainSrc.indexOf("ipcMain.handle('" + name + "'");
     expect(start).toBeGreaterThan(0);
     const end = mainSrc.indexOf("\n});", start);

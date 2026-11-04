@@ -391,7 +391,7 @@ async function start(providerId) {
       const p = child_process.spawn(cmd, args, {
         detached: true, stdio: 'ignore', windowsHide: true
       });
-      p.on('error', (e) => { /* swallow */ });
+      p.on('error', () => { /* swallow */ });
       p.unref();
       return true;
     } catch (e) {

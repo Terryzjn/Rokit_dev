@@ -15,8 +15,6 @@
 //   现状 Windows Credential Manager / macOS Keychain / Linux libsecret 保护 secrets，
 //   加上 Electron 的 safeStorage 套一层，即使 .userdata 目录被整体拷贝，没有当前 OS 用户凭据也解不开。
 
-const path = require('path');
-
 const safeStorage = require('electron').safeStorage;
 const secrets = require('./secrets');
 

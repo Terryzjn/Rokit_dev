@@ -10,7 +10,7 @@
 const { app, BrowserWindow, ipcMain, shell, Menu, session, desktopCapturer } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { Store } = require('./store');
+const { Store, onPubsChanged } = require('./store');
 const { chatComplete } = require('./llm');
 const { adapters } = require('./publishers');
 const wechat = require('./wechat');
@@ -25,6 +25,14 @@ const secrets = require('./secrets');
 const queue = require('./queue');
 const collector = require('./feedback-collector');
 const analyzer = require('./feedback-analyzer');
+const { registerFeedbackIpc } = require('./feedback-ipc');
+const { registerWorksCrudIpc } = require('./works-crud-ipc');
+const { registerWorksMainIpc } = require('./works-main-ipc');
+const { registerPlanIpc } = require('./plan-ipc');
+const { registerOauthIpc } = require('./oauth-ipc');
+const { registerWechatCredentialsIpc } = require('./wechat-credentials-ipc');
+const { registerSecretsIpc } = require('./secrets-ipc');
+const { registerSettingsIpc } = require('./settings-ipc');
 const recorder = require('./recorder');
 const video = require('./video');
 const pubex = require('./publisher-extensions');
@@ -46,6 +54,11 @@ logger.installGlobalHandlers({ stage: 'pre-app-ready' });
 
 let store = null;
 let mainWindow = null;
+// v1.25：首秀计划调度器（普通任务本地模拟执行；勾选「自动发布」的 GitHub 任务真实执行）
+let planScheduler = null;
+// 计划调度器常驻真实发布模式（v1.26：移除全局自动发布总开关）。
+//   真实执行资格只看用户在该阶段显式勾选的「自动发布」：只有 real_only=1 的任务
+//   + 已注册适配器的平台（当前仅 GitHub）会真实执行，其余任务仍只做本地模拟执行。
 // v1.X: 主进程 BrowserManager（在 app.whenReady 内构造；供 runXLoginPhase 等专用流程复用）
 let browserManager = null;
 
@@ -223,12 +236,35 @@ function attachWindowControls(win) {
 }
 
 // ---------- IPC ----------
-ipcMain.handle('settings:get', () => store.getSettings());
-ipcMain.handle('settings:save', (_e, s) => store.saveSettings(s));
+registerSettingsIpc(ipcMain, {
+  getStore: function () { return store; },
+  chatComplete: chatComplete
+});
 
-ipcMain.handle('works:list', () => store.listWorks());
-ipcMain.handle('works:save', (_e, w) => store.saveWork(w));
-ipcMain.handle('works:delete', (_e, id) => store.deleteWork(id));
+// ---------- 作品增删改查 ----------
+registerWorksCrudIpc(ipcMain, {
+  getStore: function () { return store; }
+});
+
+// ---------- 唯一主推（同一时刻最多一个主推作品）----------
+// 唯一性在 store 层用单条原子 UPDATE 保证，IPC 只做转发。
+registerWorksMainIpc(ipcMain, {
+  getStore: function () { return store; }
+});
+
+// ---------- 首秀计划（计划配置 + 平台执行任务）----------
+// v1.25：调度器状态通道是**只读**的（供页面显示模拟调度器是否在运行）。
+// 页面没有任何手动触发执行的入口。
+registerPlanIpc(ipcMain, {
+  getStore: function () { return store; },
+  getScheduler: function () { return planScheduler; },
+  // 作品最新成品视频映射（settings_kv）：写入 / 读取 / 转正迁移 / 路径校验
+  //   全部在主进程做 userData/video/final 白名单校验，渲染层拿不到任意文件能力。
+  saveWorkFinalVideo: saveWorkFinalVideo,
+  getWorkFinalVideo: getWorkFinalVideo,
+  migrateWorkFinalVideo: migrateWorkFinalVideo,
+  checkFinalVideoPath: checkFinalVideoPath
+});
 
 // v1.8：「我的作品」GitHub 数据刷新（v1.10：仅 Star）
 //   - 只刷新"url 是 GitHub"的真实作品（示例作品 isSample 跳过）
@@ -917,6 +953,74 @@ ipcMain.handle('works:refresh-github-stats', async (_e, works) => {
 
 ipcMain.handle('pubs:list', () => store.listPubs());
 ipcMain.handle('pubs:add', (_e, r) => store.addPub(r));
+// 删除发布记录：只接受渲染层传来的**稳定唯一标识**（pubs.id / pub_key）列表。
+// 删除范围仅限本机 pubs 表；不删除作品、视频文件、平台授权，也不调用任何外部平台删除 API。
+ipcMain.handle('pubs:delete', (_e, targets) => {
+  const list = Array.isArray(targets) ? targets : [];
+  if (!list.length) return { deleted: 0, ids: [], keys: [] };
+  if (list.length > 1000) return { deleted: 0, ids: [], keys: [], error: '一次最多删除 1000 条记录' };
+  const clean = list.map(function (t) {
+    if (t === null || t === undefined) return null;
+    if (typeof t === 'object') {
+      return { id: (t.id === null || t.id === undefined) ? '' : String(t.id), pub_key: t.pub_key ? String(t.pub_key) : '' };
+    }
+    return { id: String(t), pub_key: '' };
+  }).filter(Boolean);
+  try {
+    return store.deletePubs(clean);
+  } catch (e) {
+    const msg = (e && e.message) ? e.message : String(e);
+    try { console.warn('[pubs:delete] failed:', msg); } catch (_e) {}
+    return { deleted: 0, ids: [], keys: [], error: msg };
+  }
+});
+
+// 撤销「标记已发布」：只删除**本次手动标记对应的那一条**发布记录。
+//   - 只接受**完整的新格式四段式手动键** manual|<platform_id>|<scope>|<op_id>；
+//     自动发布键（<platform_id>|<work_id>|<ts>）、首秀计划键（plan|...）、
+//     旧三段式历史键（manual|<platform_id>|<scope>）以及其它非法键一律拒绝。
+//   - 只调用 store.deleteManualPub(pubKey)（按完整 pub_key 精确删一条），
+//     **不**走 pubs:delete（那是按 id / pub_key 批量删，不区分记录来源，
+//     用它撤销会误删自动发布与首秀计划记录）。
+//   - 删除范围仅限本机 pubs 表：不删除作品、视频文件、平台授权，
+//     也不调用任何外部平台删除 API（撤销的是 Rokit 本地的"手动标记"记录）。
+ipcMain.handle('pubs:revoke', (_e, pubKey) => {
+  // ① Store 可用性：未初始化 / 数据库初始化失败（mode='error'）→ 直接失败，不碰 Store
+  if (!store) return { ok: false, deleted: 0, error: '存储尚未初始化，无法撤销发布记录' };
+  if (store.mode === 'error') return { ok: false, deleted: 0, error: '数据库初始化失败，无法撤销发布记录' };
+  // ② 参数：必须是非空字符串
+  if (typeof pubKey !== 'string') return { ok: false, deleted: 0, error: '缺少发布记录标识（pub_key 必须是字符串）' };
+  const key = pubKey.trim();
+  if (!key) return { ok: false, deleted: 0, error: '缺少发布记录标识（pub_key 不能为空）' };
+  // ③ 键格式：只接受新格式四段式手动键。
+  //    这里先做一层与 store 层一致的校验，好处是**非法键不会进入 Store**，
+  //    错误信息更明确；store.deleteManualPub 内部仍有同样的兜底校验。
+  const segs = key.split('|');
+  const isManualOpKey = segs.length >= 4
+    && segs[0] === 'manual'
+    && !!segs[1]
+    && segs[segs.length - 1].indexOf('mk_') === 0;
+  if (!isManualOpKey) {
+    return { ok: false, deleted: 0, error: '只能撤销手动标记的发布记录（需要完整的 manual|<platform_id>|<scope>|<op_id> 键）' };
+  }
+  // ④ 执行删除（Store 内部对异常/不存在/拒绝都会给出明确返回）
+  try {
+    const res = store.deleteManualPub(key) || {};
+    // rejected=true：键不是新格式手动键（自动发布 / 首秀计划 / 旧三段式历史键）
+    if (res.rejected === true) {
+      return { ok: false, deleted: 0, error: '只能撤销手动标记的发布记录（该记录不是手动标记）' };
+    }
+    // deleted=0：键合法但记录不存在（重复撤销安全返回，不视为成功）
+    if (!res.deleted) {
+      return { ok: false, deleted: 0, error: '未找到对应的手动标记发布记录' };
+    }
+    return { ok: true, deleted: res.deleted, id: (res.id === undefined ? null : res.id), key: key };
+  } catch (e) {
+    const msg = (e && e.message) ? e.message : String(e);
+    try { console.warn('[pubs:revoke] failed:', msg); } catch (_e) {}
+    return { ok: false, deleted: 0, error: msg };
+  }
+});
 
 // ---------- 推广渠道（增删改 + 连通性测试） ----------
 ipcMain.handle('channels:list', () => store.listChannels());
@@ -962,53 +1066,14 @@ ipcMain.handle('channels:health', async (_e, channels) => {
   catch (e) { return { _error: String((e && e.message) || e) }; }
 });
 
-ipcMain.handle('llm:generate', async (_e, req) => {
-  // v1.5：不再依赖 settings.api_key；llm.chatComplete 内部已统一走 secrets
-  const settings = store.getSettings();
-  return chatComplete(settings, req);
-});
-
 // ============================================================
 // v1.5 新增 IPC：secrets / queue / feedback / recorder / video / github-release
 // ============================================================
 
 // ---------- 凭据 ----------
-ipcMain.handle('secrets:set-api-key', async (_e, value) => {
-  if (!value) return { ok: false, error: 'empty-key' };
-  const persisted = await secrets.setApiKey(String(value));
-  // 清掉 SQLite 明文（写入凭据管理器后就不再需要）
-  if (store && typeof store.clearPlaintextApiKey === 'function') {
-    try { store.clearPlaintextApiKey(); } catch (_e) {}
-  }
-  return { ok: true, persisted: !!persisted };
-});
-
-ipcMain.handle('secrets:clear-api-key', async () => {
-  await secrets.clearApiKey();
-  return { ok: true };
-});
-
-// keytar 加载失败时的错误文案。
-// 注意：keytar **正常加载**时 secrets._keytarError() 返回 null（secrets.js 里
-// keytarLoadError 初值就是 null），旧写法直接读 `.message` 会抛 TypeError，
-// 使 secrets:status 这个 IPC 每次都失败，渲染端因此拿不到「已配置 / 未配置」状态。
-// 这里做空值 + 异常双重兜底。
-function keytarErrorMessage() {
-  try {
-    const err = typeof secrets._keytarError === 'function' ? secrets._keytarError() : null;
-    if (!err) return '';
-    return String(err.message || err);
-  } catch (_e) { return ''; }
-}
-
-ipcMain.handle('secrets:status', async () => {
-  const hasNative = secrets.hasNative();
-  const apiKey = await secrets.getApiKey();
-  return {
-    hasNative: hasNative,
-    hasApiKey: !!apiKey,
-    keytarError: keytarErrorMessage()
-  };
+registerSecretsIpc(ipcMain, {
+  secrets: secrets,
+  getStore: function () { return store; }
 });
 
 // v1.21：secrets:set-github-pat / secrets:clear-github-pat /
@@ -1156,50 +1221,10 @@ async function _directWechatRead() {
   return out;
 }
 
-ipcMain.handle('wechat:credentials-status', async () => {
-  // v1.2 修复：直读 keytar，不走 secrets.js 的模块级 cache，避免「保存了但 cache 没更新/为空」导致误报
-  const direct = await _directWechatRead();
-  const missing = [];
-  if (!direct.appId) missing.push('appId');
-  if (!direct.appSecret) missing.push('appSecret');
-  if (!direct.thumbMediaId) missing.push('thumbMediaId');
-  const persisted = secrets.hasNative ? secrets.hasNative() : false;
-  return {
-    hasAppId: !!direct.appId,
-    hasAppSecret: !!direct.appSecret,
-    hasThumbMediaId: !!direct.thumbMediaId,
-    missing: missing,
-    configured: missing.length === 0,
-    persisted: persisted
-  };
-});
-
-ipcMain.handle('wechat:credentials-load', async () => {
-  const direct = await _directWechatRead();
-  return {
-    appId: direct.appId,
-    appSecret: direct.appSecret,
-    thumbMediaId: direct.thumbMediaId
-  };
-});
-
-ipcMain.handle('wechat:credentials-save', async (_e, values) => {
-  const input = values || {};
-  let persisted = true;
-  for (const field of Object.keys(WECHAT_SECRET_KEYS)) {
-    const value = String(input[field] || '').trim();
-    if (value) {
-      // v1.2 修复：保存时显式写 keytar，并更新 secrets.js 的 cache，让后续 getSecret 也命中
-      const ok = await secrets.setSecret(WECHAT_SECRET_KEYS[field], value);
-      persisted = ok && persisted;
-    }
-  }
-  return { ok: true, persisted: persisted };
-});
-
-ipcMain.handle('wechat:credentials-clear', async () => {
-  await Promise.all(Object.values(WECHAT_SECRET_KEYS).map((key) => secrets.deleteSecret(key)));
-  return { ok: true };
+registerWechatCredentialsIpc(ipcMain, {
+  secrets: secrets,
+  directWechatRead: _directWechatRead,
+  secretKeys: WECHAT_SECRET_KEYS
 });
 
 ipcMain.handle('wechat:draft-create', async (_e, payload) => {
@@ -1274,60 +1299,10 @@ ipcMain.handle('wechat:draft-get', async (_e, mediaId) => {
 
 // ---------- OAuth（Phase 1：GitHub） ----------
 // 不暴露任何读 token 的 channel；Renderer 只能触发流程 / 查询连接状态 / 断开
-ipcMain.handle('oauth:start', async (_e, providerId) => {
-  try {
-    return await oauth.start(String(providerId || ''));
-  } catch (e) {
-    logger.warn('[oauth] start 抛出', { providerId, error: String(e && e.message || e) });
-    return { ok: false, reason: 'exception', detail: String(e && e.message || e) };
-  }
-});
-ipcMain.handle('oauth:status', async (_e, providerId) => {
-  try { return await oauth.status(String(providerId || '')); }
-  catch (e) { return { connected: false, error: String(e && e.message || e) }; }
-});
-// 网络诊断：检测 Google OAuth endpoint 的可达性 / 代理 / 双 family connect。
-// 不发送 token / secret / code。供 Renderer 在 OAuth 失败后点击"网络诊断"按钮触发。
-ipcMain.handle('oauth:net-diag', async () => {
-  try { return await oauthNet.testGoogleOAuthNetwork(); }
-  catch (e) { return { ok: false, error: String(e && e.message || e) }; }
-});
-ipcMain.handle('oauth:disconnect', async (_e, providerId) => {
-  try { return await oauth.disconnect(String(providerId || '')); }
-  catch (e) { return { ok: false, error: String(e && e.message || e) }; }
-});
-ipcMain.handle('oauth:list', async () => {
-  try { return await oauth.list(); }
-  catch (e) { return {}; }
-});
-// BYOK：直接保存用户粘贴的 token（不依赖 OAuth App）
-// 入参字段：access_token（必填）；Main 端会调用 provider /user 验证
-ipcMain.handle('oauth:save-credential', async (_e, providerId, payload) => {
-  try { return await oauth.saveCredential(String(providerId || ''), payload || {}); }
-  catch (e) {
-    logger.warn('[oauth] saveCredential 抛出', { providerId, error: String(e && e.message || e) });
-    return { ok: false, reason: 'exception', detail: String(e && e.message || e) };
-  }
-});
-// refresh_token 续期：Main 端内部使用 refresh_token 换取新 access_token；Renderer 看不到 token。
-// 返回状态供 UI 决定是否提示「重新授权」（如 invalid_grant）
-ipcMain.handle('oauth:refresh', async (_e, providerId) => {
-  try { return await oauth.refresh(String(providerId || '')); }
-  catch (e) {
-    logger.warn('[oauth] refresh 抛出', { providerId, error: String(e && e.message || e) });
-    return { ok: false, reason: 'exception', detail: String(e && e.message || e) };
-  }
-});
-// publish 流程内部用：Main 拿一个"当前有效"的 access_token（过期自动 refresh）。
-// Renderer 不可见。
-ipcMain.handle('oauth:get-valid-token', async (_e, providerId) => {
-  try {
-    const t = await oauth.getValidAccessToken(String(providerId || ''));
-    // 出于安全：永远不把 token 回传到 Renderer
-    return { ok: !!t, hasToken: !!t };
-  } catch (e) {
-    return { ok: false, hasToken: false };
-  }
+registerOauthIpc(ipcMain, {
+  oauth: oauth,
+  oauthNet: oauthNet,
+  logger: logger
 });
 
 // ---------- 主推队列 ----------
@@ -1337,46 +1312,11 @@ ipcMain.handle('queue:schedule', async () => {
 });
 
 // ---------- 反馈：采集 + 分析 ----------
-ipcMain.handle('feedback:collect', async (_e, payload) => {
-  if (!payload || !payload.work) return { ok: false, error: 'no-work' };
-  try {
-    const r = await collector.collectForWork(payload.work, payload.opts || {});
-    if (r.items && r.items.length && store && typeof store.upsertFeedback === 'function') {
-      const n = store.upsertFeedback(r.items);
-      return { ok: true, inserted: n, notes: r.notes || {} };
-    }
-    return { ok: true, inserted: 0, notes: r.notes || {} };
-  } catch (e) {
-    return { ok: false, error: String((e && e.message) || e) };
-  }
-});
-
-ipcMain.handle('feedback:analyze', async (_e, payload) => {
-  if (!payload || !payload.workId) return { ok: false, error: 'no-work-id' };
-  try {
-    const r = await analyzer.analyzeForWork(store, payload.workId, {
-      llm: function (req) { return chatComplete(store.getSettings(), req); },
-      maxItems: payload.maxItems || 100,
-      clusterThreshold: payload.clusterThreshold
-    });
-    return { ok: true, clusters: r.clusters.length, updated: r.updated };
-  } catch (e) {
-    return { ok: false, error: String((e && e.message) || e) };
-  }
-});
-
-ipcMain.handle('feedback:list', (_e, payload) => {
-  if (!store || typeof store.listFeedback !== 'function') return [];
-  return store.listFeedback(payload && payload.workId);
-});
-
-ipcMain.handle('feedback:list-clusters', (_e, payload) => {
-  if (!store || typeof store.listFeedbackClusters !== 'function') return [];
-  return store.listFeedbackClusters(payload && payload.workId);
-});
-
-ipcMain.handle('feedback:summarize', (_e, payload) => {
-  return analyzer.summarizeForIpc(store, payload && payload.workId);
+registerFeedbackIpc(ipcMain, {
+  getStore: function () { return store; },
+  collector: collector,
+  analyzer: analyzer,
+  chatComplete: chatComplete
 });
 
 // ---------- 录制 ----------
@@ -1414,7 +1354,9 @@ async function readPublishRepo() {
   return null;
 }
 
-ipcMain.handle('github:put-file', async (_e, opts) => {
+// 普通 GitHub 自动发布的文章提交入口（渲染层 window.autoPubGithub → github:put-file）。
+// 首秀计划执行器复用同一个函数（由 createGithubPlanExecutor 注入），不另起一套提交逻辑。
+async function githubPutFile(opts) {
   if (!opts) return { ok: false, error: 'no-opts' };
   // v1.21：Token 统一来自 oauth-github record（设置 → GitHub 发布 写入）
   let token = null;
@@ -1538,7 +1480,8 @@ ipcMain.handle('github:put-file', async (_e, opts) => {
   } catch (e) {
     return { ok: false, error: String((e && e.message) || e) };
   }
-});
+}
+ipcMain.handle('github:put-file', (_e, opts) => githubPutFile(opts));
 
 // ---------- GitHub 成品视频 + 封面上传 ----------
 //
@@ -1569,6 +1512,121 @@ function resolveFinalVideoFile(filePath) {
     return { ok: false, error: 'file-empty', detail: '成品视频文件为空，无法上传' };
   }
   return { ok: true, filePath: resolved, size: st.size };
+}
+
+// ---------- 作品最新成品视频映射（settings_kv，不新增数据库表） ----------
+//   键：finalVideo:<workId>   值：成品视频绝对路径
+//   约定：每个作品只维护一个「最新成品视频」；多个计划可以引用同一个视频。
+//   - 只允许写入/读取 userData/video/final 下的 .mp4（复用 resolveFinalVideoFile 白名单）
+//   - 必须通过 workId 精确关联；绝不扫描目录 / 取最新文件来推断作品归属
+//   - 读取时再次校验路径与文件是否存在，避免文件被删除后静默降级
+const FINAL_VIDEO_KEY_PREFIX = 'finalVideo:';
+
+// 校验视频映射的归属键。新作品尚未落库时计划归属是 draft_*，允许作为键
+//   （转正时由 plan:reassign 迁移到真实作品 ID）；真实作品必须存在于 works 表。
+function normalizeVideoOwnerId(workId) {
+  const id = String(workId == null ? '' : workId).trim();
+  if (!id || id.length > 64) return { ok: false, error: 'bad-work-id' };
+  if (!/^[a-z0-9_-]+$/i.test(id)) return { ok: false, error: 'bad-work-id' };
+  if (/^draft_/i.test(id)) return { ok: true, id: id, draft: true };
+  let exists = false;
+  try {
+    const ws = (store && typeof store.listWorks === 'function') ? (store.listWorks() || []) : [];
+    exists = ws.some(w => w && String(w.id) === id);
+  } catch (_e) { exists = false; }
+  if (!exists) return { ok: false, error: 'unknown-work' };
+  return { ok: true, id: id, draft: false };
+}
+
+// 写入作品最新成品视频（白名单校验通过后才落库；不删除旧映射文件）
+function saveWorkFinalVideo(workId, videoPath) {
+  try {
+    const own = normalizeVideoOwnerId(workId);
+    if (!own.ok) return own;
+    if (!store || typeof store.upsertSettingKv !== 'function' || typeof store.getSettingKv !== 'function') {
+      return { ok: false, error: 'store-unavailable' };
+    }
+    const fin = resolveFinalVideoFile(videoPath);
+    if (!fin.ok) {
+      return { ok: false, error: fin.error || 'invalid-final-video', detail: String(fin.detail || ''), workId: own.id };
+    }
+    const prev = store.getSettingKv(FINAL_VIDEO_KEY_PREFIX + own.id);
+    store.upsertSettingKv(FINAL_VIDEO_KEY_PREFIX + own.id, fin.filePath);
+    // 旧视频的清理资格（只读判断，**不删除任何文件**）：
+    //   仅当它不再是作品最新视频、且没有任何未完成计划引用时才 eligible；
+    //   非 Rokit 白名单目录内的文件一律不合格。
+    let previousCleanup = null;
+    if (prev && String(prev) !== fin.filePath) {
+      try {
+        previousCleanup = (typeof store.assessFinalVideoCleanup === 'function')
+          ? store.assessFinalVideoCleanup(String(prev), { managed: isInsideFinalVideoDir(prev) })
+          : { ok: false, eligible: false, reason: '缺少清理资格判断能力，保留文件' };
+      } catch (_e) {
+        previousCleanup = { ok: false, eligible: false, reason: '清理资格判断失败，保留文件' };
+      }
+    }
+    return {
+      ok: true, workId: own.id, path: fin.filePath,
+      previous: prev ? String(prev) : '', previous_cleanup: previousCleanup
+    };
+  } catch (e) {
+    return { ok: false, error: 'exception', detail: String((e && e.message) || e) };
+  }
+}
+
+// 读取作品最新成品视频（读取时再次校验路径与存在性）
+function getWorkFinalVideo(workId) {
+  const id = String(workId == null ? '' : workId).trim();
+  if (!id) return { ok: false, error: 'missing-work-id' };
+  try {
+    if (!store || typeof store.getSettingKv !== 'function') return { ok: false, error: 'store-unavailable' };
+    const raw = store.getSettingKv(FINAL_VIDEO_KEY_PREFIX + id);
+    if (!raw) return { ok: false, error: 'no-final-video', workId: id };
+    const fin = resolveFinalVideoFile(String(raw));
+    if (!fin.ok) {
+      return { ok: false, error: fin.error || 'file-missing', detail: String(fin.detail || ''), workId: id, storedPath: String(raw) };
+    }
+    return { ok: true, workId: id, path: fin.filePath, size: fin.size };
+  } catch (e) {
+    return { ok: false, error: 'exception', detail: String((e && e.message) || e), workId: id };
+  }
+}
+
+// 路径是否位于 Rokit 成品视频目录（不要求文件存在；仅用于「是否受 Rokit 管理」判定）。
+function isInsideFinalVideoDir(filePath) {
+  try {
+    const root = path.resolve(path.join(app.getPath('userData'), 'video', 'final'));
+    const rel = path.relative(root, path.resolve(String(filePath || '')));
+    return !!rel && rel.indexOf('..') !== 0 && !path.isAbsolute(rel);
+  } catch (_e) { return false; }
+}
+
+// 只校验一个成品视频路径是否可用（不改动映射）
+function checkFinalVideoPath(filePath) {
+  const fin = resolveFinalVideoFile(filePath);
+  if (!fin.ok) return { ok: false, error: fin.error || 'invalid-final-video', detail: String(fin.detail || '') };
+  return { ok: true, path: fin.filePath, size: fin.size };
+}
+
+// 草稿归属转正：把 finalVideo:<draft> 迁移到真实作品 ID。
+//   目标已有映射时不覆盖（避免把另一条视频写到这个作品名下）。
+function migrateWorkFinalVideo(fromOwner, toOwner) {
+  try {
+    const from = String(fromOwner == null ? '' : fromOwner).trim();
+    const to = String(toOwner == null ? '' : toOwner).trim();
+    if (!from || !to || from === to) return { ok: true, migrated: false };
+    if (!store || typeof store.getSettingKv !== 'function' || typeof store.upsertSettingKv !== 'function') {
+      return { ok: false, error: 'store-unavailable' };
+    }
+    const val = store.getSettingKv(FINAL_VIDEO_KEY_PREFIX + from);
+    if (!val) return { ok: true, migrated: false };
+    if (!store.getSettingKv(FINAL_VIDEO_KEY_PREFIX + to)) {
+      store.upsertSettingKv(FINAL_VIDEO_KEY_PREFIX + to, String(val));
+    }
+    return { ok: true, migrated: true };
+  } catch (e) {
+    return { ok: false, error: 'exception', detail: String((e && e.message) || e) };
+  }
 }
 
 // 取 GitHub 发布目标：token + 绑定的 publishRepo（与 github:put-file 同一数据源）。
@@ -1608,7 +1666,9 @@ async function resolveGithubTarget() {
 //     coverPath       仓库内封面路径，如 videos/demo-20260101-cover.jpg
 //   执行顺序：校验最终视频 → 提取封面 → 上传 MP4 → 上传封面。
 //   任何一步失败都返回 ok:false，绝不把部分成功报告为成功。
-ipcMain.handle('github:put-video', async (_e, payload) => {
+// 普通自动发布的视频上传入口（渲染层 window.publishGithubVideo → github:put-video）。
+// 首秀计划执行器复用同一个函数（由 createGithubPlanExecutor 注入），不复制第二套上传实现。
+async function githubPutVideo(payload) {
   const p = payload || {};
   try {
     // 1) 校验最终成品视频（必须是真实存在、非空、位于白名单目录的 .mp4）
@@ -1661,7 +1721,7 @@ ipcMain.handle('github:put-video', async (_e, payload) => {
     let videoBuf;
     try {
       videoBuf = fs.readFileSync(fin.filePath);
-    } catch (e) {
+    } catch {
       return { ok: false, stage: 'video-upload', error: 'video-read-failed', detail: '读取成品视频失败' };
     }
     const vr = await pubex.githubPutBinary(target.token, Object.assign({}, base, {
@@ -1718,7 +1778,8 @@ ipcMain.handle('github:put-video', async (_e, payload) => {
   } catch (e) {
     return { ok: false, stage: 'exception', error: 'exception', detail: String((e && e.message) || e) };
   }
-});
+}
+ipcMain.handle('github:put-video', (_e, payload) => githubPutVideo(payload || {}));
 
 // ---------- GitHub Pages：站点文章页 + 视频 ----------
 //
@@ -1748,7 +1809,9 @@ ipcMain.handle('github:pages-status', async () => {
 //   payload: { finalVideoPath, slug, title, body, date? }
 //   流程：校验视频 → 提取封面 → 查 Pages → 传视频/封面 → 生成并传 HTML → 传首页 → 请求构建
 //   只有「文件都上传并校验通过」才返回 uploaded；页面是否已上线由 deployStatus 表达。
-ipcMain.handle('github:publish-pages', async (_e, payload) => {
+// 普通自动发布（渲染层 window.publishGithubPages → github:publish-pages）的页面发布入口。
+// 首秀计划执行器复用同一个函数（由 createGithubPlanExecutor 注入 publishPages），不复制第二套页面逻辑。
+async function githubPublishPages(payload) {
   const p = payload || {};
   try {
     // 1) 必须是真实存在的最终成品视频
@@ -1774,7 +1837,7 @@ ipcMain.handle('github:publish-pages', async (_e, payload) => {
         return { ok: false, stage: 'cover', error: 'cover-extract-failed', detail: '封面提取失败，未发布网页' };
       }
       coverBuf = fs.readFileSync(thumb.path);
-    } catch (e) {
+    } catch {
       return { ok: false, stage: 'cover', error: 'cover-extract-failed', detail: '封面提取失败，未发布网页' };
     }
 
@@ -1908,7 +1971,8 @@ ipcMain.handle('github:publish-pages', async (_e, payload) => {
   } catch (e) {
     return { ok: false, stage: 'exception', error: 'exception', detail: String((e && e.message) || e) };
   }
-});
+}
+ipcMain.handle('github:publish-pages', (_e, payload) => githubPublishPages(payload || {}));
 
 ipcMain.handle('github:probe', async () => {
   // 仅验证凭据是否有效（用 /user 端点）
@@ -2373,7 +2437,7 @@ function _xhsScheduleAutoNavFromHome(win, currentUrl) {
       }
     }, XHS_HOME_AUTO_NAV_DELAY_MS);
     return true;
-  } catch (e) {
+  } catch {
     return false;
   }
 }
@@ -2649,7 +2713,7 @@ async function _runXhsDiagnosticProbe(win, payload) {
       '})()',
       true
     );
-  } catch (e) { pageText = null; }
+  } catch { pageText = null; }
   if (pageText) {
     _log('info', '页面文本关键上传词', pageText);
   }
@@ -3116,7 +3180,7 @@ async function _xhsUploadVideoViaCdp(win, payload) {
             break;
           }
         }
-      } catch (probeErr) {
+      } catch {
         // 偶发"Could not find node with given id" —— 等下一轮
       }
       await new Promise(function (r) { setTimeout(r, 500); });
@@ -3717,16 +3781,10 @@ function installXhsObserverHooks(win) {
 
   // ---- 8) new-window / setWindowOpenHandler ----
   try {
-    wc.on('new-window', function (event, url, frameName, disposition, options, additionalFeatures) {
+    wc.on('new-window', function (event, url, frameName, disposition, _options, additionalFeatures) {
       try {
         // 不拦截、不阻止 — 仅观察
         if (!_xhsUrlMatch(url)) return;
-        var winInfo = {
-          url: url,
-          frameName: frameName,
-          disposition: disposition,
-          webContentsId: 'options.createdWebContents ? options.createdWebContents.id : null'
-        };
         _xhsLogBlock('XHS NEW WINDOW', [
           'TIME: ' + new Date().toISOString(),
           'URL: ' + (url || ''),
@@ -3934,32 +3992,30 @@ function safeSendYoutubeProgress(progress) {
 }
 
 // YouTube 上传专用分支（v1.6 新增）：不走 BrowserWindow，走 YouTube Data API v3
-// payload 期望字段：title / description / tags / categoryId / privacyStatus / videoAssetId
-//   videoAssetId 由 renderer 通过 videoPickLocal 拿到；main 用 videoSource.getInternalAsset() 反查 filePath
+// payload 期望字段：title / description / tags / categoryId / privacyStatus / finalVideoPath
+//   finalVideoPath 指向「字幕 + AI 配音」最终合成成品 MP4（caption-burn 产出，
+//   位于 userData/video/final）。YouTube 与 GitHub 发布的是同一个成品文件。
+//   绝不上传原始本地视频 / AI 录屏原始 WebM：这里没有任何回退分支。
 // 返回值统一映射到标准 pubLaunch 协议：{ status, platformId, videoId?, url?, error?, note?, hint? }
 async function pubExecYouTube(payload) {
   payload = payload || {};
-  var assetId = payload.videoAssetId;
-  var filePath = null;
-  if (assetId && videoSource && typeof videoSource.getInternalAsset === 'function') {
-    var internal = videoSource.getInternalAsset(assetId);
-    if (internal && internal.filePath) filePath = internal.filePath;
-  }
-  // 兜底：极少数场景下 renderer 直接传了 videoPath（不在 prod 流程里）
-  if (!filePath && typeof payload.videoPath === 'string') {
-    filePath = payload.videoPath;
-  }
-  if (!filePath) {
+  // 校验复用 resolveFinalVideoFile（与 GitHub 发布完全一致）：
+  //   userData/video/final 目录白名单 + .mp4 扩展名 + 存在 + 非空。
+  // 校验不通过 → 明确失败，绝不退回上传原始视频。
+  var fin = resolveFinalVideoFile(payload.finalVideoPath);
+  if (!fin.ok) {
+    logger.warn('[youtube-publish] final video rejected', { error: fin.error, finalVideoPath: payload.finalVideoPath || null });
     return {
       status: 'manual',
       platformId: 'youtube',
-      error: 'VIDEO_FILE_NOT_FOUND',
-      note: '未选择本地视频或视频文件已失效，请重新选择后再次发射'
+      error: 'FINAL_VIDEO_NOT_READY',
+      note: fin.detail || '尚未生成最终成品视频，请先完成字幕与配音生成后再发布'
     };
   }
+  var filePath = fin.filePath;
 
   var startedAt = Date.now();
-  logger.info('[youtube-publish] start', { fileSize: null, privacyStatus: payload.privacyStatus || 'private' });
+  logger.info('[youtube-publish] start', { filePath: filePath, fileSize: fin.size, privacyStatus: payload.privacyStatus || 'private' });
 
   var result;
   try {
@@ -4653,6 +4709,48 @@ app.whenReady().then(() => {
   } catch (_e) { /* 检测失败不影响启动 */ }
   store = new Store(path.join(app.getPath('userData'), 'ai-launch-master.db'));
   stageMark('store-init');
+
+  // ---------- 发布记录变更通知 → renderer ----------
+  // 存储层只在**数据真正落库之后**才发出 pubs:changed 信号（信号本身不含记录内容），
+  // 这里只负责把它安全地转给渲染进程：
+  //   - 窗口尚未创建 / 已销毁 / 正在关闭 → 直接跳过，绝不影响写入结果；
+  //   - 发送失败（webContents 已失效）→ 静默忽略，同样绝不影响写入结果。
+  // renderer 收到后自行重新 listPubs()，因此这里不需要携带任何发布记录数据。
+  onPubsChanged(function () {
+    try {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      var wc = mainWindow.webContents;
+      if (!wc || wc.isDestroyed()) return;
+      wc.send('pubs:changed');
+    } catch (_e) { /* 通知失败不影响写入结果 */ }
+  });
+
+  // v1.26：记录**实际**使用的存储信息（文件路径 / 数据目录 / 存储模式 / 驱动）。
+  //   驱动无法确定时记为 'unknown'，绝不猜测。
+  //   mode='error' 表示数据库初始化失败（例如原生绑定 ABI 不匹配、文件损坏）：
+  //   此时**不切换数据库、不切换数据目录、不退回 JSON**，
+  //   只给出可理解的提示并停止依赖存储的初始化流程。
+  var _storeInfo = (store && typeof store.storeInfo === 'function') ? store.storeInfo() : {};
+  try {
+    logger.info('[store] ready', {
+      file: _storeInfo.file || '',
+      dir: _storeInfo.dir || '',
+      mode: _storeInfo.mode || 'unknown',
+      driver: _storeInfo.driver || 'unknown',
+      version: _storeInfo.version
+    });
+  } catch (_e) {}
+  var _storeBroken = (_storeInfo.mode === 'error');
+  if (_storeBroken) {
+    var _errMsg = '数据库初始化失败：' + (_storeInfo.init_error || '未知原因')
+      + '\n\n文件：' + (_storeInfo.file || '(未知)')
+      + '\n\n为避免数据错乱，Rokit 不会切换到其它数据库或数据目录，本次不会启动发布计划调度器。';
+    try { logger.error('[store] init failed', { file: _storeInfo.file || '', error: _storeInfo.init_error || '' }); } catch (_e) {}
+    try {
+      const { dialog: _dlg } = require('electron');
+      _dlg.showErrorBox('Rokit · 数据库初始化失败', _errMsg);
+    } catch (_e) {}
+  }
   // 注册抖音开放平台 IPC（依赖 Store 已创建）
   try { require('./douyin-ipc').registerDouyinIpc(ipcMain, store); }
   catch (_e) { logger.warn('[douyin] IPC 注册失败', { error: String(_e && _e.message || _e) }); }
@@ -4733,6 +4831,125 @@ app.whenReady().then(() => {
     }).catch(function (e) { logger.warn('[queue] schedule failed', { error: String((e && e.message) || e) }); });
   } catch (_e) {}
 
+  // v1.23：唯一主推自愈。旧版本主推只在界面内存里互斥，库里可能留下多条
+  // queue='主推' 的脏数据；这里在启动时收敛为至多一条（保留最早登记的）。
+  try {
+    var _mainFix = store.ensureSingleMain();
+    if (_mainFix && _mainFix.repaired && _mainFix.repaired.length) {
+      logger.warn('[works] 修复多条主推脏数据', { keep: _mainFix.main, repaired: _mainFix.repaired });
+    }
+  } catch (_e) { logger.warn('[works] ensureSingleMain failed', { error: String((_e && _e.message) || _e) }); }
+
+  // v1.24：清理「首秀计划」孤儿配置。
+  //   作品被删除后可能残留指向已删除作品的 plan_stages；这里在启动时清掉，
+  //   避免全局「发布计划」视图出现无主的阶段。
+  //   注意：只清配置层；已执行任务历史保留，绝不因清理而伪造发布状态。
+  try {
+    if (!_storeBroken) {
+      var _planPurge = store.purgeOrphanPlans();
+      if (_planPurge && _planPurge.removed) {
+        logger.warn('[plan] 清理孤儿计划配置', { removed: _planPurge.removed });
+      }
+    }
+  } catch (_e) { logger.warn('[plan] purgeOrphanPlans failed', { error: String(_e && _e.message || _e) }); }
+
+  // v1.25：启动首秀计划调度器（v1.26：不再依赖全局总开关）。
+  //   - 启动时先把上次退出遗留的 running 任务重新排队（绝不假定成功），
+  //     再扫描一次，把关闭期间到期的任务补上；
+  //   - 应用退出时（before-quit）停止，关闭期间不会有任何任务被执行；
+  //   - 常驻 'real' 模式：real_only=1（用户在该阶段显式勾选「自动发布」）的任务
+  //     才会走真实执行器，且必须通过发布前幂等检查；其余任务一律走本地模拟执行器，
+  //     绝不触碰 YouTube / 微信公众号的真实发布接口。
+  try {
+    if (_storeBroken) {
+      logger.warn('[plan-scheduler] 未启动：存储初始化失败', { error: _storeInfo.init_error || '' });
+    } else {
+      const { createPlanScheduler } = require('./plan-scheduler');
+      const { createGithubPlanExecutor } = require('./plan-github-executor');
+      const { createYoutubePlanExecutor } = require('./plan-youtube-executor');
+      const { createWechatPlanExecutor } = require('./plan-wechat-executor');
+      planScheduler = createPlanScheduler({
+        getStore: function () { return store; },
+        // v1.26：总开关已移除 → 调度器常驻 real 模式。
+        //   真实执行资格仍由任务自身的 real_only（阶段勾选「自动发布」）+ 平台适配器
+        //   + 发布前幂等检查决定；未勾选自动发布的平台依旧只做本地模拟执行。
+        executorKind: 'real',
+        // 逾期计划：启动时暂停关闭期间到期的真实任务，交由用户在提醒中选择处理
+        holdMissedOverdueOnStart: true,
+        realExecutors: {
+          github: createGithubPlanExecutor({
+            getStore: function () { return store; },
+            // 直接复用普通自动发布的 GitHub 发布入口：
+            //   文章提交 githubPutFile（github:put-file 同一实现）
+            //   视频 + 封面 githubPutVideo（github:put-video 同一实现）
+            //   在线阅读页面 githubPublishPages（github:publish-pages 同一实现）
+            // 首秀计划只负责到期触发与发布记录，不重新实现发布逻辑。
+            publishFile: githubPutFile,
+            publishVideo: githubPutVideo,
+            publishPages: githubPublishPages,
+            // 作品最新成品视频（settings_kv）：计划快照为空时的只读回退。
+            //   读取时再次做白名单 + 文件存在性校验；映射缺失 → 纯文章（明确标注）。
+            resolveWorkFinalVideo: getWorkFinalVideo
+          }),
+          // YouTube 首秀计划：复用普通自动发布的同一上传入口（pubExecYouTube）。
+          //   pubExecYouTube 内部已封装成品视频白名单校验、OAuth 取令牌与刷新、
+          //   scope 检查、Resumable 分块上传与实际可见性如实上报；执行器只负责
+          //   「何时传、传什么、结果怎么记」，不实现第二套上传逻辑。
+          //   后台执行不依赖渲染窗口（不订阅 youtube:upload-progress）。
+          youtube: createYoutubePlanExecutor({
+            getStore: function () { return store; },
+            publishVideo: pubExecYouTube,
+            // 作品最新成品视频（settings_kv）：计划快照为空时的只读回退。
+            resolveWorkFinalVideo: getWorkFinalVideo,
+            // OAuth 令牌预检：未授权 / 过期 / 缺 youtube.upload 权限时，
+            //   执行器直接转 needs_review（后台不弹 OAuth 窗口）。
+            getToken: function () { return oauth.getValidAccessToken('youtube'); }
+          }),
+          // 微信公众号首秀计划：**只创建草稿**，不正式发表、不群发。
+          //   复用普通公众号发布的同一草稿入口（wechat.createDraft）：
+          //   内部已封装 access_token 获取与 40001/42001 自动刷新、
+          //   标题 / 正文长度校验、正文转公众号 HTML、摘要截断、封面绑定。
+          //   凭据走同一份 _directWechatRead（与 wechat:draft-create 完全一致），
+          //   保证后台执行与界面手动发布用的是完全相同的账号配置。
+          //   ★ 绝不调用 freepublish/submit（正式发表）与任何群发接口。
+          wechat: createWechatPlanExecutor({
+            getStore: function () { return store; },
+            createDraft: async function (payload) {
+              const direct = await _directWechatRead();
+              // 传输层结果判定（只影响本执行器，不改动 wechat.js 与普通发布链路）：
+              //   草稿请求（/draft/add）出现网络中断 / 5xx 时，公众号侧**可能已经创建了草稿**
+              //   （只是响应没有回来）→ 结果不确定 → 标记 error='NETWORK'，
+              //   由执行器转 needs_review（人工核实），绝不自动重建，避免重复草稿。
+              //   参数校验失败、令牌获取失败、4xx 与微信 errcode 明确拒绝 → 确定没建草稿。
+              let transportUncertain = false;
+              const res = await wechat.createDraft(direct, payload, function (url, options) {
+                const isDraftCall = String(url || '').indexOf('/draft/add') >= 0;
+                return fetchWithTimeout(url, options, 15000).then(function (r) {
+                  if (isDraftCall && r && Number(r.status) >= 500) transportUncertain = true;
+                  return r;
+                }, function (e) {
+                  if (isDraftCall) transportUncertain = true;
+                  throw e;
+                });
+              });
+              if (transportUncertain && res && res.status === 'api_error' && !res.error) {
+                res.error = 'NETWORK';
+                res.note = '草稿创建请求中断（网络 / 服务端异常），无法确认公众号侧是否已创建草稿：'
+                  + String(res.note || '');
+              }
+              return res;
+            }
+          })
+        },
+        logger: logger
+      });
+      const _ps = planScheduler.start();
+      logger.info('[plan-scheduler] started', { running: _ps.running, interval_ms: _ps.interval_ms, mode: _ps.mode });
+    }
+  } catch (e) {
+    logger.warn('[plan-scheduler] start failed', { error: String((e && e.message) || e) });
+  }
+
   // v1.5：检测到 SQLite 里仍有明文 API Key 时，自动后台迁移（不阻塞 UI）
   try {
     secrets.migratePlaintextApiKey(store).then(function (m) {
@@ -4757,6 +4974,14 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
+});
+
+// v1.25：应用关闭时停止模拟调度器 —— 关闭期间不执行任何任务。
+//   （window-all-closed → app.quit() → before-quit 也会走到这里）
+app.on('before-quit', () => {
+  try {
+    if (planScheduler) planScheduler.stop();
+  } catch (_e) {}
 });
 
 ipcMain.handle('wechat:upload-video', async (_e, payload) => {

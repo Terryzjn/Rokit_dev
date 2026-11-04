@@ -340,7 +340,7 @@ describe('index.html · 单发与批量发射均接入视频', () => {
   it('视频来源是 __captionFinalVideo.path，绝不使用原始视频 state.videoAsset', () => {
     const start = src.indexOf('window.publishGithubVideo = async function(articlePath){');
     expect(start).toBeGreaterThan(0);
-    const end = src.indexOf('window.buildGithubArticleBody', start);
+    const end = src.indexOf('window.publishGithubPages', start);
     const fn = src.slice(start, end);
     expect(fn).toMatch(/state\.__captionFinalVideo/);
     expect(fn).toMatch(/finalVideoPath:\s*fv\.path/);
@@ -350,7 +350,7 @@ describe('index.html · 单发与批量发射均接入视频', () => {
 
   it('没有最终视频时保持纯文章发布（不强制要求视频）', () => {
     const start = src.indexOf('window.publishGithubVideo = async function(articlePath){');
-    const end = src.indexOf('window.buildGithubArticleBody', start);
+    const end = src.indexOf('window.publishGithubPages', start);
     const fn = src.slice(start, end);
     expect(fn).toMatch(/if\(!fv\s*\|\|\s*!fv\.path\)\s*return\s*\{\s*ok:true,\s*video:null\s*\}/);
   });
@@ -372,11 +372,16 @@ describe('main.js · github:put-video 安全与绑定约束', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'electron', 'main.js'), 'utf8');
   const htmlSrc = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 
+  // 普通自动发布的视频入口：main.js 的命名函数 githubPutVideo（github:put-video 注册为其委托）
+  function githubPutVideoSrc() {
+    const start = src.indexOf('async function githubPutVideo(');
+    expect(start).toBeGreaterThan(0);
+    return src.slice(start, src.indexOf('\n}', start));
+  }
+
   it('注册了 github:put-video，且 owner/repo 来自绑定 publishRepo', () => {
     expect(src).toMatch(/ipcMain\.handle\('github:put-video'/);
-    const start = src.indexOf("ipcMain.handle('github:put-video'");
-    const end = src.indexOf('\n});', start);
-    const fn = src.slice(start, end);
+    const fn = githubPutVideoSrc();
     // 复用与 github:put-file 相同的绑定读取
     expect(fn).toMatch(/await resolveGithubTarget\(\)/);
     expect(fn).toMatch(/owner:\s*target\.publishRepo\.owner/);
@@ -387,10 +392,7 @@ describe('main.js · github:put-video 安全与绑定约束', () => {
   });
 
   it('先校验最终视频 → 提取封面 → 传 MP4 → 传封面 → 返回真实仓库路径', () => {
-    const start = src.indexOf("ipcMain.handle('github:put-video'");
-    // 该 handler 结束于下一个 ipcMain.handle（Pages 相关），不要跨越过去
-    const end = src.indexOf('\n});', start);
-    const fn = src.slice(start, end);
+    const fn = githubPutVideoSrc();
     const iFin = fn.indexOf('resolveFinalVideoFile(p.finalVideoPath)');
     const iCover = fn.indexOf('generateThumbnail(fin.filePath');
     const iVid = fn.indexOf('path: p.videoPath');
@@ -407,9 +409,7 @@ describe('main.js · github:put-video 安全与绑定约束', () => {
   });
 
   it('任一步失败都不把整体报告为成功', () => {
-    const start = src.indexOf("ipcMain.handle('github:put-video'");
-    const end = src.indexOf('\n});', start);
-    const fn = src.slice(start, end);
+    const fn = githubPutVideoSrc();
     // 封面失败 → 提前返回，不上传
     expect(fn).toMatch(/stage:\s*'cover'[\s\S]*?cover-extract-failed/);
     // 视频上传失败 → 提前返回
@@ -419,9 +419,7 @@ describe('main.js · github:put-video 安全与绑定约束', () => {
   });
 
   it('日志与返回值不含 base64 内容或本地绝对路径', () => {
-    const start = src.indexOf("ipcMain.handle('github:put-video'");
-    const end = src.indexOf('\n});', start);
-    const fn = src.slice(start, end);
+    const fn = githubPutVideoSrc();
     expect(fn).not.toMatch(/b64/);
     expect(fn).not.toMatch(/toString\('base64'\)/);
     expect(fn).not.toMatch(/access_token/);

@@ -27,7 +27,7 @@ while ((m = secRe.exec(html))) sectionIds.push({ id: m[1], data: m[2] });
 const uniqNav = Array.from(new Set(navIds));
 
 describe('设置页 · 导航 id ↔ 分区 id 匹配', () => {
-  it('至少有 4 个导航项（AI 模型 + GitHub + YouTube + 公众号 + 自动发布 + 主题）', () => {
+  it('至少有 4 个导航项（AI 模型 + 线上配音 + GitHub + YouTube + 公众号 + 主题）', () => {
     expect(uniqNav.length).toBeGreaterThanOrEqual(6);
   });
 
@@ -51,5 +51,77 @@ describe('设置页 · 导航 id ↔ 分区 id 匹配', () => {
     const onlyInSec = sectionIds.map((s) => s.id).filter((x) => !navSet.has(x));
     expect(onlyInNav).toEqual([]);
     expect(onlyInSec).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 设置页冗余「自动发布」UI 已移除（仅影响展示，不影响任何发布能力）
+// ---------------------------------------------------------------------------
+describe('设置页 · 冗余自动发布 UI 已移除', () => {
+  it('不再包含自动发布分区、开关、平台多选与内存字段', () => {
+    expect(html).not.toContain('cfg-sec-auto');
+    expect(html).not.toContain('cfgAutoPub');
+    expect(html).not.toContain('cfgPlatList');
+    expect(html).not.toContain('settings.autoPub');
+    expect(html).not.toContain('autoPubStatus(');
+    expect(html).not.toContain('DIR_NEED');
+  });
+
+  it('其他设置分区仍然保留', () => {
+    ['cfg-sec-model', 'cfg-sec-voice', 'cfg-sec-github', 'cfg-sec-youtube', 'cfg-sec-wechat', 'cfg-sec-theme']
+      .forEach((id) => { expect(html).toContain('id="' + id + '"'); });
+  });
+
+  it('首秀计划自动发布 / 示例 / 跳过入口保留', () => {
+    expect(html).toContain("scheduledAt:d0.toISOString(),platforms:['github']");
+    expect(html).toContain('planExampleChips');
+    expect(html).toContain('window.applyPlanExample');
+    expect(html).toContain('window.skipPlanAndGo');
+    expect(html).toContain("togglePlanPlatform(");
+  });
+
+  it('首秀计划不再包含 GitHub Release 与独立的自动发布勾选', () => {
+    expect(html).not.toContain('GitHub Release 发布');
+    expect(html).not.toContain('自动创建 GitHub Release');
+    expect(html).not.toContain('autoPublish');
+  });
+
+  it('发布队列与「开始发射」链路保留', () => {
+    expect(html).toContain('window.autoPub=function(id)');
+    expect(html).toContain('function pubModeOf(id)');
+    expect(html).toContain('window.rocketGo=async function');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 平台卡片徽标：按 PLATFORMS[].auto 的真实能力渲染
+// ---------------------------------------------------------------------------
+describe('平台卡片 · 徽标依据真实平台能力', () => {
+  function extractBlock(src, header) {
+    const start = src.indexOf(header);
+    if (start < 0) throw new Error('源码中找不到：' + header);
+    const open = src.indexOf('{', start + header.length - 1);
+    let depth = 0;
+    for (let i = open; i < src.length; i++) {
+      if (src[i] === '{') depth++;
+      else if (src[i] === '}') { depth--; if (depth === 0) return src.slice(start, i + 1); }
+    }
+    throw new Error('花括号不配平：' + header);
+  }
+
+  const pcardSrc = extractBlock(html, 'function pcard(p){');
+  const pcard = new Function('state', 'esc', pcardSrc + '\nreturn pcard;')({ sel: {} }, (s) => String(s == null ? '' : s));
+
+  it('auto=true 的平台显示「⚡ 自动」', () => {
+    const htmlOut = pcard({ id: 'github', name: 'GitHub', auto: true, color: '#24292F', lv: 'L2 跳转' });
+    expect(htmlOut).toContain('pbadge auto');
+    expect(htmlOut).toContain('⚡ 自动');
+    expect(htmlOut).not.toContain('未启用自动发布');
+  });
+
+  it('auto=false 的平台显示「手动」', () => {
+    const htmlOut = pcard({ id: 'youtube', name: 'YouTube', auto: false, color: '#FF0000', lv: 'L2 跳转' });
+    expect(htmlOut).toContain('pbadge manual');
+    expect(htmlOut).toContain('手动');
   });
 });

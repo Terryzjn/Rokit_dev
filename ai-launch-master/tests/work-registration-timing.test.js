@@ -348,9 +348,19 @@ describe('源码约束', () => {
     expect(launchFn).toMatch(/state\.works\.push\(w\)/);
   });
 
-  it('未改动 markPub 的发布记录逻辑', () => {
+  it('未改动 markPub 的发布记录逻辑（仍会真正写库，失败不再静默）', () => {
     const fn = htmlSrc.slice(htmlSrc.indexOf('window.markPub=function(id){'));
-    expect(fn.slice(0, 800)).toMatch(/window\.api\.addPub\(/);
+    // 写库动作仍在：markPub → persistMarkedPub → window.api.addPub
+    //   （写库被收敛到 persistMarkedPub 统一处理失败回滚与提示，位置不再是"前 800 字符内"）
+    const persistIdx = htmlSrc.indexOf('function persistMarkedPub(payload,rollback){');
+    expect(persistIdx).toBeGreaterThan(-1);
+    const persist = htmlSrc.slice(persistIdx);
+    expect(persist).toMatch(/window\.api\.addPub\(/);
+    expect(fn).toMatch(/persistMarkedPub\(/);
+    // 失败必须可见：回滚内存记录 + 提示用户，不能静默吞掉
+    expect(persist).toMatch(/\.catch\(/);
+    expect(persist).toMatch(/rollback\(\)/);
+    expect(persist).toMatch(/toast\(/);
   });
 
   it('未改动 AI 配音 / 字幕编辑器 / 视频合成', () => {

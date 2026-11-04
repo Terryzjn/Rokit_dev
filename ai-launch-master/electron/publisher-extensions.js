@@ -8,8 +8,8 @@
 
 'use strict';
 
-const fetch = globalThis.fetch;
-
+// 注意：这里**不**在模块加载时缓存 fetch，而是每次调用时取 globalThis.fetch
+//   （行为不变，但让测试可以安全地替换 fetch，避免任何真实网络写入）。
 // 默认超时（健康度探测走短超时）
 const HC_TIMEOUT_MS = 8000;
 // Contents API 默认超时
@@ -18,7 +18,9 @@ const RELEASE_TIMEOUT_MS = 20000;
 function fetchWithTimeout(url, opt, ms) {
   const ctrl = new AbortController();
   const t = setTimeout(function () { ctrl.abort(); }, ms || HC_TIMEOUT_MS);
-  return fetch(url, Object.assign({ signal: ctrl.signal }, opt || {}))
+  const doFetch = globalThis.fetch;
+  if (typeof doFetch !== 'function') return Promise.reject(new Error('fetch unavailable'));
+  return doFetch(url, Object.assign({ signal: ctrl.signal }, opt || {}))
     .finally(function () { clearTimeout(t); });
 }
 
@@ -240,6 +242,22 @@ async function githubPutContent(token, opts, buffer) {
     }, RELEASE_TIMEOUT_MS);
     if (getRes.status === 200) {
       const data = await getRes.json().catch(function () { return null; });
+      // create-only：目标文件已存在时**绝不**走 PUT（update），直接返回冲突，
+      //   供首秀计划等调用方转人工确认。普通自动发布不传 createOnly → 行为不变。
+      if (opts.createOnly) {
+        return {
+          ok: false,
+          error: 'file-exists',
+          status: 409,
+          detail: '目标文件已存在，已按 create-only 规则取消本次写入',
+          existing: (data && !Array.isArray(data)) ? {
+            path: data.path || filePath,
+            sha: data.sha || '',
+            html_url: data.html_url || '',
+            size: data.size
+          } : { path: filePath, sha: '', html_url: '' }
+        };
+      }
       sha = data && data.sha ? String(data.sha) : null;
     } else if (getRes.status === 404) {
       sha = null; // 文件不存在 → 直接创建
@@ -253,7 +271,9 @@ async function githubPutContent(token, opts, buffer) {
       return { ok: false, status: getRes.status, error: detail || ('HTTP ' + getRes.status) };
     }
   } catch (e) {
-    return { ok: false, error: 'network:' + String((e && e.message) || e) };
+    const out = { ok: false, error: 'network:' + String((e && e.message) || e) };
+    if (opts.createOnly) out.uncertain = true;
+    return out;
   }
 
   // 2) PUT .../contents/{path}
@@ -276,12 +296,23 @@ async function githubPutContent(token, opts, buffer) {
       body: JSON.stringify(putBody)
     }, RELEASE_TIMEOUT_MS);
   } catch (e) {
-    return { ok: false, error: 'network:' + String((e && e.message) || e) };
+    const out = { ok: false, error: 'network:' + String((e && e.message) || e) };
+    if (opts.createOnly) out.uncertain = true;
+    return out;
   }
 
   if (!putRes.ok) {
     let detail = '';
     try { detail = (await putRes.text()).slice(0, 300); } catch (_) {}
+    // create-only 的确定性拒绝：文件在探测后被别人创建（422 / 409）→ 不覆盖，交调用方核实
+    if (opts.createOnly && putRes.status === 422) {
+      return extractGhError(putRes, 422, 'file-exists', detail);
+    }
+    if (opts.createOnly && putRes.status === 409) {
+      const err = await extractGhError(putRes, 409, '文件冲突（并发创建？）');
+      err.uncertain = true;
+      return err;
+    }
     if (putRes.status === 401) return extractGhError(putRes, 401, 'Token 失效或权限不足（需 Contents: Read and write）');
     if (putRes.status === 403) return extractGhError(putRes, 403, 'Token 权限不足（Fine-grained PAT 需勾选 Contents: Read and write + 目标仓库在 Repository access 中）');
     if (putRes.status === 404) return extractGhError(putRes, 404, '仓库不存在或 Token 无权访问');
@@ -305,6 +336,62 @@ async function githubPutContent(token, opts, buffer) {
       message: j.commit.message,
       html_url: j.commit.html_url
     } : null
+  };
+}
+
+// GitHub Contents API：只读查询单个文件是否已存在（不做任何写入）。
+//   用途：首秀计划上传前的防覆盖预检 —— 目标路径已存在时由调用方转人工确认。
+//   返回：
+//     { ok:true, exists:true, file:{ path, sha, html_url, size, download_url } }
+//     { ok:true, exists:false }                       —— 文件不存在（404）
+//     { ok:false, error, detail, uncertain? }          —— 认证 / 权限 / 网络 / 其它错误
+async function githubGetFile(token, opts) {
+  if (!token) return { ok: false, error: 'missing-token' };
+  if (!opts || !opts.owner || !opts.repo || !opts.path) {
+    return { ok: false, error: 'missing-params', detail: 'owner / repo / path 必填' };
+  }
+  const branch = opts.branch || 'main';
+  const filePath = String(opts.path).replace(/^\/+/, '').replace(/\/+$/, '');
+  if (!filePath) return { ok: false, error: 'missing-params', detail: 'path 非法' };
+
+  const encodedPath = filePath.split('/').map(encodeURIComponent).join('/');
+  const url = 'https://api.github.com/repos/' + encodeURIComponent(opts.owner) + '/' + encodeURIComponent(opts.repo)
+    + '/contents/' + encodedPath + '?ref=' + encodeURIComponent(branch);
+
+  let res;
+  try {
+    res = await fetchWithTimeout(url, { method: 'GET', headers: ghHeaders(token) }, RELEASE_TIMEOUT_MS);
+  } catch (e) {
+    // 只读查询失败：无法确认目标路径状态 → 标记 uncertain，由调用方转人工核实（绝不盲目写入）
+    return { ok: false, error: 'network', uncertain: true, detail: String((e && e.message) || e) };
+  }
+  if (res.status === 404) return { ok: true, exists: false };
+  if (res.status === 401) return extractGhError(res, 401, 'Token 失效或权限不足（需 Contents: Read）');
+  if (res.status === 403) return extractGhError(res, 403, 'Token 权限不足（Fine-grained PAT 需勾选 Contents: Read and write + 目标仓库在 Repository access 中）');
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.text()).slice(0, 300); } catch (_) {}
+    return { ok: false, status: res.status, error: detail || ('HTTP ' + res.status) };
+  }
+
+  let j = null;
+  try { j = await res.json(); } catch (_e) { j = null; }
+  if (Array.isArray(j)) {
+    // 该路径是目录：不能作为文章文件写入
+    return { ok: true, exists: true, file: { path: filePath, sha: '', html_url: '', size: 0, download_url: '', type: 'dir' } };
+  }
+  if (!j || typeof j !== 'object') return { ok: false, error: 'bad-response' };
+  return {
+    ok: true,
+    exists: true,
+    file: {
+      path: j.path || filePath,
+      sha: j.sha || '',
+      html_url: j.html_url || '',
+      size: j.size,
+      download_url: j.download_url || '',
+      type: j.type || 'file'
+    }
   };
 }
 
@@ -337,6 +424,117 @@ function ghHeaders(token) {
     'Authorization': 'Bearer ' + token,
     'Accept': 'application/vnd.github+json',
     'User-Agent': 'Rokit-L1/1.5'
+  };
+}
+
+// ============================================================
+// GitHub Release（API 版；供「首秀计划」后台调度使用）
+//   为什么需要这一组：
+//     现有 Release 发布链路是 publishers.js 的**浏览器注入**流程
+//     （打开 /releases/new → 填 tag/title/body → 点 Publish Release → 读 location.href），
+//     它必须有可见的发布浏览器 + 已登录的 GitHub 会话，后台调度器无法安全复用。
+//     这里按本模块既有约定补一组 API 调用：
+//       - token  来自 oauth.getTokenForInternal('github')（Renderer 永远拿不到 token）
+//       - 请求  走 fetchWithTimeout + ghHeaders + extractGhError
+//       - 返回  与本模块其它函数一致：{ ok, ... } / { ok:false, error, detail }
+//   绝不臆造 tag / URL / release id：一切以 API 返回为准。
+// ============================================================
+
+// 按标签查询 Release（用于「可能已创建」的恢复核验 / 幂等预检）
+//   返回 { ok:true, release:{id,tag_name,html_url,name,body,...} } 或 { ok:false, error:'not-found' }
+async function githubGetReleaseByTag(token, owner, repo, tag) {
+  if (!token) return { ok: false, error: 'missing-token' };
+  if (!owner || !repo || !tag) return { ok: false, error: 'missing-params' };
+  const url = 'https://api.github.com/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo)
+    + '/releases/tags/' + encodeURIComponent(tag);
+  let res;
+  try {
+    res = await fetchWithTimeout(url, { method: 'GET', headers: ghHeaders(token) }, 15000);
+  } catch (e) {
+    return { ok: false, error: 'network', detail: String((e && e.message) || e) };
+  }
+  if (res.status === 404) return { ok: false, error: 'not-found', status: 404 };
+  if (!res.ok) return extractGhError(res, res.status, 'github-http-' + res.status);
+  let j = null;
+  try { j = await res.json(); } catch (_e) { j = null; }
+  if (!j || !j.id) return { ok: false, error: 'bad-response' };
+  return {
+    ok: true,
+    release: {
+      id: j.id,
+      tag_name: j.tag_name || tag,
+      name: j.name || '',
+      body: j.body || '',
+      html_url: j.html_url || '',
+      upload_url: j.upload_url || '',
+      published_at: j.published_at || ''
+    }
+  };
+}
+
+// 创建 Release
+//   opts: { owner, repo, tag, name, body, target_commitish? }
+//   返回 { ok:true, release:{id,tag_name,html_url,...} }
+//     或 { ok:false, error:'missing-token'|'missing-params'|'network'|'github-http-<status>'|'tag-exists', detail, status, release?, uncertain? }
+async function githubCreateRelease(token, opts) {
+  if (!token) return { ok: false, error: 'missing-token' };
+  if (!opts || !opts.owner || !opts.repo || !opts.tag) {
+    return { ok: false, error: 'missing-params', detail: 'owner / repo / tag 必填' };
+  }
+  const url = 'https://api.github.com/repos/' + encodeURIComponent(opts.owner) + '/' + encodeURIComponent(opts.repo) + '/releases';
+  const payload = {
+    tag_name: String(opts.tag),
+    name: String(opts.name || opts.tag),
+    body: String(opts.body || ''),
+    draft: false,
+    prerelease: false
+  };
+  if (opts.target_commitish) payload.target_commitish = String(opts.target_commitish);
+
+  let res;
+  try {
+    res = await fetchWithTimeout(url, {
+      method: 'POST',
+      headers: Object.assign(ghHeaders(token), { 'Content-Type': 'application/json' }),
+      body: JSON.stringify(payload)
+    }, RELEASE_TIMEOUT_MS);
+  } catch (e) {
+    // 网络异常：请求**可能**已被 GitHub 收到（Release 可能已创建）→ 由调用方做标签核验后决定
+    return { ok: false, error: 'network', detail: String((e && e.message) || e), uncertain: true };
+  }
+  if (res.status === 422) {
+    // 422 多为标签已存在 / 校验失败：这里回查一次标签，给出可核验的结论
+    const exist = await githubGetReleaseByTag(token, opts.owner, opts.repo, opts.tag);
+    if (exist && exist.ok) {
+      return {
+        ok: false, error: 'tag-exists', status: 422, uncertain: true,
+        detail: '标签 ' + opts.tag + ' 已存在同名 Release，未重复创建',
+        release: exist.release
+      };
+    }
+    return extractGhError(res, 422, 'github-http-422');
+  }
+  if (!res.ok) {
+    // 401 / 403 / 404 都是 GitHub **明确拒绝**：确定没有创建
+    return extractGhError(res, res.status, 'github-http-' + res.status);
+  }
+  let j = null;
+  try { j = await res.json(); } catch (_e) { j = null; }
+  if (!j || !j.id) {
+    // 拿到了 2xx 但没有 release id：无法确认 → 结果不确定
+    return { ok: false, error: 'bad-response', uncertain: true, detail: 'GitHub 未返回 Release ID' };
+  }
+  return {
+    ok: true,
+    release: {
+      id: j.id,
+      tag_name: j.tag_name || opts.tag,
+      name: j.name || payload.name,
+      body: j.body || '',
+      html_url: j.html_url || '',
+      upload_url: j.upload_url || '',
+      published_at: j.published_at || ''
+    }
   };
 }
 
@@ -535,7 +733,10 @@ module.exports = {
   checkAllHealth,
   githubPutFile,
   githubPutBinary,
+  githubGetFile,
   githubPickRepo,
+  githubCreateRelease,
+  githubGetReleaseByTag,
   oauthCreatePost,
   githubGetPages,
   githubEnablePages,

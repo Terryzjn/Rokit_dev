@@ -7,7 +7,7 @@
 //        （不复制代码、不另造一套界面、不嵌入到 step 5 形成上下两套重复界面）
 //     3. 唯一差异：底部"跳过声音克隆"按钮按流程来源切换 enabled：
 //         AI 录屏来源：按钮始终 disabled。
-//         本地视频来源：按钮始终 enabled，点击 → state.step=10（首秀计划）。
+//         本地视频来源：按钮始终 enabled，点击 → state.step=11（选择发布平台）。
 //     4. AI 录屏路径原有行为完全不变（button text、proceedFromVoiceInAiDemo 等）。
 //     5. 跳过录音只影响本次流程，不删除 / 不覆盖已有声音档案 / 录音版本 / 视频文件。
 //     6. 流程来源通过 state.voiceSource 显式区分（'aiDemo' / 'localVideo'），不依赖文件名 / 音频存在性。
@@ -78,11 +78,11 @@ describe('v1.20.10 · 本地视频 → 完全复用 AI 录屏录音界面（rend
     expect(body).toMatch(/请先选择一个本地视频/);
   });
 
-  // —— C. skipVoiceInLocalVideo：跳过直达 step 10（首秀计划），无校验 ——
-  it('C. skipVoiceInLocalVideo 直接 state.step=10，且不要求声音档案 / voiceProfile', () => {
+  // —— C. skipVoiceInLocalVideo：跳过后直达 step 11（选择发布平台），无校验 ——
+  it('C. skipVoiceInLocalVideo 直接 state.step=11，且不要求声音档案 / voiceProfile', () => {
     var body = extractWindowFn('skipVoiceInLocalVideo');
     expect(body).toBeTruthy();
-    expect(body).toMatch(/state\.step\s*=\s*10/);
+    expect(body).toMatch(/state\.step\s*=\s*11/);
     expect(body).toMatch(/renderFlow\(\)/);
     var stripped = stripLineComments(body);
     expect(stripped).not.toMatch(/state\.voiceProfile\s*=/);
@@ -202,8 +202,8 @@ describe('v1.20.10 · 本地视频 → 完全复用 AI 录屏录音界面（rend
     expect(stripped).toMatch(/state\.voiceSource\s*[!=]==?\s*['"]localVideo['"]/);
     // 必须有 videoAsset 校验分支（正向 / 反向都允许）
     expect(stripped).toMatch(/state\.videoAsset[\s\S]{0,30}state\.videoAsset\.id/);
-    // 必须直接置 state.step = 10（首秀计划），不走 voiceNextStep
-    expect(stripped).toMatch(/state\.step\s*=\s*10/);
+    // 必须直接置 state.step = 11（选择发布平台），不走 voiceNextStep
+    expect(stripped).toMatch(/state\.step\s*=\s*11/);
     expect(stripped).not.toMatch(/proceedFromVoiceInAiDemo/);
     expect(stripped).not.toMatch(/skipVoiceInAiDemo/);
   });

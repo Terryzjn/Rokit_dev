@@ -1,8 +1,9 @@
 // Rokit · 「打通平台」步骤布局回归测试（v_next）
 //
 // 验证三件事（页面结构与布局修复后的目标）：
-//   1. gotoRailStep(4) 留在首秀向导内（不切换 data-route），
-//      把 state.step 设到 11，由 renderStep(s===11) 内联渲染授权与连接 + 平台网格。
+//   1. gotoRailStep(3) / gotoRailStep(4) 都留在首秀向导内（不切换 data-route），
+//      分别把 state.step 设到 11（选择发布平台）与 12（发布清单），
+//      由 renderStep(s===11) / renderStep(s===12) 内联渲染。
 //      首秀发射轨道（railBox）始终可见，不应通过 go('channels','platforms') 切到独立页。
 //   2. platPageNext 选完平台后推进到 step 12（发布清单），留在 flow 路由内。
 //   3. goToPlatformsStage 也走「留在 flow」语义，不切到 channels/platforms。
@@ -34,15 +35,40 @@ function pickFn(name) {
   return code.slice(startIdx, i);
 }
 
+// 按花括号配平切出 gotoRailStep 里 `if(stageIdx===N){ ... }` 这一个分支的完整源码。
+//   不能用 `\}\s*else` 之类的正则：gotoRailStep 的分支是并列 if（没有 else），
+//   那样匹配会一路跨到 renderStep 里的 else if，取到错误的区间。
+function pickBranch(stageIdx) {
+  const re = new RegExp('if\\s*\\(\\s*stageIdx\\s*===\\s*' + stageIdx + '\\s*\\)\\s*\\{');
+  const m = code.match(re);
+  if (!m) throw new Error('未找到 stageIdx===' + stageIdx + ' 分支');
+  let i = code.indexOf('{', m.index);
+  let depth = 1;
+  i++;
+  while (i < code.length && depth > 0) {
+    if (code[i] === '{') depth++;
+    else if (code[i] === '}') depth--;
+    i++;
+  }
+  return code.slice(m.index, i);
+}
+
 describe('rail/platform nav · 图一内嵌布局回归', () => {
-  it('gotoRailStep(4) 留在 flow 路由内联渲染（不切到 channels/platforms 独立页）', () => {
-    const branchRe = /if\s*\(\s*stageIdx\s*===\s*4\s*\)\s*\{([\s\S]*?)\}\s*else/;
-    const branchMatch = code.match(branchRe);
-    expect(branchMatch).not.toBeNull();
-    const branch = branchMatch ? branchMatch[1] : '';
+  it('gotoRailStep(3) 留在 flow 路由，跳到 step 11（选择发布平台）', () => {
+    const branch = pickBranch(3);
     // 必须留在 flow：ensureFlow() + state.step=11 + renderFlow()
     expect(branch).toMatch(/ensureFlow\(\)/);
     expect(branch).toMatch(/state\.step\s*=\s*11/);
+    expect(branch).toMatch(/renderFlow\(\)/);
+    // 不应再调用 go('channels','platforms') 把平台面板切到独立页面
+    expect(branch).not.toMatch(/go\(['"]channels['"],\s*['"]platforms['"]\)/);
+  });
+
+  it('gotoRailStep(4) 留在 flow 路由，跳到 step 12（发布清单）', () => {
+    const branch = pickBranch(4);
+    // 必须留在 flow：ensureFlow() + state.step=12 + renderFlow()
+    expect(branch).toMatch(/ensureFlow\(\)/);
+    expect(branch).toMatch(/state\.step\s*=\s*12/);
     expect(branch).toMatch(/renderFlow\(\)/);
     // 不应再调用 go('channels','platforms') 把平台面板切到独立页面
     expect(branch).not.toMatch(/go\(['"]channels['"],\s*['"]platforms['"]\)/);

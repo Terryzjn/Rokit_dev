@@ -50,10 +50,20 @@ var adapters = {
         "return {status:'filled'};})", p);
     },
     submit: function (p) {
+      // v1.22：点击 Publish Release 后，GitHub 会跳到 /<owner>/<repo>/releases/tag/<tag>。
+      //   这里**读取页面上的真实 URL**（location.href），命中 Release 页才把 url 带回主进程。
+      //   绝不拼接 / 猜测 URL：跳转没发生或超时，就只返回 status，由调用方显示"未记录平台原始链接"。
       return inject('(async function(p){\n' +
         "var btns=[].slice.call(document.querySelectorAll('button')).filter(function(b){return /publish release/i.test(b.textContent||'');});\n" +
         "if(!btns.length)return {status:'confirm'};\n" +
-        "btns[0].click();return {status:'ok'};})", p);
+        "btns[0].click();\n" +
+        "var t0=Date.now();\n" +
+        "while(Date.now()-t0<15000){\n" +
+        "  var h=String(location.href||'');\n" +
+        "  if(/\\/releases\\/tag\\//.test(h))return {status:'ok',url:h};\n" +
+        "  await new Promise(function(res){setTimeout(res,300);});\n" +
+        "}\n" +
+        "return {status:'ok'};})", p);
     }
   },
 
@@ -585,10 +595,6 @@ var adapters = {
 
         // 3) 串成单一 async IIFE 注入页面
         //    步骤：等发布页 URL → 等 SPA hydrate → 上传视频 → 等 DOM 完成 → 留在页面
-        // v3.0：title / content 也注入到 IIFE（payload 已有 title 与 body 字段，由前端 Rokit 传入）
-        var _titleTextJs   = JSON.stringify(String((payload.title || '') + ''));
-        var _contentTextJs = JSON.stringify(String((payload.body || payload.content || '') + ''));
-
         var combined = '(async function(){\n' +
           'var r={found:false,ok:false,pickedCount:0,elapsedMs:0,attempts:0,error:"",fileInputs:[],fileName:"",domDone:null,videoUploadSkipped:'+_videoSkippedJs+',titleVerified:false,contentVerified:false,titleFinalVerified:false,contentFinalVerified:false};\n' +
           'var __titleText='+_titleTextJs+';\n' +
@@ -888,7 +894,7 @@ var adapters = {
           '}\n' +
           '})()';
         return combined;
-      } catch (e) {
+      } catch {
         return inject("function(){return {status:'fill-error',error:'fill-script-build-failed: '+String((e&&e.message)||e)};}", p || {});
       }
     },
