@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';" />
+  <title>Recorder Controls</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+      color: #203134;
+      background: transparent;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      background: transparent;
+      overflow: hidden;
+      /* 控制条整体可拖动；按钮区域单独关闭拖动，保证点击响应 */
+      -webkit-app-region: drag;
+      user-select: none;
+    }
+    .bar {
+      height: 100%;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 0 8px;
+      background: #FFFFFF;
+      border: 1px solid #D9E4E2;
+      border-radius: 10px;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, .16);
+      /* 三个按钮必须完整显示 → 不允许被裁切 / 换行 */
+      overflow: hidden;
+      white-space: nowrap;
+    }
+    .dot {
+      flex: none;
+      width: 9px; height: 9px;
+      border-radius: 50%;
+      background: #9FB3B2;
+      transition: background .15s;
+    }
+    .dot.rec { background: #DC2626; animation: pulse 1.4s ease-in-out infinite; }
+    .dot.paused { background: #D97706; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+    .timer {
+      flex: none;
+      min-width: 38px;
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+      color: #687A7C;
+      text-align: center;
+    }
+    .spacer { flex: 1 1 auto; min-width: 2px; }
+    button {
+      -webkit-app-region: no-drag;
+      flex: none;
+      border: none;
+      border-radius: 7px;
+      padding: 5px 10px;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1.2;
+      cursor: pointer;
+      color: #fff;
+      background: #0E7C7B;
+      /* 固定宽度 → 三个按钮始终完整可见，不因文字长短被挤压 */
+      min-width: 44px;
+      text-align: center;
+    }
+    button[hidden] { display: none; }
+    button:hover:not(:disabled) { filter: brightness(1.06); }
+    button:focus-visible { outline: 2px solid #0E7C7B; outline-offset: 1px; }
+    button:disabled { opacity: .38; cursor: not-allowed; }
+    button.pause { background: #D97706; }
+    button.stop { background: #DC2626; }
+    button.ghost { background: #E8F3F2; color: #0E7372; }
+  </style>
+</head>
+<body>
+  <div class="bar" role="toolbar" aria-label="录屏控制">
+    <span class="dot" id="dot" aria-hidden="true"></span>
+    <span class="timer" id="timer" aria-live="off">0:00</span>
+    <span class="spacer"></span>
+    <button type="button" id="btnStart" class="ghost" title="开始录制（只录 Rokit 主窗口）">开始</button>
+    <button type="button" id="btnPause" class="pause" disabled title="暂停录制">暂停</button>
+    <button type="button" id="btnStop" class="stop" disabled title="停止并保存">停止</button>
+  </div>
+  <script>
+    (function () {
+      var btnStart = document.getElementById('btnStart');
+      var btnPause = document.getElementById('btnPause');
+      var btnStop = document.getElementById('btnStop');
+      var dot = document.getElementById('dot');
+      var timer = document.getElementById('timer');
+
+      function fmt(sec) {
+        sec = Math.max(0, Math.floor(sec || 0));
+        var m = Math.floor(sec / 60);
+        var s = sec % 60;
+        return m + ':' + (s < 10 ? '0' : '') + s;
+      }
+
+      function render(state, durationSec) {
+        timer.textContent = fmt(durationSec);
+        dot.className = 'dot' + (state === 'RECORDING' ? ' rec' : (state === 'PAUSED' ? ' paused' : ''));
+        // IDLE      → 开始可用；暂停 / 停止禁用
+        // RECORDING → 开始隐藏；暂停 / 停止可用
+        // PAUSED    → 开始隐藏；暂停按钮变「恢复」；停止可用
+        if (state === 'RECORDING') {
+          btnStart.hidden = true;
+          btnPause.disabled = false;
+          btnPause.textContent = '暂停';
+          btnPause.title = '暂停录制';
+          btnStop.disabled = false;
+        } else if (state === 'PAUSED') {
+          btnStart.hidden = true;
+          btnPause.disabled = false;
+          btnPause.textContent = '恢复';
+          btnPause.title = '恢复录制';
+          btnStop.disabled = false;
+        } else {
+          btnStart.hidden = false;
+          btnStart.disabled = false;
+          btnPause.disabled = true;
+          btnPause.textContent = '暂停';
+          btnPause.title = '暂停录制';
+          btnStop.disabled = true;
+        }
+      }
+
+      btnStart.addEventListener('click', function () {
+        window.recorderControls.sendAction('start');
+      });
+      btnPause.addEventListener('click', function () {
+        var isPaused = btnPause.textContent === '恢复';
+        window.recorderControls.sendAction(isPaused ? 'resume' : 'pause');
+      });
+      btnStop.addEventListener('click', function () {
+        window.recorderControls.sendAction('stop');
+      });
+
+      window.recorderControls.onState(function (payload) {
+        render(payload && payload.state, payload && payload.durationSec);
+      });
+      render('IDLE', 0);
+    })();
+  </script>
+</body>
+</html>

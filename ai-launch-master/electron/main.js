@@ -43,6 +43,7 @@ const pubex = require('./publisher-extensions');
 // 新框架走 browser:* IPC，每个平台使用独立 persist:platform-{id}。
 const { BrowserManager } = require('./browser/BrowserManager');
 const { registerBrowserIpc } = require('./browser/browser-ipc');
+const recorderControls = require('./recorder-controls');
 require('./browser/platforms'); // 把 BrowserTestPublisher 等注册到 PublisherRegistry
 
 // v1.20.3：声音档案（用户录音 + 本地声音档案管理）
@@ -1321,6 +1322,13 @@ registerFeedbackIpc(ipcMain, {
 
 // ---------- 录制 ----------
 recorder.attachIpc(ipcMain);
+
+// ---------- 手动录屏控制条（独立窗口） ----------
+//   控制条是**独立 BrowserWindow**，不是主窗口的一部分 → 不会进入录制画面。
+//   它只负责展示状态 + 转发点击；真正的录屏执行在主窗口 renderer 侧。
+recorderControls.registerIpc(ipcMain, {
+  getMainWindow: function () { return mainWindow; }
+});
 
 // ---------- 视频处理 ----------
 video.attachIpc(ipcMain);

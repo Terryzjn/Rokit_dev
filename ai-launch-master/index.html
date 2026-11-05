@@ -5751,6 +5751,12 @@ window.testWechatConnection=function(){
       renderAiDemoStage(ctrl);
       return;
     }
+    // 手动录屏工作区：停止并保存后进入"最终视频确认界面"
+    //   （与 AI 录屏完成页同一套 UI 结构 / 同一套视频处理逻辑）
+    if(typeof __manualRec !== 'undefined' && __manualRec && __manualRec.stage && __manualRec.stage !== 'IDLE'){
+      __manualRenderStage(ctrl);
+      return;
+    }
     if(!a || st==='NO_VIDEO'){
       // 空状态：选择本地视频 / 启动 AI 自动演示
       ctrl.innerHTML=
@@ -5759,12 +5765,14 @@ window.testWechatConnection=function(){
         '<div class="step-txt">当前阶段：选择本地视频，或启动 AI 自动演示项目，由 Rokit 自己录一段产品演示视频。</div>'+
         '<div class="demo-note" style="margin-top:10px;padding:8px 10px;border-radius:6px;background:rgba(14,124,123,.06);border:1px solid rgba(14,124,123,.2);font-size:12px;color:#0E6E6D;line-height:1.6">'+
         '📁 <b>本地视频</b>：点下方按钮选一个 .mp4 / .mov / .webm / .mkv / .avi 文件<br/>'+
+        '🎥 <b>手动录屏</b>：你自己操作 Rokit，Rokit 只负责录。开始 / 暂停 / 停止按钮会出现在窗口外侧的控制条上，**不会录进画面**。<br/>'+
         '🎬 <b>AI 自动演示项目</b>：让 Rokit 自己打开真窗口、按预设脚本点按钮、录屏并保存 WebM / MP4（在当前 v1.15 仅交付这一个预设脚本）'+
         '</div>'+
         '<div id="localVideoStatus" style="margin-top:10px;font-size:12.5px;color:var(--muted)">未选择视频</div>'+
         '<div style="height:12px"></div>'+
         '<div class="choice">'+
           '<button class="btn" id="pickLocalVideoBtn" onclick="pickLocalVideo()">📁 选择本地视频</button>'+
+          '<button class="btn sm" onclick="startManualRecording()">🎥 手动录屏</button>'+
           '<button class="btn sm ghost" onclick="openAiDemoWorkspace()">🎬 AI 自动演示项目</button>'+
         '</div></div></div>';
       return;
@@ -7355,6 +7363,96 @@ window.testWechatConnection=function(){
   // 全局以便状态切换、IPC 回调后即时调用
   window.aiDemoNextEnabled = aiDemoNextEnabled;
   window.aiDemoSaveErrorText = aiDemoSaveErrorText;
+
+  // ============================================================
+  // 共用：录屏产物（AI 自动演示 与 手动录屏 走**同一套**）
+  //
+  // 手动录屏的"最终视频确认界面"与 AI 录屏的完成页是同一个界面，
+  // 因此这里把两者共用的部分抽成一份，**不新建第二套视频处理逻辑**：
+  //   · renderRecordingProductBlock  产物预览块（<video controls> + 元信息 + 已保存资产 + MP4 + 错误）
+  //   · saveRecordingBlobToAsset     Blob → base64 → demo:save-recording → VideoAsset（写盘 + 登记）
+  //   · exportRecordingToMp4         demo:export-mp4（沿用主进程既有转码逻辑与 60 FPS 上限）
+  // AI 录屏页的渲染结果与改造前**完全一致**（只是把同一段 markup 换成了共用函数）。
+  // ============================================================
+
+  // 录屏产物预览块（AI 录屏完成页 / 手动录屏完成页 共用）
+  function renderRecordingProductBlock(rec, opts){
+    var o = opts || {};
+    var d = rec || {};
+    var previewId = o.previewId || 'recordingPreview';
+    var html = '';
+    if(d.blob && d.objectUrl){
+      html +=
+        '<div style="margin-top:14px;border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--bg)">'+
+          '<video id="'+previewId+'" controls playsinline src="' + d.objectUrl + '" style="width:100%;max-height:340px;background:#000;border-radius:6px"></video>'+
+          '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:12.5px">'+
+            '<span style="color:var(--muted)">时长：'+ fmtDur(d.durationSec||0) +' · 大小：' + fmtSize(d.blob && d.blob.size || 0) + ' · 格式：' + (d.blob && d.blob.type || 'video/webm') + '</span>'+
+          '</div>'+
+        '</div>';
+    }
+    if(d.savedAsset){
+      var sa = d.savedAsset;
+      html +=
+        '<div style="margin-top:10px;padding:8px 10px;border-radius:8px;background:rgba(46,160,67,.08);border:1px solid rgba(46,160,67,.25);font-size:12.5px">'+
+          '✅ 已保存为 VideoAsset：<b>'+ esc(sa.fileName||'') +'</b> · ' + fmtSize(sa.fileSize||0) +
+          '<div style="margin-top:6px;color:var(--muted)">位置：<code>' + esc(sa.filePath||'') + '</code></div>'+
+        '</div>';
+    }
+    if(d.mp4OutputPath){
+      html +=
+        '<div style="margin-top:8px;padding:8px 10px;border-radius:8px;background:rgba(14,124,123,.08);border:1px solid rgba(14,124,123,.25);font-size:12.5px">'+
+          '🎞 已转换 MP4：<code>' + esc(d.mp4OutputPath) + '</code>'+
+        '</div>';
+    }
+    if(d.errorMsg){
+      html +=
+        '<div style="margin-top:10px;padding:8px 10px;border-radius:8px;background:rgba(220,53,69,.06);border:1px solid rgba(220,53,69,.25);color:#9b1c2a;font-size:12.5px">'+
+          '⚠ 错误：' + esc(d.errorMsg) + '</div>';
+    }
+    return html;
+  }
+
+  // 录屏 Blob → 主进程写盘 → VideoAsset（AI 录屏 / 手动录屏 共用的传输层）
+  //   sourceType / recorder 由调用方决定（AI = AI_RECORDING，手动 = MANUAL_RECORDING）。
+  async function saveRecordingBlobToAsset(rec, opts){
+    var o = opts || {};
+    if(!rec || !rec.blob) throw new Error('no-blob');
+    if(typeof window.api === 'undefined' || !window.api.demoSaveRecording) throw new Error('ipc-unavailable');
+    var b64 = await (function(blob){
+      return new Promise(function(res, rej){
+        var fr = new FileReader();
+        fr.onload = function(){ res(String(fr.result || '').split(',')[1] || ''); };
+        fr.onerror = function(){ rej(new Error('blob-read-failed')); };
+        fr.readAsDataURL(blob);
+      });
+    })(rec.blob);
+    var m = rec.blob.type ? /video\/(\w+)/i.exec(rec.blob.type) : null;
+    var ext = (m && m[1]) || 'webm';
+    var payload = {
+      ext: ext,
+      blobBase64: b64,
+      // v1.19：把 capture 元信息也送到主进程，写到同名 .meta.json sidecar
+      captureType: rec.captureType || '',
+      captureSource: rec.captureSource || '',
+      captureRegion: rec.captureRegion || null,
+      captureSize: (rec.captureRegion ? { width: rec.captureRegion.width, height: rec.captureRegion.height } : null)
+    };
+    if(o.sourceType) payload.sourceType = o.sourceType;
+    if(o.recorder) payload.recorder = o.recorder;
+    var r = await window.api.demoSaveRecording(payload);
+    if(!r || !r.ok) throw new Error((r && r.error) || 'save-failed');
+    return r.asset;
+  }
+
+  // 录屏产物 → MP4（AI 录屏 / 手动录屏 共用的转码层；60 FPS 上限在主进程 video.js 内）
+  async function exportRecordingToMp4(rec){
+    if(!rec || !rec.savedAsset || !rec.savedAsset.filePath) throw new Error('no-saved-asset');
+    if(typeof window.api === 'undefined' || !window.api.demoExportMp4) throw new Error('ipc-unavailable');
+    var r = await window.api.demoExportMp4({ inputPath: rec.savedAsset.filePath });
+    if(!r || !r.ok) throw new Error((r && r.error) || 'export-failed');
+    return r.outputPath;
+  }
+
   function renderAiDemoStage(ctrl){
     if(!ctrl) ctrl = document.getElementById('ctrlBox');
     if(!ctrl) return;
@@ -7401,36 +7499,8 @@ window.testWechatConnection=function(){
       recentLog += '<div style="font-size:11.5px;color:var(--muted);padding:1px 0">#'+ (e.idx+1) + ' ' + esc(e.action||e.name||'') + '</div>';
     }
 
-    // 已保存产物预览
-    var savedBlock = '';
-    if(d.blob && d.objectUrl){
-      savedBlock =
-        '<div style="margin-top:14px;border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--bg)">'+
-          '<video id="aiDemoPreview" controls playsinline src="' + d.objectUrl + '" style="width:100%;max-height:340px;background:#000;border-radius:6px"></video>'+
-          '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:12.5px">'+
-            '<span style="color:var(--muted)">时长：'+ fmtDur(d.durationSec||0) +' · 大小：' + fmtSize(d.blob && d.blob.size || 0) + ' · 格式：' + (d.blob && d.blob.type || 'video/webm') + '</span>'+
-          '</div>'+
-        '</div>';
-    }
-    if(d.savedAsset){
-      var sa = d.savedAsset;
-      savedBlock +=
-        '<div style="margin-top:10px;padding:8px 10px;border-radius:8px;background:rgba(46,160,67,.08);border:1px solid rgba(46,160,67,.25);font-size:12.5px">'+
-          '✅ 已保存为 VideoAsset：<b>'+ esc(sa.fileName||'') +'</b> · ' + fmtSize(sa.fileSize||0) +
-          '<div style="margin-top:6px;color:var(--muted)">位置：<code>' + esc(sa.filePath||'') + '</code></div>'+
-        '</div>';
-    }
-    if(d.mp4OutputPath){
-      savedBlock +=
-        '<div style="margin-top:8px;padding:8px 10px;border-radius:8px;background:rgba(14,124,123,.08);border:1px solid rgba(14,124,123,.25);font-size:12.5px">'+
-          '🎞 已转换 MP4：<code>' + esc(d.mp4OutputPath) + '</code>'+
-        '</div>';
-    }
-    if(d.errorMsg){
-      savedBlock +=
-        '<div style="margin-top:10px;padding:8px 10px;border-radius:8px;background:rgba(220,53,69,.06);border:1px solid rgba(220,53,69,.25);color:#9b1c2a;font-size:12.5px">'+
-          '⚠ 错误：' + esc(d.errorMsg) + '</div>';
-    }
+    // 已保存产物预览（与手动录屏完成页共用同一段 markup）
+    var savedBlock = renderRecordingProductBlock(d, { previewId: 'aiDemoPreview' });
 
     // 控件：根据状态切换可用性
     var btnStart = '<button class="btn" onclick="startAiDemo()" ' + (st === 'REQUESTING_SCREEN' || isRec ? 'disabled' : '') + '>🎬 开始 AI 自动演示</button>';
@@ -7478,22 +7548,24 @@ window.testWechatConnection=function(){
   }
 
   // 把已保存的 AI 录制资产采用为当前视频资产（幂等）。
-  // 注意：不携带 filePath —— 与 video:pick-local 的 toRendererAsset 保持一致（路径只在 main 进程）；
-  // main 端已在 demo:save-recording 时 stash 进 video-source 内部资产表，发布链路用 videoAssetId 反查。
   function adoptAiDemoAsset(){
-    var sa = state.aiDemo && state.aiDemo.savedAsset;
+    adoptSavedRecordingAsset(state.aiDemo && state.aiDemo.savedAsset, (state.aiDemo && state.aiDemo.durationSec) || 0, 'AI_RECORDING');
+  }
+
+  // 共用实现：AI 自动演示与手动录屏都走这里（只差 sourceType / duration）。
+  // 不携带 filePath —— 路径只在 main 进程；main 端已在 demo:save-recording 时 stash。
+  function adoptSavedRecordingAsset(sa, durationSec, defaultSourceType){
     if(!sa || !sa.id) return;
     if(state.videoAsset && state.videoAsset.id===sa.id) return;
     state.videoAsset={
       id: sa.id,
-      sourceType: sa.sourceType || 'AI_RECORDING',
+      sourceType: sa.sourceType || defaultSourceType || 'AI_RECORDING',
       fileName: sa.fileName || '',
       fileSize: sa.fileSize || 0,
       mimeType: sa.mimeType || 'video/webm',
-      duration: (state.aiDemo && state.aiDemo.durationSec) || 0,
+      duration: durationSec || 0,
       createdAt: sa.createdAt || new Date().toISOString()
     };
-    // 换成 AI 录屏 → 之前合成的成品（基于旧源）必须清掉（防止旧成品被发布）
     state.__captionFinalVideo=null;
     state.videoState='VIDEO_READY';
   }
@@ -8038,32 +8110,16 @@ window.testWechatConnection=function(){
     state.aiDemo.savingInFlight = true;
     state.aiDemo.savedAssetError = null;
     renderLocalVideoStage(document.getElementById('ctrlBox'));
-    var b64 = await (function(blob){
-      return new Promise(function(res, rej){
-        var fr = new FileReader();
-        fr.onload = function(){ res(String(fr.result || '').split(',')[1] || ''); };
-        fr.onerror = function(){ rej(new Error('blob-read-failed')); };
-        fr.readAsDataURL(blob);
-      });
-    })(state.aiDemo.blob);
     try {
       // 主进程按照 blobBase64 / ext 写盘到 userData/videos/<id>.<ext>
-      var ext = (state.aiDemo.blob.type && /video\/(\w+)/i.exec(state.aiDemo.blob.type)[1]) || 'webm';
-      var r = await window.api.demoSaveRecording({
-        ext: ext, blobBase64: b64,
-        // v1.19：把 capture 元信息也送到主进程，写到同名 .meta.json sidecar
-        captureType: state.aiDemo.captureType || '',
-        captureSource: state.aiDemo.captureSource || '',
-        captureRegion: state.aiDemo.captureRegion || null,
-        captureSize: (state.aiDemo.captureRegion ? { width: state.aiDemo.captureRegion.width, height: state.aiDemo.captureRegion.height } : null)
-      });
-      if(!r || !r.ok){ throw new Error((r && r.error) || 'save-failed'); }
-      state.aiDemo.savedAsset = r.asset;
+      //   传输层与手动录屏共用（saveRecordingBlobToAsset），行为与改造前一致。
+      var asset = await saveRecordingBlobToAsset(state.aiDemo);
+      state.aiDemo.savedAsset = asset;
       state.aiDemo.status = 'SAVED';
       state.aiDemo.savedAssetError = null;
       // 保存成功后自动采用为当前视频资产，「下一步」可直接进入打通平台，无需重选/重存
       adoptAiDemoAsset();
-      if(typeof toast==='function') toast('已保存到 ' + (r.asset && r.asset.filePath || '本地'), false);
+      if(typeof toast==='function') toast('已保存到 ' + (asset && asset.filePath || '本地'), false);
     } catch(err){
       state.aiDemo.errorMsg = '保存失败：' + ((err && err.message) || String(err));
       state.aiDemo.savedAssetError = ((err && err.message) || String(err));
@@ -8102,9 +8158,8 @@ window.testWechatConnection=function(){
       return;
     }
     try {
-      var r = await window.api.demoExportMp4({ inputPath: state.aiDemo.savedAsset.filePath });
-      if(!r || !r.ok){ throw new Error((r && r.error) || 'export-failed'); }
-      state.aiDemo.mp4OutputPath = r.outputPath;
+      // 转码层与手动录屏共用（exportRecordingToMp4 → 主进程 demo:export-mp4，60 FPS 上限不变）
+      state.aiDemo.mp4OutputPath = await exportRecordingToMp4(state.aiDemo);
       if(typeof toast==='function') toast('MP4 已生成', false);
       renderLocalVideoStage(document.getElementById('ctrlBox'));
     } catch(err){
@@ -8124,6 +8179,675 @@ window.testWechatConnection=function(){
     if(__aiDemoTimer){ clearInterval(__aiDemoTimer); __aiDemoTimer = null; }
   };
   window.addEventListener('beforeunload', function(){ try{ window.__disposeAiDemo(); }catch(_e){} });
+
+
+  // ============================================================
+  // 手动录屏（用户自己操作 Rokit，Rokit 只负责录）
+  //
+  // 与 AI 自动演示的区别：
+  //   · **没有脚本**：不调用 AI 规划器 / 执行器，不自动点击任何东西。
+  //   · **控制条在主窗口之外**：开始 / 暂停·恢复 / 停止三个按钮位于独立的
+  //     recorder-controls 窗口（见 electron/recorder-controls.js），
+  //     因此**不会出现在录制画面里**（录制对象是 Rokit 主窗口本身）。
+  //   · **暂停用 MediaRecorder 原生 pause()/resume()**，
+  //     不依赖 AI 脚本的暂停标志（__aiDemoPauseFlag）。
+  //
+  // 复用的既有基础设施（不另起一套录屏服务）：
+  //   · window.api.captureListSources / captureProbe / captureGetRokitBounds
+  //   · window.api.demoSaveRecording（写盘 + VideoAsset 登记）
+  //   · window.api.demoExportMp4（WebM → MP4）
+  //   · __aiOpenCaptureStream 的拉流逻辑（只捕获 Rokit 主窗口 + 60 FPS 上限）
+  // ============================================================
+
+  // 手动录屏状态（独立于 state.aiDemo）
+  //   status: IDLE | REQUESTING | RECORDING | PAUSED | STOPPED | SAVING | SAVED | FAILED
+  //   stage : IDLE（未开始）| RECORDING（录制中）| DONE（已停止 → 展示"最终视频确认界面"）
+  var __manualRec = {
+    status: 'IDLE',
+    stage: 'IDLE',
+    mediaRec: null,
+    stream: null,
+    chunks: [],
+    timer: null,
+    startMs: 0,
+    elapsedMs: 0,      // 已录时长（毫秒，暂停期间不累加）
+    pausedAt: 0,
+    blob: null,
+    objectUrl: '',
+    durationSec: 0,
+    savedAsset: null,
+    mp4OutputPath: '',
+    savedAssetError: '',
+    savingInFlight: false,
+    errorMsg: '',
+    captureType: 'window',
+    captureSource: '',
+    captureRegion: null,
+    watchTimer: null,
+    disposed: false
+  };
+
+  // 已录秒数（暂停时不增长）
+  function __manualElapsedSec(){
+    var r = __manualRec;
+    if(r.status === 'PAUSED') return r.elapsedMs / 1000;
+    if(r.status === 'RECORDING') return (r.elapsedMs + (Date.now() - r.startMs)) / 1000;
+    return r.elapsedMs / 1000;
+  }
+
+  // 把当前状态推送给控制条窗口（控制条据此切换按钮）
+  function __manualPushState(){
+    try{
+      if(!window.api || typeof window.api.recorderControlsSetState !== 'function')return;
+      window.api.recorderControlsSetState({
+        state: (__manualRec.status === 'RECORDING' || __manualRec.status === 'PAUSED')
+          ? __manualRec.status : 'IDLE',
+        durationSec: __manualElapsedSec()
+      });
+    }catch(_e){}
+  }
+
+  // 显示控制条窗口（首次进入录屏时）
+  function __manualShowControls(){
+    try{
+      if(!window.api || typeof window.api.recorderControlsShow !== 'function')return;
+      window.api.recorderControlsShow();
+    }catch(_e){}
+  }
+
+  // 隐藏/关闭控制条窗口
+  function __manualHideControls(){
+    try{
+      if(!window.api || typeof window.api.recorderControlsHide !== 'function')return;
+      window.api.recorderControlsHide();
+    }catch(_e){}
+  }
+
+  // 拉取 Rokit 主窗口的视频流（只捕获主窗口 + 60 FPS 上限）
+  //   与 __aiOpenCaptureStream 同一套逻辑：严格只接受 isRokitWindow，
+  //   **不** fallback 到 getDisplayMedia（避免整屏/桌面被录）。
+  async function __manualOpenCaptureStream(){
+    try {
+      if(typeof window.api === 'undefined' || !window.api.captureListSources){
+        return { error: 'no-captureListSources-ipc', errorMsg: '捕获来源 IPC 不可用' };
+      }
+      var srcResp = await window.api.captureListSources();
+      if(srcResp && srcResp.ok && Array.isArray(srcResp.sources) && srcResp.sources.length){
+        // 严格只允许 Rokit 主窗口；控制条窗口**不会**被识别成主窗口
+        //   （它的标题不含 "Rokit"，见 recorder-controls.js 的 CONTROLS_TITLE）。
+        var pick = srcResp.sources.find(function(s){return s.isRokitWindow;});
+        if(!pick){
+          return { error: 'no-rokit-window-source', errorMsg: '找不到 Rokit 主窗口的捕获源（只有 Rokit 自身会被录制）' };
+        }
+        if(pick.isRokitWindow && pick.region && pick.region.isMinimized){
+          return { error: 'rokit-window-minimized', errorMsg: 'Rokit 主窗口已最小化，无法安全录制。请先把窗口恢复后再开始。' };
+        }
+        if(pick.id && navigator.mediaDevices && navigator.mediaDevices.getUserMedia){
+          try {
+            // 帧率上限 = 60 FPS（与现有 AI 录屏完全一致，不改变现有上限）
+            var s = await navigator.mediaDevices.getUserMedia({
+              video: {
+                mandatory: {
+                  chromeMediaSource: 'desktop',
+                  chromeMediaSourceId: pick.id,
+                  maxFrameRate: 60
+                }
+              },
+              audio: false
+            });
+            if(s){
+              // 实时校验主窗口边界还在（防止用户中途切屏/移动窗口导致录制画面漂移）
+              var liveBounds = null;
+              try {
+                if(typeof window.api.captureGetRokitBounds === 'function'){
+                  var lb = await window.api.captureGetRokitBounds();
+                  if(lb && lb.ok){ liveBounds = lb; }
+                }
+              } catch(_e){}
+              if(liveBounds && liveBounds.isMinimized){
+                try { s.getTracks().forEach(function(t){ try{ t.stop(); }catch(_e){} }); } catch(_e){}
+                return { error: 'rokit-window-minimized-during-capture', errorMsg: 'Rokit 主窗口在捕获过程中被最小化。' };
+              }
+              var region = (pick.region && typeof pick.region.width === 'number')
+                ? pick.region
+                : (liveBounds && liveBounds.contentBounds ? liveBounds.contentBounds : null);
+              if(!region){
+                try {
+                  if(typeof window.api.captureProbe === 'function'){
+                    var probe = await window.api.captureProbe({ sourceId: pick.id });
+                    if(probe && probe.region){ region = probe.region; }
+                  }
+                } catch(_e){}
+              }
+              return {
+                stream: s,
+                captureType: 'window',
+                sourceName: pick.name || 'rokit-window',
+                region: region,
+                liveBounds: liveBounds
+              };
+            }
+          } catch(innerErr){
+            return { error: 'chromeMediaSourceId-failed', errorMsg: 'desktopCapturer 拉流失败：' + (innerErr && innerErr.message || innerErr) };
+          }
+        }
+      }
+    } catch(_e){}
+    return { error: 'no-window-source', errorMsg: '无法只捕获 Rokit 主窗口（desktopCapturer 不可用）' };
+  }
+
+  // 启动 MediaRecorder（mime 协商 + 1 秒切片）
+  async function __manualStartRecorder(stream){
+    __manualRec.stream = stream;
+    __manualRec.chunks = [];
+    var mime = '';
+    try {
+      if(typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported){
+        var cand = ['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'];
+        for(var i=0;i<cand.length;i++){ if(MediaRecorder.isTypeSupported(cand[i])){ mime = cand[i]; break; } }
+      }
+    } catch(_e){}
+    try { __manualRec.mediaRec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream); }
+    catch(err){
+      try { stream.getTracks().forEach(function(t){ t.stop(); }); } catch(_e){}
+      __manualRec.status = 'FAILED';
+      __manualRec.errorMsg = 'MediaRecorder 不可用：' + ((err && err.message) || String(err));
+      __manualPushState();
+      return false;
+    }
+    __manualRec.mediaRec.ondataavailable = function(ev){
+      if(ev && ev.data && ev.data.size) __manualRec.chunks.push(ev.data);
+    };
+    __manualRec.mediaRec.onstop = function(){ __manualOnMediaStop(); };
+    __manualRec.mediaRec.onerror = function(ev){
+      __manualRec.status = 'FAILED';
+      __manualRec.errorMsg = '录制异常：' + ((ev && ev.error && ev.error.message) || 'unknown');
+      __manualPushState();
+    };
+    try { __manualRec.mediaRec.start(1000); } catch(err){
+      try { stream.getTracks().forEach(function(t){ t.stop(); }); } catch(_e){}
+      __manualRec.status = 'FAILED';
+      __manualRec.errorMsg = '启动录制失败：' + ((err && err.message) || String(err));
+      __manualPushState();
+      return false;
+    }
+    __manualRec.startMs = Date.now();
+    __manualRec.elapsedMs = 0;
+    __manualRec.status = 'RECORDING';
+    if(__manualRec.timer) clearInterval(__manualRec.timer);
+    __manualRec.timer = setInterval(function(){ __manualPushState(); }, 250);
+
+    // 主窗口最小化时**不产生黑屏录制**：暂停录制（不切换到其他源）
+    if(__manualRec.watchTimer) clearInterval(__manualRec.watchTimer);
+    __manualRec.watchTimer = setInterval(function(){
+      if(__manualRec.status !== 'RECORDING') return;
+      if(typeof window.api === 'undefined' || typeof window.api.captureGetRokitBounds !== 'function') return;
+      window.api.captureGetRokitBounds().then(function(lb){
+        if(!lb || !lb.ok) return;
+        if(lb.isMinimized){
+          // 最小化 → 真正暂停录制（而不是录一片黑屏）
+          try { window.__manualPause(); } catch(_e){}
+        }
+      }).catch(function(_e){});
+    }, 1500);
+    __manualPushState();
+    return true;
+  }
+
+  // 停止后组 Blob
+  function __manualOnMediaStop(){
+    try {
+      if(__manualRec.stream){ __manualRec.stream.getTracks().forEach(function(t){ try{t.stop();}catch(_e){} }); }
+      var blob = new Blob(__manualRec.chunks, { type: (__manualRec.mediaRec && __manualRec.mediaRec.mimeType) || 'video/webm' });
+      __manualRec.blob = blob;
+      if(__manualRec.objectUrl){ try{ URL.revokeObjectURL(__manualRec.objectUrl); }catch(_e){} }
+      try { __manualRec.objectUrl = URL.createObjectURL(blob); } catch(_e){ __manualRec.objectUrl = ''; }
+      __manualRec.status = 'STOPPED';
+      // 已停止 → 进入"最终视频确认界面"（与 AI 录屏完成页同一个界面）
+      __manualRec.stage = 'DONE';
+      __manualRec.durationSec = Math.round(__manualElapsedSec());
+      if(__manualRec.timer){ clearInterval(__manualRec.timer); __manualRec.timer = null; }
+      if(__manualRec.watchTimer){ clearInterval(__manualRec.watchTimer); __manualRec.watchTimer = null; }
+    } catch(err){
+      __manualRec.status = 'FAILED';
+      __manualRec.errorMsg = '完成录制失败：' + ((err && err.message) || String(err));
+    }
+    __manualPushState();
+    // 停止后刷新主窗口：展示最终视频确认界面
+    try { __manualRenderStage(); } catch(_e){}
+  }
+
+  // 手动录屏：开始（拉流 → 启动 MediaRecorder）
+  window.__manualStart = async function(){
+    if(__manualRec.status === 'RECORDING' || __manualRec.status === 'PAUSED' || __manualRec.status === 'REQUESTING'){
+      return { ok:false, error:'already-running' };
+    }
+    __manualRec.status = 'REQUESTING';
+    __manualRec.errorMsg = '';
+    __manualShowControls();
+    __manualPushState();
+    var capture = await __manualOpenCaptureStream();
+    if(!capture || !capture.stream){
+      __manualRec.status = 'FAILED';
+      __manualRec.errorMsg = (capture && capture.errorMsg) || '无法捕获 Rokit 主窗口';
+      __manualPushState();
+      try { toast(__manualRec.errorMsg, true, 6000); } catch(_e){}
+      return { ok:false, error:(capture && capture.error) || 'no-stream' };
+    }
+    var ok = await __manualStartRecorder(capture.stream);
+    if(!ok){
+      try { toast(__manualRec.errorMsg || '录屏启动失败', true, 6000); } catch(_e){}
+      return { ok:false, error:'recorder-start-failed' };
+    }
+    __manualRec.captureRegion = capture.region || null;
+    __manualRec.captureType = capture.captureType || 'window';
+    __manualRec.captureSource = capture.sourceName || '';
+    try { toast('已开始录制 Rokit 主窗口（控制条在窗口外侧）', false, 3000); } catch(_e){}
+    return { ok:true };
+  };
+
+  // 手动录屏：暂停（MediaRecorder 原生 pause）
+  window.__manualPause = function(){
+    if(__manualRec.status !== 'RECORDING') return { ok:false, error:'not-recording' };
+    try {
+      // 先把已录时长结算，再真正暂停
+      __manualRec.elapsedMs += (Date.now() - __manualRec.startMs);
+      __manualRec.mediaRec.pause();
+      __manualRec.status = 'PAUSED';
+      __manualRec.pausedAt = Date.now();
+    } catch(e){
+      __manualRec.errorMsg = '暂停失败：' + ((e && e.message) || String(e));
+      try { toast(__manualRec.errorMsg, true, 5000); } catch(_e){}
+      return { ok:false, error:'pause-failed' };
+    }
+    __manualPushState();
+    return { ok:true };
+  };
+
+  // 手动录屏：恢复（MediaRecorder 原生 resume）
+  window.__manualResume = function(){
+    if(__manualRec.status !== 'PAUSED') return { ok:false, error:'not-paused' };
+    try {
+      __manualRec.mediaRec.resume();
+      __manualRec.startMs = Date.now();   // 暂停期间不计入已录时长
+      __manualRec.status = 'RECORDING';
+    } catch(e){
+      __manualRec.errorMsg = '恢复失败：' + ((e && e.message) || String(e));
+      try { toast(__manualRec.errorMsg, true, 5000); } catch(_e){}
+      return { ok:false, error:'resume-failed' };
+    }
+    __manualPushState();
+    return { ok:true };
+  };
+
+  // 手动录屏：停止（真正停止 MediaRecorder → 触发 __manualOnMediaStop）
+  window.__manualStop = function(){
+    if(__manualRec.status !== 'RECORDING' && __manualRec.status !== 'PAUSED'){
+      return { ok:false, error:'not-running' };
+    }
+    try {
+      if(__manualRec.status === 'RECORDING'){
+        __manualRec.elapsedMs += (Date.now() - __manualRec.startMs);
+      }
+      __manualRec.status = 'STOPPING';
+      __manualPushState();
+      if(__manualRec.mediaRec && __manualRec.mediaRec.state !== 'inactive'){
+        __manualRec.mediaRec.stop();       // onstop → __manualOnMediaStop → status=STOPPED
+      } else {
+        __manualOnMediaStop();
+      }
+    } catch(e){
+      __manualRec.status = 'FAILED';
+      __manualRec.errorMsg = '停止失败：' + ((e && e.message) || String(e));
+      __manualPushState();
+      try { toast(__manualRec.errorMsg, true, 5000); } catch(_e){}
+      return { ok:false, error:'stop-failed' };
+    }
+    return { ok:true };
+  };
+
+  // 手动录屏：保存（复用 demo:save-recording → VideoAsset 登记）
+  //   sourceType 固定 'MANUAL_RECORDING'（不标记为 AI_RECORDING）。
+  //   保存成功 → 进入"最终视频确认界面"（与 AI 录屏完成页同一个界面）。
+  window.__manualSave = async function(){
+    if(!__manualRec.blob){
+      return { ok:false, error:'no-blob', errorMsg:'没有可保存的录屏' };
+    }
+    if(typeof window.api === 'undefined' || !window.api.demoSaveRecording){
+      return { ok:false, error:'ipc-unavailable', errorMsg:'保存 IPC 不可用' };
+    }
+    __manualRec.status = 'SAVING';
+    __manualRec.savingInFlight = true;
+    __manualRec.savedAssetError = '';
+    __manualPushState();
+    try {
+      // 传输层与 AI 录屏共用（saveRecordingBlobToAsset）；资产类型手动录屏固定 MANUAL_RECORDING
+      var asset = await saveRecordingBlobToAsset(__manualRec, {
+        sourceType: 'MANUAL_RECORDING',
+        recorder: 'manual-recorder v1'
+      });
+      __manualRec.savedAsset = asset;
+      __manualRec.status = 'SAVED';
+      __manualRec.savedAssetError = '';
+      // 登记为当前视频资产 → 现有视频预览 / 发布链路可正常识别
+      __manualAdoptAsset(asset);
+      try { toast('已保存到 ' + (asset && asset.filePath || '本地'), false, 4000); } catch(_e){}
+      __manualPushState();
+      // 保存成功 → 关闭控制条 + 进入最终视频确认界面
+      __manualHideControls();
+      try { __manualRenderStage(); } catch(_e){}
+      return { ok:true, asset:asset };
+    } catch(err){
+      // 保存失败：**明确提示**，绝不静默丢失录屏文件
+      __manualRec.status = 'FAILED';
+      __manualRec.errorMsg = '录屏保存失败：' + ((err && err.message) || String(err));
+      __manualRec.savedAssetError = ((err && err.message) || String(err));
+      __manualPushState();
+      try { toast(__manualRec.errorMsg, true, 8000); } catch(_e){}
+      try { console.error('[Rokit] 手动录屏保存失败', err); } catch(_e){}
+      try { __manualRenderStage(); } catch(_e){}
+      return { ok:false, error:'save-failed', errorMsg:__manualRec.errorMsg };
+    } finally {
+      __manualRec.savingInFlight = false;
+    }
+  };
+
+  // ============================================================
+  // 手动录屏 · 最终视频确认界面
+  //
+  // 与 AI 录屏完成页**共用**同一套产物预览块 / 保存传输层 / 转码层
+  // （renderRecordingProductBlock / saveRecordingBlobToAsset / exportRecordingToMp4），
+  // 因此**不复制**第二套视频处理逻辑；AI 录屏页的行为完全不变。
+  //
+  // 本界面提供：
+  //   1) 视频播放预览窗口（<video controls>）
+  //   2) 💾 保存为视频样本
+  //   3) 🎞 导出 MP4
+  //   4) ↻ 重新录制（**重新启动手动录屏**，不是 AI 自动演示）
+  //   5) 下一步：录制声音（沿用现有语音录制流程，读取刚保存的手动录屏资产）
+  // ============================================================
+
+  // 「下一步：录制声音」启用判定（与 aiDemoNextEnabled 同语义）
+  function __manualNextEnabled(){
+    var d = __manualRec;
+    if(!d) return false;
+    if(d.savingInFlight === true) return false;
+    if(d.savedAssetError) return false;
+    var sa = d.savedAsset;
+    if(!sa || typeof sa !== 'object') return false;
+    if(!sa.id) return false;
+    if(!sa.filePath) return false;
+    var st = d.status || 'IDLE';
+    if(st === 'RECORDING' || st === 'PAUSED' || st === 'REQUESTING' || st === 'SAVING') return false;
+    return true;
+  }
+  window.__manualNextEnabled = __manualNextEnabled;
+
+  // 渲染手动录屏的最终视频确认界面
+  function __manualRenderStage(ctrl){
+    // 只在"手动录屏工作区"激活时渲染，避免影响其它步骤
+    if(!__manualRec.stage || __manualRec.stage === 'IDLE') return;
+    if(!ctrl){
+      // 未指定容器 → 统一走标准渲染入口（保证整页状态一致）
+      //   renderFlow → renderStep(5) → renderLocalVideoStage → 再次进入本函数（带 ctrl）
+      if(typeof state !== 'undefined') state.step = 5;
+      try { renderRail(); renderFlow(); } catch(_e){}
+      return;
+    }
+
+    var d = __manualRec;
+    var st = d.status || 'IDLE';
+    var stLabel = ({
+      'IDLE':'准备就绪',
+      'REQUESTING':'正在申请屏幕权限',
+      'RECORDING':'录制中',
+      'PAUSED':'已暂停',
+      'STOPPED':'已停止',
+      'SAVING':'正在保存',
+      'SAVED':'已保存到本地',
+      'FAILED':'失败'
+    })[st] || st;
+    var stColor = st === 'FAILED' ? 'var(--danger)' :
+                  (st === 'RECORDING' ? 'var(--danger)' :
+                   (st === 'PAUSED' ? '#B36B00' :
+                    (st === 'SAVED' ? 'var(--success)' : 'var(--primary-dark)')));
+
+    var canNext = __manualNextEnabled();
+    // 产物预览块（与 AI 录屏完成页共用同一段 markup）
+    var savedBlock = renderRecordingProductBlock(d, { previewId: 'manualRecPreview' });
+
+    var btnSave = '<button class="btn" onclick="saveManualRecording()" ' + (d.blob && !d.savedAsset ? '' : 'disabled') + '>💾 保存为视频样本</button>';
+    var btnMp4  = '<button class="btn sm ghost" onclick="exportManualRecordingMp4()" ' + ((d.savedAsset && d.savedAsset.filePath) ? '' : 'disabled') + '>🎞 导出 MP4</button>';
+    var btnRe   = '<button class="btn sm ghost" onclick="resetManualRecordingForRerecord()" ' + ((d.blob || d.savedAsset) ? '' : 'disabled') + '>↻ 重新录制</button>';
+
+    ctrl.innerHTML =
+      '<div class="rec-stage"><div class="head"><span class="st" style="color:'+stColor+'">🎥 手动录屏 · '+ esc(stLabel) +'</span><span class="tm" id="manualRecTimer" style="font-family:\'Space Grotesk\',sans-serif;font-weight:600">'+ fmtDur(d.durationSec||0) +'</span></div>'+
+      '<div class="script">'+
+        '<div class="step-txt">你自己操作 Rokit，Rokit 只负责录。控制条位于窗口外侧，<strong>不会录进画面</strong>。停止后在这里确认视频，可保存为样本、导出 MP4，或直接进入配音步骤。</div>'+
+        '<div style="margin-top:10px;padding:8px 10px;border-radius:8px;background:var(--bg);border:1px solid var(--line);font-size:12.5px">'+
+          '<b>录制来源：</b>' + esc(d.captureSource || 'Rokit 主窗口') + ' · ' + esc(d.captureType || 'window') +
+          '<br/><b>已录时长：</b>' + fmtDur(d.durationSec||0) +
+          (d.captureRegion ? '<br/><b>录制区域：</b>' + (d.captureRegion.width||0) + ' × ' + (d.captureRegion.height||0) : '') +
+        '</div>'+
+        '<div style="height:12px"></div>'+
+        '<div class="choice" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'+
+          btnSave + btnMp4 + btnRe +
+        '</div>'+
+        savedBlock +
+        '<div style="height:14px"></div>'+
+        '<div class="choice" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'+
+          '<button class="btn sm ghost" onclick="closeManualRecordingWorkspace()">← 返回视频选择</button>'+
+          '<span style="flex:1"></span>'+
+          '<button id="manualRecNextBtn" class="btn" onclick="manualRecordingNext()" '+(canNext?'':'disabled style="background:#E0E6E8;color:var(--muted);border-color:#E0E6E8;cursor:not-allowed;opacity:.85"')+' title="'+(canNext?'已保存视频样本，进入录音步骤':'请先录制并保存视频样本')+'">'+
+            (canNext?'下一步：录制声音':'下一步：录制声音（需先保存视频样本）')+
+          '</button>'+
+        '</div>'+
+        (canNext ? '' : '<div style="font-size:12px;color:var(--muted);margin-top:6px;text-align:right">💡 完成录屏后，点击「💾 保存为视频样本」才能继续。视频样本保存失败或仍在保存中时，此按钮会保持禁用。</div>')+
+      '</div></div>';
+  }
+  window.__manualRenderStage = __manualRenderStage;
+
+  // 💾 保存为视频样本（手动录屏）
+  window.saveManualRecording = async function(){
+    if(!__manualRec.blob){
+      if(typeof toast==='function') toast('没有可保存的录屏，请先录制', true);
+      return;
+    }
+    if(typeof window.api === 'undefined' || !window.api.demoSaveRecording){
+      __manualRec.errorMsg = '录屏 IPC 不可用（请重启 Rokit 主进程）';
+      __manualRec.savedAssetError = 'IPC 不可用';
+      __manualRenderStage();
+      return;
+    }
+    __manualRec.savingInFlight = true;
+    __manualRec.savedAssetError = '';
+    __manualRenderStage();
+    try {
+      var asset = await saveRecordingBlobToAsset(__manualRec, {
+        sourceType: 'MANUAL_RECORDING',
+        recorder: 'manual-recorder v1'
+      });
+      __manualRec.savedAsset = asset;
+      __manualRec.status = 'SAVED';
+      __manualRec.savedAssetError = '';
+      __manualAdoptAsset(asset);
+      if(typeof toast==='function') toast('已保存到 ' + (asset && asset.filePath || '本地'), false);
+    } catch(err){
+      __manualRec.errorMsg = '保存失败：' + ((err && err.message) || String(err));
+      __manualRec.savedAssetError = ((err && err.message) || String(err));
+      // **不**清除已存在的 savedAsset —— 让已有成功结果保持有效
+    } finally {
+      __manualRec.savingInFlight = false;
+      __manualRenderStage();
+    }
+  };
+
+  // 🎞 导出 MP4（手动录屏；沿用主进程既有转码逻辑与 60 FPS 上限）
+  window.exportManualRecordingMp4 = async function(){
+    if(!__manualRec.savedAsset){
+      if(typeof toast==='function') toast('请先保存 WebM，再转 MP4', true);
+      return;
+    }
+    if(typeof window.api === 'undefined' || !window.api.demoExportMp4){
+      __manualRec.errorMsg = 'demoExportMp4 IPC 不可用';
+      __manualRenderStage();
+      return;
+    }
+    try {
+      __manualRec.mp4OutputPath = await exportRecordingToMp4(__manualRec);
+      if(typeof toast==='function') toast('MP4 已生成', false);
+      __manualRenderStage();
+    } catch(err){
+      __manualRec.errorMsg = 'MP4 导出失败：' + ((err && err.message) || String(err));
+      __manualRenderStage();
+    }
+  };
+
+  // ↻ 重新录制：**重新启动手动录屏**（不是 AI 自动演示）
+  window.resetManualRecordingForRerecord = function(){
+    if(__manualRec.blob && !__manualRec.savedAsset){
+      if(typeof confirm === 'function' && !confirm('当前有未保存的录制，确定重新录制？')) return;
+    }
+    try { __manualDispose(); } catch(_e){}
+    // 回到"待录制"状态（工作区仍激活 → 界面显示"录制中"占位），重新拉起控制条
+    __manualRec.stage = 'RECORDING';
+    __manualRec.status = 'IDLE';
+    __manualRec.blob = null;
+    __manualRec.objectUrl = '';
+    __manualRec.durationSec = 0;
+    __manualRec.savedAsset = null;
+    __manualRec.mp4OutputPath = '';
+    __manualRec.savedAssetError = '';
+    __manualRec.errorMsg = '';
+    // 重新拉起控制条 → 用户点「开始」重新录制（**手动**录屏，不是 AI 自动演示）
+    __manualShowControls();
+    __manualPushState();
+    try { __manualRenderStage(); } catch(_e){}
+    try { toast('已重置，点击控制条「开始」重新录制', false, 3500); } catch(_e){}
+  };
+
+  // 关闭手动录屏工作区，回到"选择视频"页
+  window.closeManualRecordingWorkspace = function(){
+    try { __manualHideControls(); } catch(_e){}
+    __manualRec.stage = 'IDLE';
+    __manualRec.blob = null;
+    __manualRec.objectUrl = '';
+    __manualRec.durationSec = 0;
+    __manualRec.savedAsset = null;
+    __manualRec.mp4OutputPath = '';
+    __manualRec.savedAssetError = '';
+    __manualRec.errorMsg = '';
+    __manualRec.status = 'IDLE';
+    try { go('flow'); } catch(_e){}
+  };
+
+  // 下一步：录制声音（沿用现有语音录制流程；读取刚保存的手动录屏资产）
+  window.manualRecordingNext = function(){
+    var st = __manualRec.status || 'IDLE';
+    if(st === 'RECORDING' || st === 'PAUSED' || st === 'REQUESTING' || st === 'SAVING'){
+      if(typeof toast==='function') toast('录制还在进行中，请先「停止」并保存视频', true);
+      return;
+    }
+    if(!__manualNextEnabled()){
+      var reason = (__manualRec.savingInFlight) ? '视频样本正在保存中，请稍候…'
+        : (__manualRec.savedAssetError) ? '上次保存失败：' + __manualRec.savedAssetError
+        : '请先录制并点击「💾 保存为视频样本」';
+      if(typeof toast==='function') toast(reason, true);
+      return;
+    }
+    // 采用为当前视频资产（读取的正是刚保存的手动录屏资产）
+    __manualAdoptAsset(__manualRec.savedAsset);
+    if(!state.videoAsset || !state.videoAsset.id){
+      if(typeof toast==='function') toast('还没有可用视频：请先录制并「保存为视频样本」', true);
+      return;
+    }
+    // 进入录音步骤（复用现有 renderVoice / renderVoiceStudio）
+    state.voiceSource = 'manualRec';
+    state.voiceReturnStep = 5;   // 5 = renderLocalVideoStage（手动录屏确认界面）
+    state.voiceNextStep = 13;    // 录音后进入"选择语音生成方式"
+    state.voiceSkip = false;
+    if(typeof reloadVoiceProfiles === 'function') reloadVoiceProfiles();
+    if(typeof pushAI === 'function') pushAI('视频已就绪。现在为你录制一段配音。');
+    state.step = 8;
+    renderRail();
+    renderFlow();
+  };
+
+  // 把手动录屏产物登记为当前视频资产
+  //   与 AI 录屏共用 adoptSavedRecordingAsset（同一份"换源要清旧成品"的语义），
+  //   只差 sourceType：手动录屏固定 MANUAL_RECORDING。
+  function __manualAdoptAsset(asset){
+    adoptSavedRecordingAsset(asset, Math.round(__manualElapsedSec()), 'MANUAL_RECORDING');
+  }
+
+  // 释放手动录屏占用的资源
+  window.__manualDispose = function(){
+    try{
+      if(__manualRec.mediaRec && __manualRec.mediaRec.state !== 'inactive'){
+        try { __manualRec.mediaRec.stop(); } catch(_e){}
+      }
+      if(__manualRec.stream){
+        __manualRec.stream.getTracks().forEach(function(t){ try{t.stop();}catch(_e){} });
+      }
+      if(__manualRec.objectUrl){ try{ URL.revokeObjectURL(__manualRec.objectUrl); }catch(_e){} }
+      if(__manualRec.timer){ clearInterval(__manualRec.timer); __manualRec.timer = null; }
+      if(__manualRec.watchTimer){ clearInterval(__manualRec.watchTimer); __manualRec.watchTimer = null; }
+    }catch(_e){}
+    __manualRec.mediaRec = null;
+    __manualRec.stream = null;
+    __manualRec.chunks = [];
+    __manualRec.status = 'IDLE';
+    __manualRec.stage = 'IDLE';
+    __manualHideControls();
+  };
+
+  // 控制条窗口的点击 → 主进程转发回来 → 执行对应动作
+  window.__manualBindControls = function(){
+    try{
+      if(typeof window.api === 'undefined' || typeof window.api.onRecorderControlsCommand !== 'function')return;
+      window.api.onRecorderControlsCommand(function(action){
+        if(action === 'start'){ window.__manualStart(); }
+        else if(action === 'pause'){ window.__manualPause(); }
+        else if(action === 'resume'){ window.__manualResume(); }
+        else if(action === 'stop'){
+          window.__manualStop();
+          // 停止后自动保存 → 保存成功即关闭控制条并进入最终视频确认界面
+          setTimeout(function(){ window.__manualSave(); }, 120);
+        }
+      });
+    }catch(_e){}
+  };
+
+  // 手动录屏入口（主窗口内）：显示控制条 → 用户在控制条上点「开始」
+  //   控制条在主窗口**之外**，因此控制按钮不会出现在录制画面里。
+  window.startManualRecording = function(){
+    try{
+      // 先绑定控制条命令（只绑定一次；重复调用会重复监听，这里做一次防重）
+      if(!window.__manualControlsBound){
+        window.__manualControlsBound = true;
+        window.__manualBindControls();
+      }
+    }catch(_e){}
+    // 激活"手动录屏工作区"：停止后进入最终视频确认界面
+    //   同时退出 AI 演示工作区（两者互斥，避免 AI 页抢占渲染）
+    if (state.aiDemo) state.aiDemo.active = false;
+    __manualRec.stage = 'RECORDING';
+    __manualRec.status = 'IDLE';
+    __manualRec.blob = null;
+    __manualRec.objectUrl = '';
+    __manualRec.durationSec = 0;
+    __manualRec.savedAsset = null;
+    __manualRec.mp4OutputPath = '';
+    __manualRec.savedAssetError = '';
+    __manualRec.errorMsg = '';
+    __manualShowControls();
+    __manualPushState();
+    try { __manualRenderStage(); } catch(_e){}
+    try { toast('录屏控制条已显示在窗口外侧，点「开始」录制', false, 3500); } catch(_e){}
+    return { ok:true };
+  };
+
+  // 释放所有 AI 演示占用的资源（卸载 / 关页面时调用）
 
 
 
@@ -8396,9 +9120,10 @@ window.testWechatConnection=function(){
     // v1.20.10：本地视频路径（state.voiceSource === 'localVideo'）也走**同一个**录音 UI 组件，
     //   不复制代码；底部"跳过声音克隆"按钮的 enabled / disabled 行为由 renderVoiceStudio
     //   内的 vstudioFooter 按 voiceSource 区分（参见对应分支）。
+    // 手动录屏路径（state.voiceSource === 'manualRec'）同样复用这一个组件。
     // v1.20.10：不另加顶部 banner 卡片（rec-stage），避免重复界面——renderVoiceStudio 内部
     //   已经有标题区；本地视频路径只要给一个 id="vStudioStep" 的 mount 点即可。
-    if (state.voiceSource === 'aiDemo' || state.voiceSource === 'localVideo') {
+    if (state.voiceSource === 'aiDemo' || state.voiceSource === 'localVideo' || state.voiceSource === 'manualRec') {
       var _containerHtml = '<div id="vStudioStep"></div>';
       ctrl.innerHTML = _containerHtml;
       // 临时把 ctrlBox 的 id 借给 vStudioStep，让 renderVoiceStudio 内部能正常渲染
@@ -9464,12 +10189,15 @@ window.testWechatConnection=function(){
     //         本地视频路径**不要求**声音档案（用户可以不带声音档案直接选语音引擎）。
     //     · 声音克隆跳过状态（state.voiceSkip）只控制按钮 A，**不影响**按钮 B 的导航目标。
     //     · "返回"按钮文案按来源切换（"返回 AI 自动演示" / "返回本地视频"）。
-    if (state.voiceSource === 'aiDemo' || state.voiceSource === 'localVideo') {
+    if (state.voiceSource === 'aiDemo' || state.voiceSource === 'localVideo' || state.voiceSource === 'manualRec') {
       var _voiceBusy = (__recState.status === 'recording' || __recState.status === 'paused');
       var _hasProfile = !!(state.voiceProfile && state.voiceCurrentVersionId);
       var _voiceSkip  = !!state.voiceSkip; // 用户已显式跳过声音克隆
       var _isAiDemo = (state.voiceSource === 'aiDemo');
       var _isLocalVideo = (state.voiceSource === 'localVideo');
+      var _isManualRec = (state.voiceSource === 'manualRec');
+      // 手动录屏与 AI 录屏一样：进入"选择语音生成方式"前必须有声音档案或显式跳过
+      var _isStrictVoice = _isAiDemo || _isManualRec;
       var _canProceed = !_voiceBusy && (_hasProfile || _voiceSkip);
       // v1.20.8：明确计算"未启用原因"，让用户在按钮附近始终看到（不仅 hover）
       var _nextDisabledReason = '';
@@ -9487,21 +10215,21 @@ window.testWechatConnection=function(){
         : _voiceSkip
           ? '下一步：选择语音生成方式（已跳过声音克隆）→'
           : '下一步：选择语音生成方式 →';
-      // "跳过声音克隆"按钮（按钮 A）：AI 演示始终 disabled；本地视频始终 enabled。
+      // "跳过声音克隆"按钮（按钮 A）：AI 演示始终 disabled；本地视频始终 enabled；手动录屏同 AI 录屏。
       var _skipDisabledAttr = _isAiDemo
         ? 'disabled title="AI 录屏流程不允许通过此按钮跳过声音克隆"'
         : ''; // 本地视频：始终可点击
       var _skipOnClick = _isAiDemo
         ? 'skipVoiceInAiDemo()'
-        : 'skipVoiceInLocalVideo()';
-      var _backLabel = _isAiDemo ? '← 返回 AI 自动演示' : '← 返回本地视频';
+        : (_isManualRec ? 'skipVoiceInAiDemo()' : 'skipVoiceInLocalVideo()');
+      var _backLabel = _isAiDemo ? '← 返回 AI 自动演示' : (_isManualRec ? '← 返回手动录屏' : '← 返回本地视频');
       // "下一步：选择语音生成方式"按钮（按钮 B）：两个来源**都**走 proceedFromVoiceInAiDemo()
       //   —— 同一个导航目标（step 13 = 选择语音生成方式）。
       //   - AI 演示流程：受 _canProceed 控制（要 voiceProfile/voiceSkip）
       //   - 本地视频流程：不受 _canProceed 控制（用户在本地视频下可以**不带**声音档案继续）
       //   关键：按钮 B 永远进「选择语音生成方式」页面，**不**因来源是本地视频就直接跳首秀计划；
       //   声音克隆跳过状态（state.voiceSkip）只控制按钮 A，**不影响**按钮 B。
-      var _nextBtn = _isAiDemo
+      var _nextBtn = _isStrictVoice
         ? '<button class="btn primary-main" id="vstudioNextBtn" onclick="proceedFromVoiceInAiDemo()" ' + (_canProceed ? '' : 'disabled') + '>' + _nextTitle + '</button>'
         : '<button class="btn primary-main" id="vstudioNextBtn" onclick="proceedFromVoiceInAiDemo()">' + _nextTitle + '</button>';
       h += '' +
@@ -9511,8 +10239,8 @@ window.testWechatConnection=function(){
         '  <span style="flex:1"></span>' +
           _nextBtn +
         '</div>' +
-        // v1.20.8：明确显示禁用原因（不依赖 hover）—— 仅 AI 演示流程主按钮启用时用到。
-        (_isAiDemo && !_canProceed ?
+        // v1.20.8：明确显示禁用原因（不依赖 hover）—— 仅 AI 演示 / 手动录屏流程主按钮启用时用到。
+        (_isStrictVoice && !_canProceed ?
           '<div class="vstudio-reason" id="vstudioNextReason">' +
             '<span class="reason-dot" aria-hidden="true"></span>' +
             esc(_nextDisabledReason) +
@@ -21501,6 +22229,22 @@ function dedupeLaunchDone(doneIds){
         refreshPubsFromDb();
       }catch(_e){}
     }
+
+    // ---------- 手动录屏控制条 ----------
+    //   控制条窗口的点击 → 主进程转发回来 → 执行开始 / 暂停 / 恢复 / 停止。
+    //   整个应用生命周期只注册这一次。
+    try{
+      if(!window.__manualControlsBound){
+        window.__manualControlsBound = true;
+        if(typeof window.__manualBindControls === 'function') window.__manualBindControls();
+      }
+    }catch(_e){}
+    // 页面卸载时释放手动录屏资源（停止录制 + 关闭控制条）
+    try{
+      window.addEventListener('beforeunload', function(){
+        try{ if(typeof window.__manualDispose === 'function') window.__manualDispose(); }catch(_e){}
+      });
+    }catch(_e){}
 
   });
 

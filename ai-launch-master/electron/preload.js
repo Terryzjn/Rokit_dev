@@ -48,6 +48,19 @@ contextBridge.exposeInMainWorld('api', {
   recorderDiscard: (sessionId) => ipcRenderer.invoke('recorder:discard', { sessionId: sessionId }),
   recorderListSessions: () => ipcRenderer.invoke('recorder:list-sessions'),
   recorderProbe: (path) => ipcRenderer.invoke('recorder:probe', { path: path }),
+  // 手动录屏控制条（独立窗口）：主窗口 renderer 显示/隐藏控制条 + 推送录制状态
+  recorderControlsShow: () => ipcRenderer.invoke('recorder-controls:show'),
+  recorderControlsHide: () => ipcRenderer.invoke('recorder-controls:hide'),
+  recorderControlsSetState: (payload) => ipcRenderer.invoke('recorder-controls:set-state', payload || {}),
+  recorderControlsState: () => ipcRenderer.invoke('recorder-controls:state'),
+  // 控制条点击 → 主进程转发回主窗口 renderer
+  onRecorderControlsCommand: (callback) => {
+    const listener = (_event, action) => {
+      try { callback(String(action || '')); } catch (_e) {}
+    };
+    ipcRenderer.on('recorder-controls:command', listener);
+    return () => ipcRenderer.removeListener('recorder-controls:command', listener);
+  },
   // v1.15：AI 自动演示（屏幕源 / 保存 / MP4 导出 / 时长探测）
   demoListSources: () => ipcRenderer.invoke('demo:list-sources'),
   demoSaveRecording: (payload) => ipcRenderer.invoke('demo:save-recording', payload),

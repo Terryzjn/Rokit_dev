@@ -58,6 +58,17 @@ async function listSources() {
 //   1) { tempPath, ext, id? }：把 recorder 产出的临时文件 rename 到 userData/videos
 //   2) { blobBase64, ext, id? }：直接把 base64 写到 userData/videos（适配 renderer FileReader）
 // v1.19：把 capture region / 来源信息一并写入 .meta.json 同名 sidecar，方便后续审计
+// sourceType：资产来源标记。默认 'AI_RECORDING'（AI 自动演示）；
+//   手动录屏传 'MANUAL_RECORDING'，避免两种来源混淆。
+//   白名单校验：只接受已知枚举值，非法值一律回退默认（不写入任意字符串）。
+const SOURCE_TYPES = Object.freeze({
+  AI_RECORDING: 'AI_RECORDING',
+  MANUAL_RECORDING: 'MANUAL_RECORDING'
+});
+function normalizeSourceType(v) {
+  const s = String(v || '').trim().toUpperCase();
+  return Object.prototype.hasOwnProperty.call(SOURCE_TYPES, s) ? SOURCE_TYPES[s] : SOURCE_TYPES.AI_RECORDING;
+}
 function writeCaptureMeta(target, opts) {
   try {
     const meta = {
@@ -67,7 +78,7 @@ function writeCaptureMeta(target, opts) {
       captureSource: opts.captureSource || '',
       captureRegion: opts.captureRegion || null,
       captureSize: opts.captureSize || null,
-      recorder: 'ai-demo v1.19',
+      recorder: opts.recorder || 'ai-demo v1.19',
       notes: 'Capture from Rokit AI demo. Privacy-bound — only the listed source/region is recorded.'
     };
     fs.writeFileSync(target + '.meta.json', JSON.stringify(meta, null, 2));
@@ -113,7 +124,7 @@ async function saveRecording(opts) {
   try { writeCaptureMeta(target, opts); } catch (_e) {}
   const asset = {
     id: id,
-    sourceType: 'AI_RECORDING',
+    sourceType: normalizeSourceType(opts.sourceType),
     fileName: id + '.' + ext,
     filePath: target,
     metaPath: target + '.meta.json',
@@ -366,5 +377,8 @@ module.exports = {
   saveRecording: saveRecording,
   exportMp4: exportMp4,
   probeDurationMs: probeDurationMs,
-  videosDir: videosDir
+  videosDir: videosDir,
+  // 资产来源枚举（手动录屏用 MANUAL_RECORDING）
+  SOURCE_TYPES: SOURCE_TYPES,
+  normalizeSourceType: normalizeSourceType
 };
