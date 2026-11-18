@@ -55,15 +55,17 @@ function stripLineComments(s) {
   return s.replace(/^(\s*)\/\/.*$/gm, '');
 }
 
-describe('v1.20.10 · 本地视频 → 完全复用 AI 录屏录音界面（renderVoiceStudio）', () => {
+describe('v1.20.10 · 本地视频 → 完全复用录屏录音界面（renderVoiceStudio）', () => {
 
-  // —— A. 第一步界面（选择本地视频 / AI 自动演示项目）保持不变 ——
-  it('A. 第一步"选择本地视频 / AI 自动演示项目"按钮和文案保持不变', () => {
+  // —— A. 第一步界面（选择本地视频 / 手动录屏）保持不变 ——
+  it('A. 第一步"选择本地视频 / 手动录屏"按钮和文案保持不变', () => {
     expect(RAW).toMatch(/onclick="pickLocalVideo\(\)"/);
-    expect(RAW).toMatch(/onclick="openAiDemoWorkspace\(\)"/);
+    expect(RAW).toMatch(/onclick="startManualRecording\(\)"/);
     expect(RAW).toMatch(/本地视频/);
-    expect(RAW).toMatch(/AI 自动演示项目/);
-    expect(RAW).toMatch(/选择本地视频，或启动 AI 自动演示项目/);
+    expect(RAW).toMatch(/手动录屏/);
+    expect(RAW).toMatch(/选择本地视频，或启动手动录屏/);
+    // AI 自动录屏入口已移除
+    expect(RAW).not.toMatch(/onclick="openAiDemoWorkspace\(\)"/);
   });
 
   // —— B. openLocalVoiceStep：进入 voice step，复用 renderVoice ——
@@ -93,12 +95,12 @@ describe('v1.20.10 · 本地视频 → 完全复用 AI 录屏录音界面（rend
     expect(body).toMatch(/stopRecording/);
   });
 
-  // —— D. renderVoice 不再单独为 localVideo 复制分支 —— 共用 aiDemo 分支；不再加顶部 banner 卡片 ——
-  it('D. renderVoice 把 aiDemo / localVideo 合并到同一份分支，调用同一个 renderVoiceStudio（无顶部 banner）', () => {
+  // —— D. renderVoice 不再单独为 localVideo 复制分支 —— 共用 manualRec 分支；不再加顶部 banner 卡片 ——
+  it('D. renderVoice 把 manualRec / localVideo 合并到同一份分支，调用同一个 renderVoiceStudio（无顶部 banner）', () => {
     var body = extractFunction('renderVoice');
     expect(body).toBeTruthy();
-    // 单分支条件：voiceSource === 'aiDemo' || voiceSource === 'localVideo'
-    expect(body).toMatch(/state\.voiceSource\s*===\s*'aiDemo'\s*\|\|\s*state\.voiceSource\s*===\s*'localVideo'/);
+    // 单分支条件：voiceSource === 'localVideo' || voiceSource === 'manualRec'
+    expect(body).toMatch(/state\.voiceSource\s*===\s*'localVideo'\s*\|\|\s*state\.voiceSource\s*===\s*'manualRec'/);
     // 必须调 renderVoiceStudio 一次
     expect(body).toMatch(/renderVoiceStudio\(\)/);
     // 不允许出现"跳过录音，进入首秀计划"这种新增第二个跳过按钮的文字
@@ -144,20 +146,19 @@ describe('v1.20.10 · 本地视频 → 完全复用 AI 录屏录音界面（rend
     expect(stripped).not.toMatch(/renderLocalVideoStage\(/);
   });
 
-  // —— F. renderVoiceStudio 底部"跳过声音克隆"按钮按 voiceSource 切换 onclick / disabled ——
-  it('F. 录音界面底部"跳过声音克隆"按钮按 voiceSource 区分 onclick 与 disabled', () => {
+  // —— F. renderVoiceStudio 底部"跳过声音克隆"按钮按 voiceSource 切换 onclick ——
+  it('F. 录音界面底部"跳过声音克隆"按钮按 voiceSource 区分 onclick', () => {
     // 1) "跳过声音克隆"按钮（HTML label）**仅**出现在 vstudioFooter 中一次
     var btnMatches = RAW.match(/>跳过声音克隆<\/button>/g) || [];
     expect(btnMatches.length).toBe(1); // 唯一的按钮
-    // 2) 切出包含 _isAiDemo / _skipOnClick / vstudioFooter 的连续片段
-    var sectionStart = RAW.indexOf('var _isAiDemo');
+    // 2) 切出包含 _isManualRec / _skipOnClick / vstudioFooter 的连续片段
+    var sectionStart = RAW.indexOf('var _isManualRec');
     var sectionEnd   = RAW.indexOf('id="vstudioFooter"');
     expect(sectionStart).toBeGreaterThan(0);
     expect(sectionEnd).toBeGreaterThan(sectionStart);
     var fb = RAW.slice(sectionStart, sectionEnd + 800);
-    // 3) disabled 属性来自 voiceSource 判断（AI 演示 → disabled；本地视频 → 不带 disabled）
-    expect(fb).toMatch(/_isAiDemo[\s\S]{0,400}disabled/);
-    expect(fb).toMatch(/_skipOnClick[\s\S]{0,200}skipVoiceInAiDemo\(\)/);
+    // 3) onclick 按 voiceSource 判断（录屏 → skipVoiceInRecording；本地视频 → skipVoiceInLocalVideo）
+    expect(fb).toMatch(/_skipOnClick[\s\S]{0,200}skipVoiceInRecording\(\)/);
     expect(fb).toMatch(/_skipOnClick[\s\S]{0,200}skipVoiceInLocalVideo\(\)/);
     // 4) 不允许出现"跳过录音，进入首秀计划"这种新增第二个跳过按钮
     expect(fb).not.toMatch(/跳过录音，进入首秀计划/);
@@ -166,16 +167,16 @@ describe('v1.20.10 · 本地视频 → 完全复用 AI 录屏录音界面（rend
 
   // —— F2. 录音界面右下"下一步：选择语音生成方式 →"按钮（按钮 B）：两个来源下都进 step 13 = 选择语音生成方式页面 ——
   it('F2. 按钮 B（"下一步：选择语音生成方式"）在两个来源下都进 step 13（不允许本地视频下直接跳首秀计划）', () => {
-    var sectionStart = RAW.indexOf('var _isAiDemo');
+    var sectionStart = RAW.indexOf('var _isManualRec');
     var sectionEnd   = RAW.indexOf('id="vstudioFooter"');
     expect(sectionStart).toBeGreaterThan(0);
     expect(sectionEnd).toBeGreaterThan(sectionStart);
     var fb = RAW.slice(sectionStart, sectionEnd + 1200);
-    // 1) 两个来源下按钮 B 都挂 proceedFromVoiceInAiDemo()（不允许挂 skipVoiceInLocalVideo）
-    var nextBtnMatches = fb.match(/id="vstudioNextBtn"\s+onclick="proceedFromVoiceInAiDemo\(\)"/g) || [];
+    // 1) 两个来源下按钮 B 都挂 proceedFromVoice()（不允许挂 skipVoiceInLocalVideo）
+    var nextBtnMatches = fb.match(/id="vstudioNextBtn"\s+onclick="proceedFromVoice\(\)"/g) || [];
     expect(nextBtnMatches.length).toBeGreaterThanOrEqual(2);
-    // 2) 按钮 B 在 _nextBtn 三元两侧都挂 proceedFromVoiceInAiDemo（不允许 _isLocalVideo 分支挂 skipVoiceInLocalVideo）
-    expect(fb).toMatch(/\?[^]*proceedFromVoiceInAiDemo\(\)[^]*proceedFromVoiceInAiDemo\(\)/);
+    // 2) 按钮 B 在 _nextBtn 三元两侧都挂 proceedFromVoice（不允许 _isLocalVideo 分支挂 skipVoiceInLocalVideo）
+    expect(fb).toMatch(/\?[^]*proceedFromVoice\(\)[^]*proceedFromVoice\(\)/);
     // 3) 按钮 A「跳过声音克隆」在本地视频路径下挂 skipVoiceInLocalVideo（不带 disabled）
     //   源码 onclick 是动态拼接（onclick="' + _skipOnClick + '"'），按 _skipOnClick 变量赋值锁定
     expect(fb).toMatch(/_skipOnClick[\s\S]{0,200}skipVoiceInLocalVideo\(\)/);
@@ -183,12 +184,12 @@ describe('v1.20.10 · 本地视频 → 完全复用 AI 录屏录音界面（rend
     expect(fb).not.toMatch(/id="vstudioNextBtn"\s+onclick="skipVoiceInLocalVideo\(\)"/);
   });
 
-  // —— G. AI 录屏流程原有行为完全不变 ——
-  it('G. AI 录屏路径 voiceSource="aiDemo" 走原通道，跳到 step 8 + 下一站 = 13（语音引擎选择）', () => {
-    var body = extractWindowFn('aiDemoNext');
+  // —— G. 录屏流程原有行为完全不变 ——
+  it('G. 录屏路径 voiceSource="manualRec" 走原通道，跳到 step 8 + 下一站 = 13（语音引擎选择）', () => {
+    var body = extractWindowFn('manualRecordingNext');
     expect(body).toBeTruthy();
     expect(body).toMatch(/state\.step\s*=\s*8/);
-    expect(body).toMatch(/state\.voiceSource\s*=\s*'aiDemo'/);
+    expect(body).toMatch(/state\.voiceSource\s*=\s*'manualRec'/);
     expect(body).toMatch(/state\.voiceReturnStep\s*=\s*5/);
     expect(body).toMatch(/state\.voiceNextStep\s*=\s*13/);
   });
@@ -204,13 +205,13 @@ describe('v1.20.10 · 本地视频 → 完全复用 AI 录屏录音界面（rend
     expect(stripped).toMatch(/state\.videoAsset[\s\S]{0,30}state\.videoAsset\.id/);
     // 必须直接置 state.step = 11（选择发布平台），不走 voiceNextStep
     expect(stripped).toMatch(/state\.step\s*=\s*11/);
-    expect(stripped).not.toMatch(/proceedFromVoiceInAiDemo/);
-    expect(stripped).not.toMatch(/skipVoiceInAiDemo/);
+    expect(stripped).not.toMatch(/proceedFromVoice/);
+    expect(stripped).not.toMatch(/skipVoiceInRecording/);
   });
 
-  // —— N. v1.20.10 紧急回归修复：openAiDemoWorkspace 切回 AI 录屏时清空 voiceSource 等残留 ——
-  it('N. openAiDemoWorkspace 进入 AI 录屏时清空 voiceSource / voiceSkip / voiceReturnStep / voiceNextStep', () => {
-    var body = extractWindowFn('openAiDemoWorkspace');
+  // —— N. v1.20.10 紧急回归修复：进入录屏时清空 voiceSource 等残留 ——
+  it('N. startManualRecording 进入录屏时清空 voiceSource / voiceSkip / voiceReturnStep / voiceNextStep', () => {
+    var body = extractWindowFn('startManualRecording');
     expect(body).toBeTruthy();
     expect(body).toMatch(/state\.voiceSource\s*=\s*['"]['"]/);
     expect(body).toMatch(/state\.voiceSkip\s*=\s*false/);
@@ -279,5 +280,62 @@ describe('v1.20.10 · 本地视频 → 完全复用 AI 录屏录音界面（rend
     expect(body).toMatch(/vStudioCloseBtn/);
     expect(body).toMatch(/keydown/);
     expect(body).toMatch(/Escape/);
+  });
+
+  // —— P. 「视频就绪 / 已选择本地视频」中间页（图二）已彻底删除 ——
+  it('P. renderLocalVideoStage 只有「选择视频」来源页一条路径，图二页面代码已删除', () => {
+    var body = extractFunction('renderLocalVideoStage');
+    expect(body).toBeTruthy();
+    var stripped = stripLineComments(body);
+    // 1) 图二的标题状态词（"视频就绪" / "已选择"）不再出现
+    expect(stripped).not.toMatch(/视频就绪/);
+    expect(stripped).not.toMatch(/已选择本地视频/);
+    expect(stripped).not.toMatch(/已选择本地视频，可重新选择或删除/);
+    // 2) 图二专属的状态标签映射（stLabel / stColor 的 VIDEO_READY / UPLOADING / UPLOADED / FAILED 分支）已删除
+    expect(stripped).not.toMatch(/stLabel/);
+    expect(stripped).not.toMatch(/'上传中\.\.\.'/);
+    expect(stripped).not.toMatch(/'✓ 已上传'/);
+    expect(stripped).not.toMatch(/'✗ 上传失败'/);
+    // 3) 图二专属的"当前阶段：视频只保留在用户本地"提示条已删除
+    expect(stripped).not.toMatch(/视频只保留在用户本地/);
+    // 4) 图二里的 inline "state.videoAsset=null" 返回按钮已删除（返回走统一的来源页）
+    expect(stripped).not.toMatch(/state\.videoAsset=null;/);
+    // 5) 仍保留「选择本地视频」+「手动录屏」两个来源入口
+    expect(stripped).toMatch(/onclick="pickLocalVideo\(\)"/);
+    expect(stripped).toMatch(/onclick="startManualRecording\(\)"/);
+    // 6) 「重新选择视频 / 删除」能力被并入来源页（不能丢失）
+    expect(stripped).toMatch(/onclick="repickLocalVideo\(\)"/);
+    expect(stripped).toMatch(/onclick="clearLocalVideo\(\)"/);
+  });
+
+  // —— P2. 两个返回入口都直达「选择视频」来源页 ——
+  it('P2. 「返回视频选择」与「返回本地视频」都回到 step 5 来源页，不经过图二', () => {
+    // 1) 手动录屏完成页的「← 返回视频选择」→ closeManualRecordingWorkspace() → step 5
+    var backBtn = RAW.match(/onclick="closeManualRecordingWorkspace\(\)"[^>]*>([^<]*)</);
+    expect(backBtn).toBeTruthy();
+    expect(backBtn[1]).toContain('返回视频选择');
+    var ws = extractWindowFn('closeManualRecordingWorkspace');
+    expect(ws).toBeTruthy();
+    expect(ws).toMatch(/state\.step\s*=\s*5/);
+    // 不清空已保存资产（磁盘文件与 VideoAsset 登记都必须保留）
+    var wsStripped = stripLineComments(ws);
+    expect(wsStripped).not.toMatch(/state\.videoAsset\s*=\s*null/);
+    expect(wsStripped).not.toMatch(/videoClearInternalAsset/);
+    expect(wsStripped).not.toMatch(/state\.videoState\s*=\s*['"]NO_VIDEO['"]/);
+
+    // 2) 录音页的返回按钮 → returnFromVoiceStep() → step 5（voiceReturnStep）
+    var ret = extractWindowFn('returnFromVoiceStep');
+    expect(ret).toBeTruthy();
+    expect(ret).toMatch(/state\.step\s*=\s*ret/);
+    // 不得把 videoState 降级成 NO_VIDEO（否则已保存资产的元信息与下一步判定都会失效）
+    var retStripped = stripLineComments(ret);
+    expect(retStripped).not.toMatch(/state\.videoState\s*=\s*['"]NO_VIDEO['"]/);
+    // 不得清空已保存资产
+    expect(retStripped).not.toMatch(/state\.videoAsset\s*=\s*null/);
+
+    // 3) 录音页返回按钮文案统一为「← 返回视频选择」
+    expect(RAW).toMatch(/var _backLabel\s*=\s*'← 返回视频选择'/);
+    // 旧的「返回本地视频」文案已不存在
+    expect(RAW).not.toMatch(/返回本地视频/);
   });
 });

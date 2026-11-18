@@ -28,6 +28,22 @@ function registerPlanIpc(ipcMain, deps) {
   // 保存某作品的整份计划配置（阶段增 / 改 / 删一次到位，任务按平台自动同步）
   ipcMain.handle('plan:save', (_e, workId, stages) => getStore().savePlanStages(workId, stages));
 
+  // 更新某个阶段对成品视频的引用（只改 plan_stages.copy 里的 videoPath）
+  //   ★ 与 plan:save 严格分离：
+  //     成品视频合成完成后只需要刷新**已有阶段**的视频快照，
+  //     绝不能借机整份重存计划（那会新建 / 更新 / 取消 plan_tasks）。
+  //   · 阶段必须已存在：不存在直接返回失败，**绝不自动创建阶段**。
+  //   · 只更新 copy[platformId].videoPath 这一个键，该平台原有的 title / body / tags
+  //     与其它平台的全部数据一律保留。
+  //   · 归属以 work_id 精确校验，绝不写到别的作品名下。
+  ipcMain.handle('plan:set-stage-video-ref', (_e, workId, stageId, platformId, videoPath) => {
+    const store = getStore();
+    if (!store || typeof store.setPlanStageVideoReference !== 'function') {
+      return { ok: false, error: 'unsupported' };
+    }
+    return store.setPlanStageVideoReference(workId, stageId, platformId, videoPath);
+  });
+
   // 删除单个阶段（只影响该阶段；其未执行任务被取消，已执行历史保留）
   ipcMain.handle('plan:delete-stage', (_e, workId, stageId) => getStore().deletePlanStage(workId, stageId));
 
@@ -67,7 +83,7 @@ function registerPlanIpc(ipcMain, deps) {
   });
 
   // ---- 作品最新成品视频映射（settings_kv，不新增数据库表） ----
-  //   写入前主进程用 resolveFinalVideoFile 做 userData/video/final 白名单校验；
+  //   写入前主进程用 resolveFinalVideoFile 做 userData/temp/videos/final 白名单校验；
   //   读取时再次校验路径与文件是否存在。
   ipcMain.handle('plan:save-final-video', (_e, workId, videoPath) => {
     if (typeof deps.saveWorkFinalVideo !== 'function') {

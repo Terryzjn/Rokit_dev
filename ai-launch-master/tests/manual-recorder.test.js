@@ -68,6 +68,9 @@ const SRC = [
   extractBlock(HTML, 'window.startManualRecording = function(){'),
   // —— 本批新增：手动录屏的"最终视频确认界面" ——
   extractBlock(HTML, 'function __manualNextEnabled(){'),
+  // v1.22：保留录屏（临时 → 永久）的启用判定与执行入口
+  extractBlock(HTML, 'function __manualRetainEnabled(){'),
+  extractBlock(HTML, 'window.retainManualRecording = async function(){'),
   extractBlock(HTML, 'function __manualRenderStage(ctrl){'),
   extractBlock(HTML, 'window.saveManualRecording = async function(){'),
   extractBlock(HTML, 'window.exportManualRecordingMp4 = async function(){'),
@@ -80,7 +83,8 @@ const SRC = [
   extractBlock(HTML, 'async function exportRecordingToMp4(rec){'),
   // 窗口导出（extractBlock 只切出函数体，赋值语句需单独带上）
   'window.__manualRenderStage = __manualRenderStage;',
-  'window.__manualNextEnabled = __manualNextEnabled;'
+  'window.__manualNextEnabled = __manualNextEnabled;',
+  'window.__manualRetainEnabled = __manualRetainEnabled;'
 ].join('\n');
 
 /* ---------- 假 MediaRecorder ---------- */
@@ -108,7 +112,7 @@ function makeEnv(opts) {
   const o = opts || {};
   const calls = {
     media: [], states: [], saved: [], hidden: 0, shown: 0, toasts: [], go: [],
-    exported: [], rendered: [], rail: 0, flow: 0, pushed: []
+    exported: [], rendered: [], rail: 0, flow: 0, pushed: [], retained: []
   };
   const state = o.state || {
     videoAsset: null,
@@ -166,6 +170,24 @@ function makeEnv(opts) {
         calls.exported.push(payload);
         if (o.exportFails) return Promise.resolve({ ok: false, error: 'ffmpeg-unavailable' });
         return Promise.resolve({ ok: true, outputPath: 'C:/tmp/va-manual-1.mp4' });
+      },
+      // v1.22：保留录屏（临时 → 永久）
+      demoRetainRecording: function (assetId) {
+        calls.retained.push(assetId);
+        if (o.retainFails) return Promise.resolve({ ok: false, error: 'move-failed' });
+        return Promise.resolve({
+          ok: true,
+          asset: {
+            id: assetId,
+            sourceType: 'MANUAL_RECORDING',
+            fileName: 'va-manual-1.webm',
+            filePath: 'C:/users/videos/va-manual-1.webm',
+            metaPath: 'C:/users/videos/va-manual-1.webm.meta.json',
+            fileSize: 1234,
+            mimeType: 'video/webm',
+            createdAt: '2026-11-04T00:00:00.000Z'
+          }
+        });
       }
     }
   };
@@ -235,6 +257,8 @@ function makeEnv(opts) {
     + ' resetManualRecordingForRerecord: window.resetManualRecordingForRerecord,'
     + ' closeManualRecordingWorkspace: window.closeManualRecordingWorkspace,'
     + ' manualRecordingNext: window.manualRecordingNext,'
+    + ' retainManualRecording: window.retainManualRecording,'
+    + ' __manualRetainEnabled: window.__manualRetainEnabled,'
     + ' __manualRenderStage: window.__manualRenderStage,'
     + ' __manualNextEnabled: __manualNextEnabled,'
     + ' __manualAdoptAsset: __manualAdoptAsset, __manualElapsedSec: __manualElapsedSec,'
@@ -398,7 +422,7 @@ describe('手动录屏 · 停止与保存（R5 / R6 / R7）', () => {
     expect(env.calls.saved[0].blobBase64).toBe('AAA');
   });
 
-  it('R7 资产类型为 MANUAL_RECORDING（不标记为 AI_RECORDING），并登记为当前视频资产', async () => {
+  it('R7 资产类型为 MANUAL_RECORDING，并登记为当前视频资产', async () => {
     const env = makeEnv();
     await env.api.__manualStart();
     await flush();
@@ -407,7 +431,6 @@ describe('手动录屏 · 停止与保存（R5 / R6 / R7）', () => {
     await env.api.__manualSave();
 
     expect(env.calls.saved[0].sourceType).toBe('MANUAL_RECORDING');
-    expect(env.calls.saved[0].sourceType).not.toBe('AI_RECORDING');
     // 现有视频预览 / 后续流程能识别：state.videoAsset 被登记
     expect(env.state.videoAsset).toBeTruthy();
     expect(env.state.videoAsset.id).toBe('va-manual-1');
@@ -550,12 +573,13 @@ describe('手动录屏 · 主进程接线', () => {
     expect(CONTROLS_PRELOAD).not.toMatch(/getUserMedia|MediaRecorder|demoSaveRecording/);
   });
 
-  it('ai-demo.js 的 saveRecording 支持 sourceType 白名单', () => {
+  it('录屏共享后端（ai-demo.js）的 saveRecording 支持 sourceType 白名单', () => {
     const aiDemo = fs.readFileSync(path.join(ROOT, 'electron', 'ai-demo.js'), 'utf8');
     expect(aiDemo).toMatch(/MANUAL_RECORDING/);
     expect(aiDemo).toMatch(/normalizeSourceType/);
-    // 原有 AI 录屏默认仍是 AI_RECORDING（不回归）
+    // 资产来源默认就是 MANUAL_RECORDING
     expect(aiDemo).toMatch(/sourceType:\s*normalizeSourceType\(opts\.sourceType\)/);
+    expect(aiDemo).toMatch(/SOURCE_TYPES\.MANUAL_RECORDING/);
   });
 });
 
@@ -572,7 +596,7 @@ describe('手动录屏 · 最终视频确认界面（V1 / V2 / V3 / V4 / V5 / V6
     await env.api.__manualSave();
   }
 
-  it('V1 手动录屏停止并保存后：进入完整视频确认界面（含 5 个必需元素）', async () => {
+  it('V1 手动录屏停止并保存后：进入完整视频确认界面（含必需元素）', async () => {
     const env = makeEnv();
     await recordAndSave(env);
 
@@ -581,18 +605,20 @@ describe('手动录屏 · 最终视频确认界面（V1 / V2 / V3 / V4 / V5 / V6
     expect(html).toMatch(/<video[^>]+id="manualRecPreview"/);
     expect(html).toMatch(/controls/);
     expect(html).toMatch(/playsinline/);
-    // 2) 保存为视频样本
-    expect(html).toMatch(/保存为视频样本/);
-    expect(html).toMatch(/onclick="saveManualRecording\(\)"/);
+    // 2) 「保存为视频样本」按钮已隐藏（停止后视频自动保存）
+    expect(html).not.toMatch(/onclick="saveManualRecording\(\)"/);
     // 3) 导出 MP4
     expect(html).toMatch(/导出 MP4/);
     expect(html).toMatch(/onclick="exportManualRecordingMp4\(\)"/);
     // 4) 重新录制
     expect(html).toMatch(/重新录制/);
     expect(html).toMatch(/onclick="resetManualRecordingForRerecord\(\)"/);
-    // 5) 底部「下一步：录制声音」
+    // 5) 底部「下一步：录制声音」（自动保存成功后必须可点击）
     expect(html).toMatch(/下一步：录制声音/);
     expect(html).toMatch(/onclick="manualRecordingNext\(\)"/);
+    const nextBtn = /<button[^>]*id="manualRecNextBtn"[^>]*>/.exec(html);
+    expect(nextBtn).toBeTruthy();
+    expect(nextBtn[0]).not.toMatch(/disabled/);
   });
 
   it('V2 预览的 src 指向刚刚录制的 Blob（Blob / objectUrl / 资产三者关联正确）', async () => {
@@ -632,8 +658,10 @@ describe('手动录屏 · 最终视频确认界面（V1 / V2 / V3 / V4 / V5 / V6
     expect(env.state.videoAsset.id).toBe('va-manual-1');
     expect(env.state.videoAsset.sourceType).toBe('MANUAL_RECORDING');
     expect(env.state.videoState).toBe('VIDEO_READY');
-    // 界面上出现"已保存为 VideoAsset"
-    expect(env.ctrlBox.innerHTML).toMatch(/已保存为 VideoAsset/);
+    // 界面上出现"已临时保存为 VideoAsset"（v1.22：停止即存是**临时**保存，需主动点「保留录屏」）
+    expect(env.ctrlBox.innerHTML).toMatch(/已临时保存为 VideoAsset/);
+    // 「保留录屏」入口存在
+    expect(env.ctrlBox.innerHTML).toMatch(/保留录屏/);
   });
 
   it('V4 「导出 MP4」沿用现有转码逻辑（demo:export-mp4 + 60 FPS 上限在主进程）', async () => {
@@ -723,7 +751,7 @@ describe('手动录屏 · 最终视频确认界面（V1 / V2 / V3 / V4 / V5 / V6
     expect(env.calls.toasts.some((t) => /请先录制并点击/.test(t.msg))).toBe(true);
   });
 
-  it('V7 保存 / 转码 / 重新录制都不会误触发 AI 自动规划器或执行器', () => {
+  it('V7 保存 / 转码 / 重新录制都不会误触发任何自动规划器或执行器', () => {
     const saveSrc = extractBlock(HTML, 'window.saveManualRecording = async function(){');
     const mp4Src = extractBlock(HTML, 'window.exportManualRecordingMp4 = async function(){');
     const reSrc = extractBlock(HTML, 'window.resetManualRecordingForRerecord = function(){');
@@ -733,40 +761,46 @@ describe('手动录屏 · 最终视频确认界面（V1 / V2 / V3 / V4 / V5 / V6
       expect(s).not.toMatch(/runAiDemoScript/);
       expect(s).not.toMatch(/AI_DEMO_EXECUTOR/);
       expect(s).not.toMatch(/startAiDemo\(/);
+      expect(s).not.toMatch(/AI_APP_ADAPTER/);
     });
   });
 
-  it('V8 手动录屏完成页与 AI 录屏完成页**复用同一套**产物预览块 / 保存 / 转码逻辑', () => {
-    // 两侧都调用同一组共用函数
-    const aiStage = extractBlock(HTML, 'function renderAiDemoStage(ctrl){');
-    expect(aiStage).toMatch(/renderRecordingProductBlock\(d,\s*\{\s*previewId:\s*'aiDemoPreview'\s*\}\)/);
+  it('V8 手动录屏完成页**复用共用层**的产物预览块 / 保存 / 转码逻辑', () => {
     const manualStage = extractBlock(HTML, 'function __manualRenderStage(ctrl){');
     expect(manualStage).toMatch(/renderRecordingProductBlock\(d,\s*\{\s*previewId:\s*'manualRecPreview'\s*\}\)/);
 
-    // AI 页的保存 / 转码也走共用层
-    const aiSave = extractBlock(HTML, 'window.saveAiDemo = async function(){');
-    expect(aiSave).toMatch(/saveRecordingBlobToAsset\(state\.aiDemo\)/);
-    const aiMp4 = extractBlock(HTML, 'window.exportAiDemoMp4 = async function(){');
-    expect(aiMp4).toMatch(/exportRecordingToMp4\(state\.aiDemo\)/);
+    // 手动录屏的保存 / 转码都走共用层
+    const manualSave = extractBlock(HTML, 'window.saveManualRecording = async function(){');
+    expect(manualSave).toMatch(/saveRecordingBlobToAsset\(__manualRec/);
+    const manualMp4 = extractBlock(HTML, 'window.exportManualRecordingMp4 = async function(){');
+    expect(manualMp4).toMatch(/exportRecordingToMp4\(__manualRec\)/);
+
+    // 共用层函数存在
+    expect(HTML).toMatch(/function renderRecordingProductBlock\(rec, opts\)\{/);
+    expect(HTML).toMatch(/async function saveRecordingBlobToAsset\(rec, opts\)\{/);
+    expect(HTML).toMatch(/async function exportRecordingToMp4\(rec\)\{/);
+    expect(HTML).toMatch(/function adoptSavedRecordingAsset\(sa, durationSec, defaultSourceType\)\{/);
 
     // 没有第二套并行实现
     expect(HTML).not.toMatch(/manual-recording:save/);
     expect(HTML).not.toMatch(/manualRecordingSaveToAsset/);
   });
 
-  it('V9 AI 录屏完成页行为不变（按钮 / 判定 / 预览 id 全部保持）', () => {
-    // AI 页按钮与文案不变
-    expect(HTML).toMatch(/onclick="saveAiDemo\(\)"/);
-    expect(HTML).toMatch(/onclick="exportAiDemoMp4\(\)"/);
-    expect(HTML).toMatch(/onclick="resetAiDemoForRerecord\(\)"/);
-    expect(HTML).toMatch(/onclick="aiDemoNext\(\)"/);
-    // AI 页预览窗口 id 不变
-    expect(HTML).toMatch(/previewId:\s*'aiDemoPreview'/);
-    // AI 页的下一步判定函数不变
-    expect(HTML).toMatch(/function aiDemoNextEnabled\(demo\)\{/);
-    expect(HTML).toMatch(/window\.aiDemoNextEnabled = aiDemoNextEnabled/);
-    // AI 页仍然从 state.aiDemo 取数据
-    expect(HTML).toMatch(/state\.aiDemo\.savedAsset/);
+  it('V9 AI 自动录屏代码已全部移除（前端专属逻辑不再存在）', () => {
+    // 入口 / UI / 规划器 / 执行器 / 状态变量
+    expect(HTML).not.toMatch(/openAiDemoWorkspace/);
+    expect(HTML).not.toMatch(/closeAiDemoWorkspace/);
+    expect(HTML).not.toMatch(/renderAiDemoStage/);
+    expect(HTML).not.toMatch(/adoptAiDemoAsset/);
+    expect(HTML).not.toMatch(/aiDemoNext/);
+    expect(HTML).not.toMatch(/startAiDemo|pauseAiDemo|resumeAiDemo|stopAiDemo|saveAiDemo|exportAiDemoMp4|resetAiDemoForRerecord/);
+    expect(HTML).not.toMatch(/AI_DEMO_EXECUTOR|AI_APP_ADAPTER|AI_FUNCTION_MAP|AI_EXPLORER_STATS/);
+    expect(HTML).not.toMatch(/buildDemoPlan|runAiDemoScript|runAiDemoStep|startAiDemoPlan/);
+    expect(HTML).not.toMatch(/AI_DEMO_DANGER_WORDS|AI_DEMO_DANGER_SELECTORS/);
+    expect(HTML).not.toMatch(/state\.aiDemo/);
+    expect(HTML).not.toMatch(/__aiDemo/);
+    // 视频选择页不再出现 AI 自动录屏入口
+    expect(HTML).not.toMatch(/AI 自动演示项目/);
   });
 });
 

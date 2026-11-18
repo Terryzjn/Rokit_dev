@@ -429,12 +429,19 @@ describe('+ 接线（渲染层 / preload / 主进程）', () => {
   });
 
   it('持久化只写当前作品映射；计划已完成 / 已取消不改快照；无归属不写', () => {
-    const src = html.slice(html.indexOf('function _persistFinalVideoForWork'), html.indexOf('function _capBurnFinal'));
+    const raw = html.slice(html.indexOf('function _persistFinalVideoForWork'), html.indexOf('function _capBurnFinal'));
+    // 剥离注释后再断言（注释里提到 savePlan 属于说明，不是真实调用）
+    const src = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
     expect(src).toMatch(/window\.api\.planSaveFinalVideo\(owner,fv\)/);
     expect(src).toMatch(/if\(!owner\)return/);
     expect(src).toMatch(/\['done','cancelled'\]/);
-    // 内存计划必须与数据库阶段一致才调用 savePlan（避免覆盖用户已保存的计划）
-    expect(src).toMatch(/dbIds\.length!==memIds\.length/);
+    // v1.30：视频快照改为**独立更新**已有阶段的 copy，
+    //   不再整份重存计划（那会新建 / 更新 / 取消 plan_tasks）。
+    expect(src).toMatch(/planSetStageVideoRef/);
+    expect(src).not.toMatch(/window\.savePlan\(/);
+    // 更新目标来自**数据库已有阶段**及其平台快照
+    expect(src).toMatch(/dbStages\.forEach/);
+    expect(src).toMatch(/copy\[_pid\]/);
   });
 
   it('preload 暴露写 / 读两个窄 IPC', () => {

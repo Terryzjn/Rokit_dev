@@ -33,11 +33,30 @@ function ensureDir(p) {
   try { fs.mkdirSync(p, { recursive: true }); } catch (_e) {}
 }
 
+// v1.22（目录统一）：临时视频统一收敛到 <userData>/temp/videos/<sub>/
+//   final/  发布成品（成品视频 / 字幕 / 静帧）
+//   work/   可再生成的中间产物（转码 MP4 · 缩略图 · 裁剪）—— 由 video.js 写入
+//   与 video.js 的 outputDir() 必须保持完全一致（否则成品与封面会分处两处）。
+//   非 Electron 环境（单元测试）回退到 os.tmpdir()/rokit-temp/videos/<sub>/。
 function outputDir(sub) {
   try {
-    return path.join(app.getPath('userData'), 'video', sub || '');
+    return path.join(app.getPath('userData'), 'temp', 'videos', sub || '');
   } catch (_e) {
-    return path.join(os.tmpdir(), 'rokit-video', sub || '');
+    return path.join(os.tmpdir(), 'rokit-temp', 'videos', sub || '');
+  }
+}
+
+// v1.22.1（音频目录统一）：AI 配音的**混音输入**落盘到 <userData>/temp/voices/。
+//   · 为什么不在 temp/videos/final/：那是「视频产物树」（成品视频 / 字幕 / 静帧），
+//     而 voice-*.wav 是 FFmpeg 混音的音频中间输入，语义属于音频。
+//   · 与 voice-engine.js 的 _resolveTtsTmpRoot() 同口径（同一棵 temp 树下的 voices/）。
+//   · 字幕（sub-*.ass）、静帧（frz-*）、成品视频（final-*.mp4）仍在 temp/videos/final/。
+//   非 Electron 环境（单元测试）回退到 os.tmpdir()/rokit-temp/voices。
+function voiceInputDir() {
+  try {
+    return path.join(app.getPath('userData'), 'temp', 'voices');
+  } catch (_e) {
+    return path.join(os.tmpdir(), 'rokit-temp', 'voices');
   }
 }
 
@@ -310,13 +329,17 @@ function burnFinalVideo(inputPath, segments, frozen, opts) {
   });
 
   // ---- 3) 配音逐段落盘 ----
+  //   v1.22.1：落盘到 temp/voices/（音频目录），不再混入 temp/videos/final/（视频目录）。
+  //   文件名规则不变（voice-<stamp>-<i>.wav）；tmpFiles 登记与即时 cleanup 语义不变。
   const voiceFiles = [];
+  const voiceDir = voiceInputDir();
+  ensureDir(voiceDir);
   for (let i = 0; i < voiceSegs.length; i++) {
     try {
       const clean = String(voiceSegs[i].audioB64).replace(/^data:audio\/[a-z0-9]+;base64,/i, '');
       const buf = Buffer.from(clean, 'base64');
       if (!buf || buf.length < 100) continue; // 空/截断音频不参与混音
-      const vp = path.join(workDir, 'voice-' + stamp + '-' + i + '.wav');
+      const vp = path.join(voiceDir, 'voice-' + stamp + '-' + i + '.wav');
       fs.writeFileSync(vp, buf);
       tmpFiles.push(vp);
       voiceFiles.push({ path: vp, at: Math.max(0, Number(voiceSegs[i].outStart) || 0) });

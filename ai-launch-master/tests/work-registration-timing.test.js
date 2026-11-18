@@ -302,7 +302,9 @@ describe('现有作品功能不受影响', () => {
 
   it('launch 仍在 doneIds 为空时直接返回（不会空建记录）', () => {
     const fn = htmlSrc.slice(htmlSrc.indexOf('window.launch=function(){'));
-    expect(fn.slice(0, 900)).toMatch(/if\(!doneIds\.length\)return;/);
+    // 早退语义不变：不落库、不创建作品记录。
+    //   返回值可以是 return; 或 return false; —— 后者用于告知调用方「本次未安排清理」。
+    expect(fn.slice(0, 900)).toMatch(/if\(!doneIds\.length\)return( false)?;/);
   });
 });
 

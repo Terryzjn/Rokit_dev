@@ -304,8 +304,11 @@ describe('V7 · 改名时计划跟随新作品', () => {
     runSubmitName(state)({ preventDefault: function () {} });
     expect(state.planOwnerId).toBe('draft_rename_1');
     expect(state.copiesOwner).toBe('draft_rename_1');
-    expect(state.planDirty).toBe(true);
-    expect(state.plan[0].id).toBe('ps_new');
+    // v1.30：普通改名（用户没编辑过计划）不得把计划标脏，
+    //   否则 launch() 会隐式 savePlan()，凭空创建 plan_tasks。
+    expect(state.planDirty).toBe(false);
+    // 阶段 ID 不因改名而无故改变（与数据库保持一致）
+    expect(state.plan[0].id).toBe('ps_old');
     expect(state.plan[0].scheduledAt).toBe(FUTURE);
     expect(state.plan[0].platforms).toEqual(['github', 'wechat']);
   });

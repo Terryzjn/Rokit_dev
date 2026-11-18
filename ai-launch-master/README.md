@@ -115,24 +115,24 @@ npm run dist:win      # 不自增板号，仅打 Windows 安装包
 
 ## 测试覆盖
 
-`tests/` 下 12 个测试文件，238 个用例覆盖核心不变量：
+`tests/` 下 102 个测试文件、2417 个用例覆盖核心不变量（下表为核心不变量代表文件）：
 
 | 文件 | 用例数 | 覆盖 |
 |---|---|---|
 | `tests/store.test.js` | 24 | settings / works / pubs / channels CRUD + 级联删除 + schema 迁移幂等 + 损坏 JSON 兑底 |
 | `tests/store-json.test.js` | 28 | Store JSON 兑底模式全量兑底（通过 `Module._load` 拦截 `node:sqlite`） |
 | `tests/llm.test.js` | 11 | URL 拼接 / HTTP 错误映射 / AbortController 超时 / 缺 Key 拦截 |
-| `tests/publishers.test.js` | 39 | 13 平台注入脚本合法性 + launch URL + payload 序列化鲁棒性 |
-| `tests/secrets.test.js` | 12 | keytar 封装（set/get/delete） + API Key/PAT 专属接口 + 明文迁移 + 降级路径 |
+| `tests/publishers.test.js` | 53 | 13 平台注入脚本合法性 + launch URL + payload 序列化鲁棒性 |
+| `tests/secrets.test.js` | 17 | keytar 封装（set/get/delete） + API Key/PAT 专属接口 + 明文迁移 + 降级路径 |
 | `tests/queue.test.js` | 17 | pickMain 五状态优先级 + priority DESC + launched_at ASC + stable 14 天过滤 + schedule 写回 |
 | `tests/feedback-analyzer.test.js` | 29 | tokenize / classify / sentiment / Jaccard / clusterItems / priorityOf / analyzeForWork |
 | `tests/feedback-collector.test.js` | 26 | decodeHtml / stripHtml / parseRss / ghRepoFromWork / v2exTopicId / collectForWork 降级 |
 | `tests/recorder.test.js` | 12 | WebM session CRUD + finalized/error 状态 + probeDurationMs |
 | `tests/video.test.js` | 7 | ffmpeg 可用性 + 输入校验 + trim 参数 + processRecording 降级 |
-| `tests/logger.test.js` | 17 | init 幂等 + 4 级输出分流 + rotate（保留 3 备份） + 全局异常兜底 |
+| `tests/logger.test.js` | 19 | init 幂等 + 4 级输出分流 + rotate（保留 3 备份） + 全局异常兜底 |
 | `tests/bump-version.test.js` | 16 | CLI 自动板号 + 00/99 进位边界 + --check 只读模式 |
 
-运行 `npm test` 应当看到 `Test Files 12 passed (12)` / `Tests 238 passed`。
+运行 `npm test` 应当看到 `Test Files 102` / `Tests 2417`（上表 12 个核心文件合计 259 个用例）。
 
 ## 平台发布深度（当前实现）
 

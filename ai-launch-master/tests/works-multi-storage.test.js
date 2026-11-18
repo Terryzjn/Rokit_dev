@@ -91,7 +91,8 @@ describe('v1.20.10 · 我的作品多作品持久化', () => {
     // push 新作品（不替换）
     expect(/state\.works\.push\(w\)/.test(launchBody)).toBe(true);
     // 仅在有真实成功平台时才创建
-    expect(/if\(!doneIds\.length\)return;/.test(launchBody)).toBe(true);
+    //   （早退语义不变；返回值可以是 return; 或 return false; —— 后者用于告知调用方「本次未安排清理」）
+    expect(/if\(!doneIds\.length\)return( false)?;/.test(launchBody)).toBe(true);
   });
 
   it('D. seedWorks 加载 DB 后追加到 samples，不删除已有 state.works', () => {

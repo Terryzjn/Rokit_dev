@@ -1953,8 +1953,19 @@ describe('main.js / index.html · X phase 2 集成', () => {
     // (这里只用正向断言即可，反向断言由上面 xRPattern 隐含保证)
   });
 
-  it('index.html：state.videoAsset 同步到 X', () => {
-    expect(/id==='x'[\s\S]{0,3500}?state\.videoAsset\.id/.test(html)).toBe(true);
+  it('index.html：X 的视频来源是「作品关联最终成品视频」（受管虚拟资产）', () => {
+    // v1.29：X 平台改用统一解析出的**受管虚拟资产**（wvf_<workId>），
+    //   不再直接读 state.videoAsset（原始视频工作副本）。
+    //   · 单发：window.autoPub('x') 分支 → _applyPublishVideoAsset(payload, _singleVideoAsset)
+    //   · 批量：rocketGo 的 X 分支 → _applyPublishVideoAsset(_xPayloadLocal, _batchVideoAsset)
+    expect(/_applyPublishVideoAsset\(payload,\s*_singleVideoAsset\)/.test(html)).toBe(true);
+    expect(/_applyPublishVideoAsset\(_xPayloadLocal,\s*_batchVideoAsset\)/.test(html)).toBe(true);
+    // 解析器本身绝不回退到原始视频
+    var resolver = html.slice(
+      html.indexOf('function _workVideoAssetForPublish(){'),
+      html.indexOf('function _applyPublishVideoAsset(payload, asset){')
+    );
+    expect(resolver).not.toMatch(/state\.videoAsset/);
   });
 
   it('index.html：X 平台 auto:false (永不自动 Post)', () => {

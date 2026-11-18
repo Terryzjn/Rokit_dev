@@ -108,7 +108,7 @@ function isUniqueViolationError(e) {
 //           全列唯一索引会因这些历史重复值建不出来并阻断启动；
 //           排除空键既约束了所有真实幂等键，又完全不触碰历史行。
 //         · 本迁移只新增索引：不改数据、不删行、不合并重复键、不迁移历史记录。
-const CURRENT_VERSION = 10;
+const CURRENT_VERSION = 11;
 
 // 任务取消原因标记：平台被移出该阶段（区别于「用户主动取消」）
 //   - 用它区分"被配置变更连带取消"与"用户明确取消"：
@@ -122,6 +122,14 @@ const PLAN_REMOVED_NOTE = '平台已从该阶段移除';
 //     - 后续是小写字母数字，允许用 '_' 分成多段（单段也接受，兼容既有数据）；
 //     - 不能为空、不能含大写或特殊字符。
 const PLAN_DRAFT_OWNER_RE = /^draft_[0-9a-z]+(_[0-9a-z]+)*$/;
+
+// 「作品最新成品视频」映射的键前缀（settings_kv 表）。
+//   键：finalVideo:<workId>   值：成品视频绝对路径
+//   · 与 electron/main.js 的 FINAL_VIDEO_KEY_PREFIX 是同一套约定；
+//     这里单独定义一份常量（而不是从 main.js 引入），避免 store ↔ main 循环依赖。
+//   · 删除作品时（deleteWork）按这个前缀清理**该作品自己的**那一行映射，
+//     避免留下孤儿映射（作品已删、映射仍在 → 该视频永远被判为"仍被引用"）。
+const FINAL_VIDEO_KEY_PREFIX = 'finalVideo:';
 
 // 支持**真实发布**的平台（首秀计划到期后由真实执行器接手，而不是走模拟执行器）。
 //   - 判定依据是「该平台是否已接入真实发布通道」，与阶段里选了哪些平台无关；
@@ -421,6 +429,39 @@ const migrations = [
         //     之后 currentVersion >= CURRENT_VERSION 会直接跳过迁移 →
         //     索引永远补建不上（用户后来把重复数据修好了也不会自愈）。
         //     现在它每次启动都重试 → 失败不阻断启动，数据修好后下次启动自愈。
+      }
+    },
+    {
+      version: 11,
+      up: function (db) {
+        // v11：视频清理占用锁（video_cleanup_locks）
+        //   目的：为「删除成品视频文件」与「计划任务引用同一视频」之间建立**数据库级互斥**。
+        //   锁表示「有操作正在申请清理这个文件」，**不表示**「这个文件可以删除」。
+        //
+        //   ★ 本迁移只**新增表与索引**：不改任何既有业务数据、不删行、不合并键。
+        //   ★ 锁表的唯一约束（video_path PRIMARY KEY）保证同一文件不会被两个 owner 同时占用。
+        //
+        //   字段：
+        //     video_path  规范化后的绝对路径（Windows 下小写）—— 锁的键
+        //     owner       申请者标识（pid + 随机串）—— 只有原 owner 能释放
+        //     created_at  申请时间
+        //     expires_at  疑似遗留锁的识别时间（**仅用于识别，不用于自动删除文件**）
+        //
+        //   ★ 历史迁移（保留）：占用锁功能已撤销，本表不再有任何代码读写，
+        //     但**保留迁移与 CURRENT_VERSION=11** 是为了：
+        //       1) 已升级过的库 user_version=11 不会被降级回滚（迁移框架只增不减）；
+        //       2) 全新库与旧库的 user_version 保持一致（版本号语义稳定）。
+        //     遗留的空表对业务零影响（无外键、无触发器、无其它表引用它）。
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS video_cleanup_locks (
+            video_path TEXT PRIMARY KEY,
+            owner TEXT DEFAULT '',
+            created_at TEXT,
+            expires_at TEXT
+          );
+          CREATE INDEX IF NOT EXISTS idx_video_cleanup_locks_expires
+            ON video_cleanup_locks(expires_at);
+        `);
       }
     }
   ];
@@ -1107,6 +1148,12 @@ class Store {
       //   注意：计划层与发布记录层互不影响，删除计划不会伪造任何发布历史。
       this.run('DELETE FROM plan_stages WHERE work_id = ?', [id]);
       this.run('DELETE FROM plan_tasks WHERE work_id = ?', [id]);
+      // 作品最新成品视频映射（settings_kv 的 finalVideo:<workId>）也一并清理。
+      //   · 只删**这个作品自己的**精确键 → 其它作品的映射完全不受影响；
+      //   · 只删数据库记录，**不触碰任何磁盘视频文件**（文件是否可删由上层另行判定）；
+      //   · 不清理的话，这行映射会变成"孤儿"：作品已删但映射仍在，
+      //     assessFinalVideoCleanup 会一直认为该视频"仍是某作品的最新视频" → 永远受保护。
+      this.deleteSettingKv(FINAL_VIDEO_KEY_PREFIX + id);
     } else {
       this.data.works = this.data.works.filter(w => w.id !== id);
       const pubsBefore = (this.data.pubs || []).length;
@@ -1114,6 +1161,8 @@ class Store {
       if ((this.data.pubs || []).length !== pubsBefore) pubsChanged = true;
       this.data.plan_stages = (this.data.plan_stages || []).filter(s => s.work_id !== id);
       this.data.plan_tasks = (this.data.plan_tasks || []).filter(t => t.work_id !== id);
+      // 同上：清理本作品自己的成品视频映射（JSON 模式由 deleteSettingKv 负责落盘）。
+      this.deleteSettingKv(FINAL_VIDEO_KEY_PREFIX + id);
       this.saveJson();
     }
     // 级联删除已落库 → 通知
@@ -1619,10 +1668,9 @@ class Store {
       existing.forEach(s => {
         if (!keep[s.id]) self._planRemoveStage(owner, s.id, now);
       });
-    });
 
-    // 3) 同步平台执行任务（每个阶段 × 每个平台一行）
-    norm.forEach(s => {
+      // 3) 同步平台执行任务（每个阶段 × 每个平台一行）
+      norm.forEach(s => {
       // 新绝对时间优先；历史阶段仍按 offset/time 兼容计算
       const scheduled = s._scheduled || this._planScheduledAt(workCreatedAt, s.offsetDays, s.timeOfDay);
       // 真实执行资格：由**平台是否已接入真实发布通道**决定（PLAN_REAL_PLATFORMS），
@@ -1697,6 +1745,7 @@ class Store {
             updated_at: now
           }));
         }
+      });
       });
     });
 
@@ -3222,6 +3271,68 @@ class Store {
       .map(function (k) { return { k: k, v: kv[k] }; });
   }
 
+  // ---------- 计划视频引用扫描（内部）----------
+  //
+  //   返回 { references, unconfirmed, error }
+  //     references[] ：每条 { workId, stageId, platformId, taskId, status }
+  //     unconfirmed  ：存在「有快照但查不到任务行」的引用 → 引用关系不可确认
+  //     error        ：读取过程抛错（调用方必须按「无法确认」处理，绝不当作无引用）
+  //
+  //   ★ 多平台语义（修复 A）：
+  //     - 以 stage.platforms 为平台白名单逐个平台检查 copy[平台].videoPath；
+  //     - 平台已被移出该阶段 → 不再算引用（历史残留快照键同理）；
+  //     - 段不是有效对象 / 无 videoPath / videoPath 为空 → 跳过，不报错。
+  _collectPlanVideoReferences(target) {
+    const references = [];
+    let unconfirmed = false;
+    // 路径规范化：解析成绝对路径；Windows 下不区分大小写
+    const norm = function (p) {
+      try {
+        const r = path.resolve(String(p || ''));
+        return process.platform === 'win32' ? r.toLowerCase() : r;
+      } catch (_e) { return ''; }
+    };
+    try {
+      const taskByKey = {};
+      (this.listPlanTasks('') || []).forEach(function (t) {
+        if (!t) return;
+        taskByKey[String(t.work_id || '') + '|' + String(t.stage_id || '') + '|' + String(t.platform_id || '')] = t;
+      });
+      (this.listAllPlanStages() || []).forEach(function (s) {
+        if (!s) return;
+        const platforms = Array.isArray(s.platforms) ? s.platforms : [];
+        if (!platforms.length) return;
+        const copyObj = (s.copy && typeof s.copy === 'object' && !Array.isArray(s.copy)) ? s.copy : {};
+        platforms.forEach(function (pid) {
+          const key = String(pid || '');
+          if (!key) return;
+          const c = (copyObj[key] && typeof copyObj[key] === 'object' && !Array.isArray(copyObj[key])) ? copyObj[key] : null;
+          if (!c) return;                                   // 段不存在 / 不是对象 → 跳过
+          const vp = String(c.videoPath || '');
+          if (!vp || norm(vp) !== target) return;           // 无路径 / 路径不指向目标 → 不是引用
+          const task = taskByKey[String(s.work_id || '') + '|' + String(s.id || '') + '|' + key];
+          if (!task) {
+            // 有待执行计划却没有对应任务行 → 引用关系不可确认，保留文件
+            unconfirmed = true;
+            references.push({
+              workId: String(s.work_id || ''), stageId: String(s.id || ''),
+              platformId: key, taskId: '', status: 'unknown'
+            });
+            return;
+          }
+          references.push({
+            workId: String(s.work_id || ''), stageId: String(s.id || ''),
+            platformId: key,
+            taskId: String(task.id || ''), status: String(task.status || '')
+          });
+        });
+      });
+    } catch (_e) {
+      return { references: [], unconfirmed: true, error: String((e && e.message) || e) };
+    }
+    return { references: references, unconfirmed: unconfirmed, error: '' };
+  }
+
   // ---------- 视频生命周期：清理资格判断（只读，不删除任何文件）----------
   //   用户约定：
   //     1) 每个作品只维护一个最新成品视频（finalVideo:<workId>）；
@@ -3232,7 +3343,10 @@ class Store {
   //   opts.managed：文件是否位于 Rokit 管理的成品目录（由主进程按白名单判定）。
   //     未提供时：只有当某个作品的映射仍指向该路径才算 managed；
   //     明确为 false（用户上传的原始视频 / 其它非 Rokit 文件）→ 永不清理。
+  //   ★ 多平台（v1.27）：计划引用按「阶段仍在发布的平台」逐个平台检查
+  //     （copy[平台].videoPath），不再只扫 GitHub —— YouTube 计划同样会引用成品视频。
   //   返回 { ok, eligible, managed, latestWorkIds, references, reason }
+  //     references[] 每条含 { workId, stageId, platformId, taskId, status }
   assessFinalVideoCleanup(videoPath, opts) {
     const raw = String(videoPath == null ? '' : videoPath).trim();
     const norm = function (p) {
@@ -3284,38 +3398,19 @@ class Store {
       };
     }
 
-    // 2) 计划引用：阶段 copy.github.videoPath 精确指向该文件，且该阶段仍在发布 GitHub
-    const references = [];
-    let unconfirmed = false;
-    try {
-      const taskByKey = {};
-      (this.listPlanTasks('') || []).forEach(function (t) {
-        if (!t) return;
-        taskByKey[String(t.work_id || '') + '|' + String(t.stage_id || '') + '|' + String(t.platform_id || '')] = t;
-      });
-      (this.listAllPlanStages() || []).forEach(function (s) {
-        if (!s) return;
-        const platforms = Array.isArray(s.platforms) ? s.platforms : [];
-        if (platforms.indexOf('github') < 0) return;   // 平台已被移出该阶段 → 不再引用
-        const c = (s.copy && typeof s.copy === 'object') ? s.copy.github : null;
-        const vp = c ? String(c.videoPath || '') : '';
-        if (!vp || norm(vp) !== target) return;
-        const task = taskByKey[String(s.work_id || '') + '|' + String(s.id || '') + '|github'];
-        if (!task) {
-          // 有待执行计划却没有对应任务行 → 引用关系不可确认，保留文件
-          unconfirmed = true;
-          references.push({ workId: String(s.work_id || ''), stageId: String(s.id || ''), taskId: '', status: 'unknown' });
-          return;
-        }
-        references.push({
-          workId: String(s.work_id || ''), stageId: String(s.id || ''),
-          taskId: String(task.id || ''), status: String(task.status || '')
-        });
-      });
-    } catch (_e) {
+    // 2) 计划引用：阶段里「仍在发布的平台」对应的 copy[平台].videoPath 精确指向该文件
+    //
+    //   ★ 扫描逻辑复用 _collectPlanVideoReferences()（与清理占用锁同一事实来源）。
+    //     多平台语义（修复 A）：以 stage.platforms 为平台白名单逐个平台检查；
+    //     平台已被移出 → 不再算引用；段不是有效对象 / 无 videoPath → 跳过不报错。
+    const scan = this._collectPlanVideoReferences(target);
+    const references = scan.references;
+    const unconfirmed = scan.unconfirmed;
+
+    if (scan.error) {
       return {
         ok: false, eligible: false, managed: true, latestWorkIds: [],
-        references: [], reason: '读取计划引用失败，保留文件'
+        references: references, reason: '读取计划引用失败，保留文件'
       };
     }
 
@@ -3342,7 +3437,7 @@ class Store {
     };
   }
 
-  // ---------- 逾期计划：用户处理前的「暂停自动执行」标记（settings_kv） ----------
+  // 逾期计划：用户处理前的「暂停自动执行」标记（settings_kv） ----------
   //   只对「本次启动前已到期、仍在等待真实执行（real_only=1）」的 GitHub 计划任务打标：
   //   调度器扫描时跳过这些任务，直到用户在逾期提醒中明确选择「立即执行 / 延后一天 / 放弃」。
   //   - 标记值保存当时的 scheduled_at：任务被重新排期后标记自然失效，不会误伤新计划；
@@ -3440,6 +3535,58 @@ class Store {
     }
     const after = this.listPlanStages(owner).filter(s => String(s.id) === id)[0] || null;
     return { ok: true, changed: true, stage: after };
+  }
+
+  // 绑定某个阶段对成品视频的引用（更新已有计划阶段的视频快照）。
+  //   ★ 与 detachPlanVideoReference 互为反向操作，但**语义不同**：
+  //     detach = 删除 videoPath（放弃逾期计划）
+  //     set     = 写入 / 覆盖 videoPath（成品视频合成完成后刷新快照）
+  //   ★ 本方法**只 UPDATE plan_stages.copy 一个字段**：
+  //     · 不调用 savePlanStages（那是唯一会新建 plan_tasks 的入口）
+  //     · 不调用 _planWriteTask（本仓库唯一的任务写入方法）
+  //     · 不新增 / 不更新 / 不取消任何 plan_tasks
+  //     · 不新增阶段：阶段不存在时直接返回失败，绝不自动创建
+  //   · 只修改 copy[platformId].videoPath 这一个键；
+  //     该平台原有的 title / body / tags 与其它平台的全部数据一律保留。
+  //   · 阶段归属以 work_id 精确校验，绝不写到别的作品名下。
+  setPlanStageVideoReference(workId, stageId, platformId, videoPath) {
+    const owner = String(workId || '');
+    const id = String(stageId || '');
+    const pid = String(platformId || '');
+    const vp = String(videoPath || '');
+    if (!owner) return { ok: false, error: 'missing work id' };
+    if (!id) return { ok: false, error: 'missing stage id' };
+    if (!pid) return { ok: false, error: 'missing platform id' };
+    if (!vp) return { ok: false, error: 'missing video path' };
+    // 阶段必须**已存在**且属于该作品（绝不自动创建阶段）
+    const cur = this.listPlanStages(owner).filter(s => String(s.id) === id)[0];
+    if (!cur) return { ok: false, error: 'stage not found for work' };
+    const copy = (cur.copy && typeof cur.copy === 'object' && !Array.isArray(cur.copy))
+      ? Object.assign({}, cur.copy)
+      : {};
+    const plat = (copy[pid] && typeof copy[pid] === 'object' && !Array.isArray(copy[pid]))
+      ? Object.assign({}, copy[pid])
+      : {};
+    const unchanged = String(plat.videoPath || '') === vp;
+    plat.videoPath = vp;                          // ★ 只改这一个键
+    const nextCopy = Object.assign({}, copy);
+    nextCopy[pid] = plat;
+    const now = new Date().toISOString();
+    if (this.mode === 'sqlite') {
+      const res = this.run('UPDATE plan_stages SET copy=?, updated_at=? WHERE id=? AND work_id=?',
+        [JSON.stringify(nextCopy), now, id, owner]);
+      const changes = res && typeof res.changes === 'number' ? res.changes : 0;
+      if (!changes) return { ok: false, error: 'stage not found for work' };
+    } else {
+      const list = Array.isArray(this.data.plan_stages) ? this.data.plan_stages : [];
+      const row = list.filter(x => x && String(x.id) === id && String(x.work_id || '') === owner)[0];
+      if (!row) return { ok: false, error: 'stage not found for work' };
+      row.copy = nextCopy;
+      row.updated_at = now;
+      this.saveJson();
+    }
+    const after = this.listPlanStages(owner).filter(s => String(s.id) === id)[0] || null;
+    return { ok: true, changed: !unchanged, stage: after };
   }
 
   // 只更新某个阶段的计划执行时间（逾期延后一天用）。

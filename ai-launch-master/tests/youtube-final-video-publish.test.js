@@ -42,9 +42,15 @@ function extractFn(src, header) {
   throw new Error('花括号不配平：' + header);
 }
 
-// ---- 生产实现：resolveFinalVideoFile（userData/video/final 白名单 + .mp4 + 存在 + 非空）
+// ---- 生产实现：resolveFinalVideoFile（受管成品目录白名单 + .mp4 + 存在 + 非空）
+// v1.22.3：resolveFinalVideoFile 依赖两个模块级辅助函数
+//   （managedFinalVideoRoots / isInsideManagedFinalDir）→ 必须一并提取，否则提取出来的
+//   函数体找不到这两个依赖（ReferenceError）。
 function makeResolveFinalVideoFile(userDataDir) {
-  const text = extractFn(MAIN_SRC, 'function resolveFinalVideoFile(filePath)');
+  const helpers = extractFn(MAIN_SRC, 'function managedFinalVideoRoots()')
+    + '\n'
+    + extractFn(MAIN_SRC, 'function isInsideManagedFinalDir(resolvedPath, roots)');
+  const text = helpers + '\n' + extractFn(MAIN_SRC, 'function resolveFinalVideoFile(filePath)');
   const factory = new Function('path', 'fs', 'app', text + '\nreturn resolveFinalVideoFile;');
   return factory(path, fs, { getPath: function () { return userDataDir; } });
 }
@@ -80,7 +86,7 @@ describe('YouTube 发布：只上传字幕 + AI 配音最终成品 MP4', functio
 
   beforeAll(function () {
     userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rokit-yt-final-'));
-    finalDir = path.join(userDataDir, 'video', 'final');
+    finalDir = path.join(userDataDir, 'temp', 'videos', 'final');
     fs.mkdirSync(finalDir, { recursive: true });
   });
 
@@ -158,7 +164,7 @@ describe('YouTube 发布：只上传字幕 + AI 配音最终成品 MP4', functio
     await expectRejected({ title: 't' }, 'no-final-video');
   });
 
-  it('成品路径越界（不在 userData/video/final 内）→ 明确失败，不调用上传函数', async function () {
+  it('成品路径越界（不在 userData/temp/videos/final 内）→ 明确失败，不调用上传函数', async function () {
     const outside = path.join(userDataDir, 'original-local-video.mp4');
     fs.writeFileSync(outside, Buffer.alloc(4096, 1));
     await expectRejected({ finalVideoPath: outside, title: 't' }, 'path-not-allowed');
@@ -224,7 +230,7 @@ describe('YouTube 发布：只上传字幕 + AI 配音最终成品 MP4', functio
     const anchors = [
       'state.videoAsset=r.asset;',                                            // 重新选择本地视频
       'window.clearLocalVideo=async function(){',                             // 删除视频
-      'function adoptAiDemoAsset(){',                                         // 采用 AI 录屏
+      'function adoptSavedRecordingAsset(sa, durationSec, defaultSourceType){', // 采用录屏资产
       "state.project={name:w.name,type:w.type,intro:w.intro,url:w.url||'',ytUrl:w.yt_url||''};", // 切换作品
       'state.step=0;state.rec={running:false,blob:null,url:null,dur:0,stepIdx:0};state.videoAsset=null;', // 登记新作品
       'state.messages=[];'                                                    // 删除当前作品

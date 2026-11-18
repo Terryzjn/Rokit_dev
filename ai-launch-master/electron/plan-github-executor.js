@@ -144,7 +144,7 @@ function createGithubPlanExecutor(deps) {
   const publishVideo = deps.publishVideo || null;
   const publishPages = deps.publishPages || null;
   // 作品最新成品视频（settings_kv）：仅当计划快照为空时的只读回退。
-  //   由 main.js 注入（内部按 userData/video/final 白名单 + 文件存在性校验）。
+  //   由 main.js 注入（内部按 userData/temp/videos/final 白名单 + 文件存在性校验）。
   const resolveWorkFinalVideo = deps.resolveWorkFinalVideo || null;
   const listWorks = deps.listWorks || defaultListWorks;
 
@@ -391,7 +391,7 @@ function createGithubPlanExecutor(deps) {
       let vr = null;
       try {
         vr = await publishVideo({
-          finalVideoPath: finalVideoPath,   // main.js githubPutVideo 按 userData/video/final 白名单校验
+          finalVideoPath: finalVideoPath,   // main.js githubPutVideo 按 userData/temp/videos/final 白名单校验
           videoPath: videoPath,
           coverPath: coverPath,
           atSeconds: 0

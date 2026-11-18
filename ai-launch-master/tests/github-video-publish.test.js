@@ -21,6 +21,24 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
+// 从源码里按花括号配平切出一个具名函数（含完整函数体）。
+function extractFn(src, header) {
+  const start = src.indexOf(header);
+  if (start < 0) throw new Error('源码中找不到函数：' + header);
+  const open = src.indexOf('{', start);
+  if (open < 0) throw new Error('函数缺少花括号：' + header);
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    const ch = src[i];
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) return src.slice(start, i + 1);
+    }
+  }
+  throw new Error('花括号不配平：' + header);
+}
+
 // publisher-extensions.js 在模块加载时就捕获了 globalThis.fetch，
 // 所以替身必须在 require 之前装好；这里用一个可变的 handlers 槽位来切换每个用例的响应。
 const __fetchState = { handlers: null, calls: [] };
@@ -221,9 +239,19 @@ describe('最终视频路径白名单 · resolveFinalVideoFile', () => {
     const start = src.indexOf('function resolveFinalVideoFile(');
     expect(start).toBeGreaterThan(0);
     const fn = src.slice(start, src.indexOf('\n}', start) + 2);
-    expect(fn).toMatch(/userData'\),\s*'video',\s*'final'/);
-    expect(fn).toMatch(/rel\.indexOf\('\.\.'\)\s*===\s*0/);
-    expect(fn).toMatch(/path\.isAbsolute\(rel\)/);
+    // v1.22.3：受管成品目录已提取到 managedFinalVideoRoots()，
+    //   resolveFinalVideoFile 本身不再直接拼接目录字面量。
+    const rootsStart = src.indexOf('function managedFinalVideoRoots()');
+    expect(rootsStart).toBeGreaterThan(0);
+    const rootsFn = extractFn(src, 'function managedFinalVideoRoots()');
+    expect(rootsFn).toMatch(/'temp',\s*'videos',\s*'final'/);
+    expect(rootsFn).toMatch(/'work-videos'/);
+    // 路径穿越防护（位于 isInsideManagedFinalDir）—— 两个受管根共用同一套判定
+    const guardFn = extractFn(src, 'function isInsideManagedFinalDir(resolvedPath, roots)');
+    expect(guardFn).toMatch(/rel\.indexOf\('\.\.'\)\s*===\s*0/);
+    expect(guardFn).toMatch(/path\.isAbsolute\(rel\)/);
+    // resolveFinalVideoFile 仍然：只认受管目录 + 仅 .mp4
+    expect(fn).toMatch(/isInsideManagedFinalDir/);
     expect(fn).toMatch(/'\.mp4'/);
   });
 });
@@ -429,7 +457,10 @@ describe('main.js · github:put-video 安全与绑定约束', () => {
     // 公众号图文依旧剥离本地视频字段（v1.3 行为不变）
     expect(htmlSrc).toMatch(/delete\s+payload\.videoAssetId/);
     // 小红书 / 即刻 / X 依旧通过 videoAssetId + main 侧反查 filePath
-    expect(htmlSrc).toMatch(/payload\.videoAssetId\s*=\s*state\.videoAsset\.id/);
+    // v1.29：来源改为「作品关联的最终成品视频」（受管虚拟资产 wvf_<workId>），
+    //   不再直接读 state.videoAsset（原始视频工作副本）。
+    expect(htmlSrc).toMatch(/_applyPublishVideoAsset\(payload,\s*_singleVideoAsset\)/);
+    expect(htmlSrc).toMatch(/_applyPublishVideoAsset\(_xPayloadLocal,\s*_batchVideoAsset\)/);
     expect(src).toMatch(/getInternalAsset\(assetId\)/);
   });
 

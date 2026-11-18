@@ -55,6 +55,27 @@ function seedStage(store, workId, stageId, videoPath) {
   store.savePlanStages(workId, [makeStage(stageId, videoPath)]);
   return store.listPlanTasks(workId).filter(t => t.platform_id === 'github')[0];
 }
+// v1.27（多平台）：构造任意平台组合的阶段。
+//   platforms：阶段仍在发布的平台列表（平台被移出 → 该平台不再算引用）
+//   copyPerPlatform：{ 平台ID: { videoPath?, ...其它文案字段 } }
+//   未给出的平台段不会被创建 —— 用于构造「残留快照键」等历史形态。
+function makeMultiStage(stageId, platforms, copyPerPlatform) {
+  const copy = {};
+  Object.keys(copyPerPlatform || {}).forEach(function (pid) {
+    const seg = Object.assign({ title: '标题 ' + pid, body: '正文' }, copyPerPlatform[pid] || {});
+    copy[pid] = seg;
+  });
+  return {
+    id: stageId, title: '阶段 ' + stageId, desc: '',
+    scheduledAt: H.FUTURE, platforms: platforms, copy: copy
+  };
+}
+function seedMultiStage(store, workId, stageId, platforms, copyPerPlatform) {
+  store.savePlanStages(workId, [makeMultiStage(stageId, platforms, copyPerPlatform)]);
+  return store.listPlanTasks(workId).filter(function (t) {
+    return t.stage_id === stageId && platforms.indexOf(t.platform_id) >= 0;
+  });
+}
 function setTaskStatus(store, workId, taskId, status) {
   const t = store.listPlanTasks(workId).filter(x => x.id === taskId)[0];
   store._planWriteTask(Object.assign({}, t, { status: status }));
@@ -281,5 +302,277 @@ describe('+ 主进程只做资格判断（不删除）', () => {
     const s2 = storeSrc.indexOf('assessFinalVideoCleanup');
     const block2 = storeSrc.slice(s2, s2 + 8000);
     expect(block2).not.toMatch(/unlink|rmSync|rmdir|fs\.rm/);
+  });
+
+  // v1.27：多平台改造后，store.js 整个文件都不应该出现任何删除文件的操作
+  //   （旧断言只看 assessFinalVideoCleanup 之后的 8000 字符窗口，改造后可能漏掉别处）
+  it('整个 store.js 里都没有删除文件的操作', () => {
+    expect(storeSrc).not.toMatch(/unlinkSync|rmSync|rmdirSync|trashItem|fs\.rm\s*\(/);
+  });
+});
+
+/* ==================================================================
+   v1.27 · 多平台引用保护
+   ------------------------------------------------------------------
+   旧实现只扫 GitHub（platforms.indexOf('github') + copy.github + '|github'），
+   导致「只有 YouTube 计划引用该视频」时被判成「无计划引用」→ 可清理，
+   而 YouTube 执行器真的会去读 copy.youtube.videoPath 上传。
+
+   现在以 stage.platforms 为平台白名单逐个平台检查。
+   ================================================================== */
+describe('v1.27 · 多平台引用保护', () => {
+  const YT = 'C:/rokit-final/final-youtube.mp4';
+
+  /* ---------- 1. YouTube pending 引用 → 不可清理 ---------- */
+  it('1. YouTube 任务 pending 引用目标视频 → 不可清理', () => {
+    const store = newStore();
+    seedWork(store, 'w1');
+    const tasks = seedMultiStage(store, 'w1', 'ps_yt', ['youtube'], {
+      youtube: { videoPath: YT }
+    });
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].platform_id).toBe('youtube');
+    store.upsertSettingKv('finalVideo:w1', NEWER);   // YT 变成旧视频
+
+    const res = assess(store, YT, { managed: true });
+    expect(res.ok).toBe(true);
+    expect(res.eligible).toBe(false);
+    expect(res.reason).toMatch(/未完成计划/);
+    expect(res.references).toHaveLength(1);
+    expect(res.references[0].platformId).toBe('youtube');
+    expect(res.references[0].status).toBe('pending');
+  });
+
+  /* ---------- 2. YouTube done / cancelled → 不阻塞清理 ---------- */
+  it('2a. YouTube 任务 done → 不阻塞清理', () => {
+    const store = newStore();
+    seedWork(store, 'w1');
+    const tasks = seedMultiStage(store, 'w1', 'ps_yt', ['youtube'], {
+      youtube: { videoPath: YT }
+    });
+    store.upsertSettingKv('finalVideo:w1', NEWER);
+    setTaskStatus(store, 'w1', tasks[0].id, 'done');
+
+    const res = assess(store, YT, { managed: true });
+    expect(res.eligible).toBe(true);
+    expect(res.references[0].platformId).toBe('youtube');
+    expect(res.references[0].status).toBe('done');
+  });
+
+  it('2b. YouTube 任务 cancelled → 不阻塞清理', () => {
+    const store = newStore();
+    seedWork(store, 'w1');
+    const tasks = seedMultiStage(store, 'w1', 'ps_yt', ['youtube'], {
+      youtube: { videoPath: YT }
+    });
+    store.upsertSettingKv('finalVideo:w1', NEWER);
+    store.cancelPlanTask('w1', tasks[0].id);
+
+    const res = assess(store, YT, { managed: true });
+    expect(res.eligible).toBe(true);
+    expect(res.references[0].platformId).toBe('youtube');
+    expect(res.references[0].status).toBe('cancelled');
+  });
+
+  /* ---------- 3. YouTube needs_review / failed → 不可清理 ---------- */
+  it('3. YouTube 任务 needs_review / failed → 不可清理（保守保留）', () => {
+    ['needs_review', 'failed'].forEach(function (status) {
+      const store = newStore();
+      seedWork(store, 'w1');
+      const tasks = seedMultiStage(store, 'w1', 'ps_yt', ['youtube'], {
+        youtube: { videoPath: YT }
+      });
+      store.upsertSettingKv('finalVideo:w1', NEWER);
+      setTaskStatus(store, 'w1', tasks[0].id, status);
+
+      const res = assess(store, YT, { managed: true });
+      expect(res.eligible).toBe(false);
+      expect(res.reason).toMatch(/未完成计划/);
+      expect(res.references[0].platformId).toBe('youtube');
+      expect(res.references[0].status).toBe(status);
+    });
+  });
+
+  /* ---------- 4. GitHub done + YouTube pending → 不可清理 ---------- */
+  it('4. 同阶段 GitHub(done) + YouTube(pending) → 不可清理', () => {
+    const store = newStore();
+    seedWork(store, 'w1');
+    const tasks = seedMultiStage(store, 'w1', 'ps_both', ['github', 'youtube'], {
+      github: { videoPath: YT },
+      youtube: { videoPath: YT }
+    });
+    expect(tasks).toHaveLength(2);
+    store.upsertSettingKv('finalVideo:w1', NEWER);
+
+    const gh = tasks.filter(t => t.platform_id === 'github')[0];
+    const yt = tasks.filter(t => t.platform_id === 'youtube')[0];
+    setTaskStatus(store, 'w1', gh.id, 'done');
+
+    const res = assess(store, YT, { managed: true });
+    expect(res.eligible).toBe(false);
+    expect(res.reason).toMatch(/未完成计划/);
+    expect(res.references).toHaveLength(2);
+    expect(res.references.map(r => r.platformId).sort()).toEqual(['github', 'youtube']);
+    const ytRef = res.references.filter(r => r.platformId === 'youtube')[0];
+    expect(ytRef.status).toBe('pending');
+  });
+
+  /* ---------- 5. GitHub pending + YouTube done → 不可清理 ---------- */
+  it('5. 同阶段 GitHub(pending) + YouTube(done) → 不可清理', () => {
+    const store = newStore();
+    seedWork(store, 'w1');
+    const tasks = seedMultiStage(store, 'w1', 'ps_both', ['github', 'youtube'], {
+      github: { videoPath: YT },
+      youtube: { videoPath: YT }
+    });
+    store.upsertSettingKv('finalVideo:w1', NEWER);
+
+    const gh = tasks.filter(t => t.platform_id === 'github')[0];
+    const yt = tasks.filter(t => t.platform_id === 'youtube')[0];
+    setTaskStatus(store, 'w1', yt.id, 'done');
+
+    const res = assess(store, YT, { managed: true });
+    expect(res.eligible).toBe(false);
+    expect(res.references).toHaveLength(2);
+    const ghRef = res.references.filter(r => r.platformId === 'github')[0];
+    expect(ghRef.status).toBe('pending');
+  });
+
+  /* ---------- 6. 只有已移出平台的残留快照 → 不构成引用 ---------- */
+  it('6. platforms 只有 youtube，copy 只剩已移出的 github 残留快照 → 不构成引用', () => {
+    const store = newStore();
+    seedWork(store, 'w1');
+    // 阶段仍在发布 youtube，但 copy 里只有 github 段（历史残留快照键）
+    seedMultiStage(store, 'w1', 'ps_yt', ['youtube'], {
+      github: { videoPath: YT }
+    });
+    store.upsertSettingKv('finalVideo:w1', NEWER);
+
+    const res = assess(store, YT, { managed: true });
+    expect(res.ok).toBe(true);
+    expect(res.eligible).toBe(true);
+    expect(res.references).toEqual([]);
+  });
+
+  /* ---------- 7. YouTube 有匹配快照但任务行缺失 → 无法确认 ---------- */
+  it('7. platforms=[youtube] + copy.youtube.videoPath 指向目标，但 youtube 任务行缺失 → 无法确认，不可清理', () => {
+    const store = newStore();
+    seedWork(store, 'w1');
+    seedMultiStage(store, 'w1', 'ps_yt', ['youtube'], {
+      youtube: { videoPath: YT }
+    });
+    store.upsertSettingKv('finalVideo:w1', NEWER);
+    // 制造数据不一致：删掉 youtube 任务行（阶段仍引用该视频）
+    store.run('DELETE FROM plan_tasks WHERE work_id = ? AND platform_id = ?', ['w1', 'youtube']);
+
+    const res = assess(store, YT, { managed: true });
+    expect(res.ok).toBe(false);
+    expect(res.eligible).toBe(false);
+    expect(res.reason).toMatch(/无法确认/);
+    expect(res.references).toHaveLength(1);
+    expect(res.references[0].platformId).toBe('youtube');
+    expect(res.references[0].taskId).toBe('');
+    expect(res.references[0].status).toBe('unknown');
+  });
+
+  /* ---------- 8. wechat 段异常存在匹配 videoPath → 保守保护 ---------- */
+  it('8. wechat 段异常存在匹配 videoPath → 保守保护（不可清理）', () => {
+    const store = newStore();
+    seedWork(store, 'w1');
+    seedMultiStage(store, 'w1', 'ps_wx', ['wechat'], {
+      wechat: { videoPath: YT }
+    });
+    store.upsertSettingKv('finalVideo:w1', NEWER);
+
+    const res = assess(store, YT, { managed: true });
+    expect(res.eligible).toBe(false);
+    expect(res.reason).toMatch(/未完成计划/);
+    expect(res.references).toHaveLength(1);
+    expect(res.references[0].platformId).toBe('wechat');
+  });
+
+  /* ---------- 9. 脏数据不崩溃 ---------- */
+  it('9. copy 为非法 JSON / 空串 / 平台段不是对象 → 不崩溃', () => {
+    const store = newStore();
+    seedWork(store, 'w1');
+    const tasks = seedMultiStage(store, 'w1', 'ps_yt', ['youtube'], {
+      youtube: { videoPath: YT }
+    });
+    store.upsertSettingKv('finalVideo:w1', NEWER);
+
+    // (a) copy 段不是对象（字符串）
+    store.run('UPDATE plan_stages SET copy = ? WHERE id = ?', [
+      JSON.stringify({ youtube: 'not-an-object' }), 'ps_yt'
+    ]);
+    let res = assess(store, YT, { managed: true });
+    expect(res.ok).toBe(true);
+    expect(res.eligible).toBe(true);          // 段不可读 → 不算引用
+    expect(res.references).toEqual([]);
+
+    // (b) copy 整体是非法 JSON
+    store.run('UPDATE plan_stages SET copy = ? WHERE id = ?', ['{not-json', 'ps_yt']);
+    res = assess(store, YT, { managed: true });
+    expect(res.ok).toBe(true);
+    expect(res.eligible).toBe(true);
+    expect(res.references).toEqual([]);
+
+    // (c) copy 是空串
+    store.run('UPDATE plan_stages SET copy = ? WHERE id = ?', ['', 'ps_yt']);
+    res = assess(store, YT, { managed: true });
+    expect(res.ok).toBe(true);
+    expect(res.eligible).toBe(true);
+    expect(res.references).toEqual([]);
+
+    // (d) copy 是数组
+    store.run('UPDATE plan_stages SET copy = ? WHERE id = ?', ['[]', 'ps_yt']);
+    res = assess(store, YT, { managed: true });
+    expect(res.ok).toBe(true);
+    expect(res.eligible).toBe(true);
+    expect(res.references).toEqual([]);
+  });
+
+  /* ---------- 10. references 包含正确的 platformId ---------- */
+  it('10. references 每条都带 platformId，且与实际引用平台一一对应', () => {
+    const store = newStore();
+    seedWork(store, 'w1');
+    seedWork(store, 'w2');
+    seedWork(store, 'w3');
+    // savePlanStages 是「整份替换」：同一作品的第二次调用会删掉前一阶段，
+    //   因此这里用三个独立作品各承载一个平台引用。
+    seedMultiStage(store, 'w1', 'ps_a', ['github'], { github: { videoPath: YT } });
+    seedMultiStage(store, 'w2', 'ps_b', ['youtube'], { youtube: { videoPath: YT } });
+    seedMultiStage(store, 'w3', 'ps_c', ['wechat'], { wechat: { videoPath: YT } });
+    store.upsertSettingKv('finalVideo:w1', NEWER);
+    store.upsertSettingKv('finalVideo:w2', NEWER);
+    store.upsertSettingKv('finalVideo:w3', NEWER);
+
+    const res = assess(store, YT, { managed: true });
+    expect(res.eligible).toBe(false);
+    expect(res.references).toHaveLength(3);
+    expect(res.references.every(r => typeof r.platformId === 'string' && r.platformId)).toBe(true);
+    expect(res.references.map(r => r.platformId).sort()).toEqual(['github', 'wechat', 'youtube']);
+    // 每条都带 workId / stageId / taskId / status
+    res.references.forEach(function (r) {
+      expect(r.workId).toBeTruthy();
+      expect(r.stageId).toBeTruthy();
+      expect(r.taskId).toBeTruthy();
+      expect(r.status).toBeTruthy();
+    });
+  });
+
+  /* ---------- 11. 多平台改造没有削弱 GitHub 原有保护 ---------- */
+  it('11. GitHub 原有语义保持不变（pending 保护 / done 放行 / 平台移出放行）', () => {
+    // pending 保护
+    let store = newStore();
+    seedWork(store, 'w1');
+    let t = seedStage(store, 'w1', 'ps_a', SHARED);
+    store.upsertSettingKv('finalVideo:w1', NEWER);
+    let res = assess(store, SHARED, { managed: true });
+    expect(res.eligible).toBe(false);
+    expect(res.references[0].platformId).toBe('github');
+
+    // done 放行
+    setTaskStatus(store, 'w1', t.id, 'done');
+    expect(assess(store, SHARED, { managed: true }).eligible).toBe(true);
   });
 });

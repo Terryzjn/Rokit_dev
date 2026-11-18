@@ -519,17 +519,19 @@ function _validateWavBuffer(buf) {
 // 输入可以是 base64 或 Buffer；输出 Buffer（失败时返回 {ok:false}，**不**写盘）。
 // 关键：转码完成后**必须**校验输出是合法 WAV（避免 ffmpeg 异常时产生"假 WAV"）。
 //
-// 输出 WAV 写在 userData/.tmp 下（Electron 主进程独占，杀软/系统 Temp 拦截可绕开）。
-// 优雅降级到 os.tmpdir()/rokit 子目录。运行时探测；单元测试环境下不出现 Electron。
+// 输出 WAV 写在 userData/temp/voices 下（Electron 主进程独占，杀软/系统 Temp 拦截可绕开）。
+// v1.22（目录统一）：AI 语音及语音中间文件统一归入 <userData>/temp/voices/
+//   优雅降级到 os.tmpdir()/rokit-temp/voices 子目录。运行时探测；单元测试环境下不出现 Electron。
+//   该目录与 ai-voice-cleanup.js 的清理目标必须一致。
 function _resolveTtsTmpRoot() {
-  // 优先 userData/.tmp
+  // 优先 userData/temp/voices
   try {
     const electron = require('electron');
     const app = electron && (electron.app || (electron.default && electron.default.app));
     if (app && typeof app.getPath === 'function') {
       const ud = app.getPath('userData');
       if (ud) {
-        const dir = path.join(ud, '.tmp');
+        const dir = path.join(ud, 'temp', 'voices');
         try { fs.mkdirSync(dir, { recursive: true }); } catch (_e) {}
         try {
           // 探测性写入：保证 root 在权限上可写
@@ -541,8 +543,8 @@ function _resolveTtsTmpRoot() {
       }
     }
   } catch (_e) { /* 非 Electron 环境 / require 失败 → fallback */ }
-  // fallback：os.tmpdir()/rokit（仍独立于其他程序）
-  const fallback = path.join(os.tmpdir(), 'rokit');
+  // fallback：os.tmpdir()/rokit-temp/voices（仍独立于其他程序）
+  const fallback = path.join(os.tmpdir(), 'rokit-temp', 'voices');
   try { fs.mkdirSync(fallback, { recursive: true }); } catch (_e) {}
   return fallback;
 }
@@ -554,11 +556,12 @@ function _convertToWav16kMono(input) {
   const exe = r.path;
   const inExt = _sniffAudioExt(buf);
   // 把输入写到临时文件以便 ffmpeg 读（**不**覆盖任何用户文件 —— 用户原档在 voice-profiles 目录下）
-  // 输入仍用 OS tmpdir（只读不冲突），输出改写到 _resolveTtsTmpRoot()（更可靠的写权限）。
-  const tmpIn = path.join(os.tmpdir(), 'rokit-tts-in-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6) + inExt);
+  // v1.22（目录统一）：输入与输出统一落在 _resolveTtsTmpRoot()（<userData>/temp/voices），
+  //   与 ai-voice-cleanup.js 的清理目标一致。
   let tmpRoot;
   try { tmpRoot = _resolveTtsTmpRoot(); }
-  catch (_e) { tmpRoot = os.tmpdir(); }
+  catch (_e) { tmpRoot = path.join(os.tmpdir(), 'rokit-temp', 'voices'); }
+  const tmpIn = path.join(tmpRoot, 'rokit-tts-in-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6) + inExt);
   const tmpOut = path.join(tmpRoot, 'rokit-tts-out-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6) + '.wav');
   try {
     fs.writeFileSync(tmpIn, buf);
@@ -665,7 +668,11 @@ function _writeBufferToTemp(buf, ext) {
     return { ok: false, error: 'ref-invalid-ext:' + String(ext), actionableHint: '临时文件扩展名非法。' };
   }
   const filename = 'rokit-tts-speaker-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8) + safeExt;
-  const fullPath = path.join(os.tmpdir(), filename);
+  // v1.22（目录统一）：参考音频与其它 TTS 临时文件同目录（<userData>/temp/voices）
+  let _ttsRoot;
+  try { _ttsRoot = _resolveTtsTmpRoot(); }
+  catch (_e) { _ttsRoot = path.join(os.tmpdir(), 'rokit-temp', 'voices'); }
+  const fullPath = path.join(_ttsRoot, filename);
   try {
     fs.writeFileSync(fullPath, buf);
     return { ok: true, path: fullPath, size: buf.length, ext: safeExt, originalFormat: safeExt, needsConvert: safeExt !== '.wav' };
@@ -822,7 +829,7 @@ async function xttsTestGenerate(config, text, refB64, payload) {
     return {
       ok: false,
       error: '无法在临时目录写入参考音频：' + _refRes.error,
-      actionableHint: '请检查 OS 临时目录（' + os.tmpdir() + '）是否可写'
+      actionableHint: '请检查临时目录（' + _resolveTtsTmpRoot() + '）是否可写'
     };
   }
   const _refPath = _refRes.path;

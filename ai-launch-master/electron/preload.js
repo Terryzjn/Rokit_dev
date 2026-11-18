@@ -61,11 +61,11 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('recorder-controls:command', listener);
     return () => ipcRenderer.removeListener('recorder-controls:command', listener);
   },
-  // v1.15：AI 自动演示（屏幕源 / 保存 / MP4 导出 / 时长探测）
-  demoListSources: () => ipcRenderer.invoke('demo:list-sources'),
+  // 录屏共享能力（保存 / MP4 导出）
   demoSaveRecording: (payload) => ipcRenderer.invoke('demo:save-recording', payload),
+  // 保留录屏：把临时录屏移动到 userData/videos（只传 assetId，不传路径）
+  demoRetainRecording: (assetId) => ipcRenderer.invoke('demo:retain-recording', { assetId: assetId }),
   demoExportMp4: (payload) => ipcRenderer.invoke('demo:export-mp4', payload),
-  demoProbeDuration: (path) => ipcRenderer.invoke('demo:probe-duration', { path: path }),
   // v1.19：录制区域 + 隐私保护
   captureListSources: () => ipcRenderer.invoke('capture:list-sources'),
   captureProbe: (payload) => ipcRenderer.invoke('capture:probe', payload || {}),
@@ -103,6 +103,13 @@ contextBridge.exposeInMainWorld('api', {
   listWorks: () => ipcRenderer.invoke('works:list'),
   saveWork: (w) => ipcRenderer.invoke('works:save', w),
   deleteWork: (id) => ipcRenderer.invoke('works:delete', id),
+  // v1.22.6：删除作品时的关联视频处理（新增通道，原有 deleteWork 不变）
+  //   finalVideoRefs：只读查询该作品关联视频是否被其它作品 / 草稿引用
+  //     （用于删除确认界面的提示文案）
+  //   deleteWithVideo：删除作品 + 回收「最后引用」的 <userData>/work-videos/ 归档视频
+  //     引用判断与文件删除全部在主进程完成，Renderer 不读磁盘、不数引用数量。
+  finalVideoRefs: (workId) => ipcRenderer.invoke('works:final-video-refs', workId),
+  deleteWithVideo: (workId) => ipcRenderer.invoke('works:delete-with-video', workId),
   // 唯一主推：setMainWork 设为主推（原主推自动降级），clearMainWork 取消主推
   setMainWork: (id) => ipcRenderer.invoke('works:set-main', id),
   clearMainWork: (id) => ipcRenderer.invoke('works:clear-main', id),
@@ -130,6 +137,11 @@ contextBridge.exposeInMainWorld('api', {
   // 本阶段只做持久化与跨作品查询，不触发任何真实平台发布
   planList: (workId) => ipcRenderer.invoke('plan:list', workId),
   planSave: (workId, stages) => ipcRenderer.invoke('plan:save', workId, stages),
+  // 更新某个阶段对成品视频的引用（只改 plan_stages.copy 里的 videoPath）
+  //   ★ 与 planSave 严格分离：绝不整份重存计划（那会新建 / 更新 / 取消 plan_tasks）。
+  //   · 阶段必须已存在：不存在直接返回失败，绝不自动创建阶段。
+  //   · 只更新 copy[platformId].videoPath，其余快照数据一律保留。
+  planSetStageVideoRef: (workId, stageId, platformId, videoPath) => ipcRenderer.invoke('plan:set-stage-video-ref', workId, stageId, platformId, videoPath),
   planDeleteStage: (workId, stageId) => ipcRenderer.invoke('plan:delete-stage', workId, stageId),
   // 删除整份计划（只影响该作品；未执行任务取消，已执行历史与发布记录保留）
   planDelete: (workId) => ipcRenderer.invoke('plan:delete', workId),
@@ -155,6 +167,25 @@ contextBridge.exposeInMainWorld('api', {
   //   每个作品只维护一个最新成品视频；计划通过 copy.github.videoPath 引用它。
   planSaveFinalVideo: (workId, videoPath) => ipcRenderer.invoke('plan:save-final-video', workId, videoPath),
   planGetFinalVideo: (workId) => ipcRenderer.invoke('plan:get-final-video', workId),
+  // v1.22.4：发布成功后把本次实际使用的最终成品视频归档到 <userData>/work-videos/，
+  //   归档成功并验证有效后，主进程才更新该作品的 finalVideo: 映射。
+  //   独立通道：归档失败不影响已完成的平台发布结果，也不删除源视频。
+  workVideoArchive: (workId, videoPath) => ipcRenderer.invoke('work-video:archive', workId, videoPath),
+  // v1.22.5：补挂成功后释放草稿归属的 finalVideo 映射。
+  //   只删草稿键（finalVideo:<draft_*>），不删任何视频文件；
+  //   主进程会先确认 finalVideo:<workId> 当前值与预期归档路径一致才允许删除。
+  workVideoReleaseDraftMapping: (draftOwner, workId, expectedPath) =>
+    ipcRenderer.invoke('work-video:release-draft-mapping', draftOwner, workId, expectedPath),
+  // v1.29：把作品关联的最终成品视频登记成一个**受管虚拟 VideoAsset**（只读内存引用）。
+  //   · 入参只有 workId —— Renderer 不能传任何文件路径；
+  //   · 主进程读 finalVideo:<workId> 映射 + 白名单/存在性/.mp4/非空校验；
+  //   · 只登记内存引用，不复制 / 不移动 / 不创建任何媒体文件；
+  //   · 返回 assetId / fileName / fileSize / mimeType，**不含 filePath**。
+  //   固定 ID wvf_<workId>：同一作品重复调用是覆盖（幂等）。
+  workVideoAsset: (workId) => ipcRenderer.invoke('work-video:asset', workId),
+  // v1.29：在系统文件管理器中定位该作品成品视频所在文件夹（Product Hunt 手动拖拽用）。
+  //   · 入参只有 workId，**绝不**把绝对路径返回给 Renderer。
+  workVideoReveal: (workId) => ipcRenderer.invoke('work-video:reveal', workId),
   // 逾期计划（仅 GitHub 首秀计划）：列出 / 立即执行 / 延后一天 / 放弃
   planOverdue: (opts) => ipcRenderer.invoke('plan:overdue', opts || {}),
   planOverdueRun: (workId, taskId, opts) => ipcRenderer.invoke('plan:overdue-run', workId, taskId, opts || {}),
@@ -197,6 +228,13 @@ contextBridge.exposeInMainWorld('api', {
   voiceEngineDefaults: (payload) => ipcRenderer.invoke('voice-engine:defaults', payload || {}),
   voiceEngineProbe: (payload) => ipcRenderer.invoke('voice-engine:probe', payload || {}),
   voiceEngineTestGenerate: (payload) => ipcRenderer.invoke('voice-engine:test-generate', payload || {}),
+  // AI 生成语音的自动清除（只清 AI 生成物；用户原始音源不动）
+  aiVoiceCleanup: () => ipcRenderer.invoke('ai-voice:cleanup'),
+  // 临时成品视频的自动清除（只清 temp/videos/final/ 下不再被需要的 final-*.mp4）
+  //   删除资格由主进程用 store.assessFinalVideoCleanup() 判定（含多平台引用保护）；
+  //   work-videos/、saved-videos/、videos/、voice-profiles/ 永不触碰。
+  //   protectPath：当前会话仍在使用的成品视频（主进程一律保留该文件）。
+  videoTempCleanup: (protectPath) => ipcRenderer.invoke('video-temp:cleanup', protectPath || ''),
   // 抓取作品信息（GitHub / 普通网址）
   fetchMeta: (url) => ipcRenderer.invoke('fetch:meta', url),
   // 自动发布浏览器（内置登录态自动填表/发布）

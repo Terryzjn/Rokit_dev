@@ -872,13 +872,13 @@ describe('未受影响功能', () => {
     expect(idxHtml).toMatch(/<div class="navtab"><button id="tabFlow"[^>]*>首秀向导<\/button><button id="tabDash"[^>]*>数据看板<\/button><button id="tabChannels"[^>]*>推广渠道<\/button><button id="tabWorks"[^>]*>我的作品<\/button><\/div>/);
   });
 
-  test('AI 自动演示入口路由仍然调用 proceedFromVoiceInAiDemo', () => {
-    // 录音页底部主按钮 onclick 应为 proceedFromVoiceInAiDemo
-    expect(idxHtml).toMatch(/id="vstudioNextBtn"[^>]*onclick="proceedFromVoiceInAiDemo\(\)"/);
+  test('录屏入口路由调用 proceedFromVoice', () => {
+    // 录音页底部主按钮 onclick 应为 proceedFromVoice
+    expect(idxHtml).toMatch(/id="vstudioNextBtn"[^>]*onclick="proceedFromVoice\(\)"/);
   });
 
-  test('AI 自动演示 onload 渲染函数保留', () => {
-    // renderLocalVideoStage / demoListSources 等仍在
+  test('录屏 onload 渲染函数保留', () => {
+    // renderLocalVideoStage / demoSaveRecording 等仍在
     expect(idxHtml).toMatch(/renderLocalVideoStage|function renderLocalVideoStage/);
   });
 

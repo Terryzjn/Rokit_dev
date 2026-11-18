@@ -19,13 +19,16 @@ const path = require('path');
 const os = require('os');
 const { app } = require('electron');
 
-// 默认临时目录：userData / recorder / <sessionId>.webm
+// 默认临时目录：userData / temp / videos / recorder / <sessionId>.webm
+//   v1.22（目录统一）：录屏会话临时文件归入 <userData>/temp/videos/recorder/
+//   （与 caption-burn.js / video.js 的 outputDir() 同一棵 temp 树）。
+//   注：本模块当前没有实际调用方（手动录屏走 renderer MediaRecorder + demo:save-recording）。
 function tempDir() {
   try {
-    return path.join(app.getPath('userData'), 'recorder');
+    return path.join(app.getPath('userData'), 'temp', 'videos', 'recorder');
   } catch (_e) {
     // app 未就绪 / 非 electron 环境：降级到系统临时
-    return path.join(os.tmpdir(), 'rokit-recorder');
+    return path.join(os.tmpdir(), 'rokit-temp', 'videos', 'recorder');
   }
 }
 

@@ -528,7 +528,7 @@ describe('F7 · SQLite / JSON fallback 一致，迁移保留原数据', () => {
     expect(r.dueReal).toBe(1);
   });
 
-  it('迁移到 v10：既有工作 / 发布记录 / 计划数据全部保留', () => {
+  it('迁移到 v11：既有工作 / 发布记录 / 计划数据全部保留', () => {
     const store = newStore('sqlite');
     H.seedWork(store, 'w1', '作品一');
     store.addPub({ work_id: 'w1', platform: 'GitHub', platform_id: 'github', status: 'ok', pub_key: 'k1' });
@@ -540,11 +540,14 @@ describe('F7 · SQLite / JSON fallback 一致，迁移保留原数据', () => {
     store.run('PRAGMA user_version = 8');
 
     const upgraded = newStore('sqlite');
-    expect(upgraded.version).toBe(10);
+    expect(upgraded.version).toBe(11);
     expect(upgraded.listWorks()).toHaveLength(1);
     expect(upgraded.listPubs()).toHaveLength(1);
     expect(upgraded.listPlanStages('w1')).toHaveLength(1);
     expect(upgraded.listPlanTasks('w1')).toHaveLength(1);
+    // v11 只新增锁表，既有业务数据完全不动
+    const lockTables = upgraded.all("SELECT name FROM sqlite_master WHERE type='table'").map(function (r) { return r.name; });
+    expect(lockTables).toContain('video_cleanup_locks');
     // 既有任务默认既不是模拟、也不等待真实执行（行为不变）
     const t = upgraded.listPlanTasks('w1')[0];
     expect(t.simulated).toBe(0);

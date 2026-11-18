@@ -59,6 +59,8 @@ const SUBMIT_NAME_SRC = extractBlock(HTML, 'window.submitName=function(e){');
 const SEED_WORKS_SRC = extractBlock(HTML, 'function seedWorks(){');
 const OPEN_WORK_SRC = extractBlock(HTML, 'window.openWork=function(id){');
 const DEL_WORK_SRC = extractBlock(HTML, 'window.delWork=function(id){');
+// 第五批最后：直接调用 launch() 的入口的清理兜底包装
+const LAUNCH_WRAP_SRC = extractBlock(HTML, 'window._launchWithTempVideoCleanup=function(){');
 // 切出来的 planStagePayload 可直接调用（savePlan 依赖它把阶段转成保存载荷）
 const PLAN_STAGE_PAYLOAD_FN = new Function(STAGE_PAYLOAD_SRC + '\nreturn planStagePayload;')();
 
@@ -424,7 +426,8 @@ describe('G10 · launch() 的结果提示随转正结果变化', () => {
       'state', 'window', 'toast', 'Promise',
       'PLATFORMS', 'dedupeLaunchDone', 'findWork', 'SAMPLE_WORK_IDS', 'STATUS_COLOR',
       'fmtPlay', 'demoteMainsInMemory', 'renderWorks', 'pushMilestoneIfFirst',
-      'esc', 'pf', 'STEP_DONE', 'renderRail', 'renderFlow', 'pushAIHtml',
+      'esc', 'pf', 'STEP_DONE', 'renderRail', 'renderFlow', 'pushAIHtml', '_capPurgeAiVoice',
+      '_capPurgeTempVideos',
       TRANSFER_SRC + '\n' + LAUNCH_SRC + '\nreturn window.launch;'
     );
     const launch = fn(
@@ -445,7 +448,11 @@ describe('G10 · launch() 的结果提示随转正结果变化', () => {
       99,
       function () {},
       function () {},
-      function (html) { cards.push(String(html)); }
+      function (html) { cards.push(String(html)); },
+      // AI 语音清除（作品完成时触发）—— 本沙箱不实现，注入空桩即可
+      function () {},
+      // 临时成品视频清除（作品完成时触发）—— 本沙箱不实现，注入空桩即可
+      function () {}
     );
     launch();
     // launch 里的结果卡片在 planChain 的 .then 里渲染 → 等微任务跑完
@@ -508,6 +515,367 @@ describe('G10 · launch() 的结果提示随转正结果变化', () => {
     expect(h.calls.planReassign).toHaveLength(0);
     expect(h.state.planOwnerId).toBe('w1');
     expect(h.cards.some(c => c.indexOf('发射成功') >= 0)).toBe(true);
+  });
+});
+
+/* ==================================================================
+   G11 · 临时成品视频清理的时序（第五批收尾修复）
+   ------------------------------------------------------------------
+   要求：清理必须发生在「归属转正（planReassign）+ 归档补挂」完成之后，
+   且同一流程只发起一次清理请求。
+   ================================================================== */
+describe('G11 · launch() 的临时视频清理时序', () => {
+  function runLaunchWithCleanup(setup) {
+    const calls = { saveWork: [], planReassign: [], purge: [] };
+    const cards = [];
+    const toasts = [];
+    const state = {
+      step: 0,
+      sel: { github: true },
+      copies: { github: { done: true, title: '标题', body: '正文', tags: [] } },
+      works: [],
+      curWork: null,
+      project: { name: '作品一', type: 'tool', intro: '介绍', url: '', ytUrl: '' },
+      plan: [H.stage('ps_a', { platforms: ['github'] })],
+      planOwnerId: 'draft_src',
+      copiesOwner: 'draft_src',
+      planDraftOwner: 'draft_src',
+      planDirty: false,
+      pubLog: [],
+      kpis: {},
+      messages: [],
+      _pendingPubKeys: [],
+      // 记录归档补挂是否完成
+      __lastArchive: { owner: 'draft_src', source: 'C:/rokit/temp/final-1.mp4', path: 'C:/rokit/work-videos/final-1.mp4' }
+    };
+    const win = {
+      api: {
+        saveWork: function (w) { calls.saveWork.push(w); return Promise.resolve({ id: w.id }); },
+        planReassign: function (from, to) {
+          calls.planReassign.push({ from: from, to: to });
+          return Promise.resolve({ ok: true, rescheduled: [], reschedule_kept: [] });
+        },
+        planGetFinalVideo: function () {
+          calls.purge.push('planGetFinalVideo');
+          return Promise.resolve({ ok: false, error: 'no-final-video' });
+        },
+        workVideoArchive: function () {
+          calls.purge.push('archive');
+          return Promise.resolve({ ok: true, path: 'C:/rokit/work-videos/final-1.mp4' });
+        },
+        workVideoReleaseDraftMapping: function () {
+          calls.purge.push('releaseDraft');
+          return Promise.resolve({ ok: true, released: true });
+        }
+      },
+      attachPubWork: function () {}
+    };
+    if (setup) setup({ state: state, win: win, calls: calls, cards: cards, toasts: toasts });
+
+    const fn = new Function(
+      'state', 'window', 'toast', 'Promise',
+      'PLATFORMS', 'dedupeLaunchDone', 'findWork', 'SAMPLE_WORK_IDS', 'STATUS_COLOR',
+      'fmtPlay', 'demoteMainsInMemory', 'renderWorks', 'pushMilestoneIfFirst',
+      'esc', 'pf', 'STEP_DONE', 'renderRail', 'renderFlow', 'pushAIHtml', '_capPurgeAiVoice',
+      '_capPurgeTempVideos', '_workVideoDiag', '_rebindArchiveToSettledWork',
+      '_archiveFinalVideoAfterPublish', '_releaseDraftMappingAfterRebind',
+      TRANSFER_SRC + '\n' + LAUNCH_SRC + '\nreturn window.launch;'
+    );
+    // 清理桩：记录调用发生的时刻（相对 planReassign / archive）
+    let reassignDone = false;
+    let archiveDone = false;
+    const purgeFn = function () {
+      calls.purge.push({
+        purge: true,
+        afterReassign: reassignDone,
+        afterArchive: archiveDone
+      });
+    };
+    const rebindFn = function () {
+      return Promise.resolve().then(function () {
+        archiveDone = true;
+        return null;
+      });
+    };
+    const launch = fn(
+      state, win,
+      function (m, level) { toasts.push({ m: String(m), level: level }); },
+      Promise,
+      [{ id: 'github', name: 'GitHub' }],
+      function (ids) { return ids; },
+      function (id) { return state.works.filter(w => w.id === id)[0] || null; },
+      [],
+      { '首秀中': '#F59E0B' },
+      function (cur) { return String(cur || '0'); },
+      function () {},
+      function () {},
+      function () {},
+      function (s) { return String(s); },
+      function (id) { return { id: id, name: id }; },
+      99,
+      function () {},
+      function () {},
+      function (html) { cards.push(String(html)); },
+      function () {},
+      purgeFn,
+      function () {},
+      rebindFn,
+      function () { return Promise.resolve({ ok: true }); },
+      function () { return Promise.resolve({ ok: true }); }
+    );
+    // planReassign 完成后打标记（模拟归属转正完成）
+    const origReassign = win.api.planReassign;
+    win.api.planReassign = function (from, to) {
+      return origReassign(from, to).then(function (r) {
+        reassignDone = true;
+        return r;
+      });
+    };
+    const ret = launch();
+    return new Promise(resolve => setTimeout(() => resolve({
+      state: state, win: win, calls: calls, cards: cards, toasts: toasts, ret: ret
+    }), 0));
+  }
+
+  it('G11-1 · 清理发生在归属转正（planReassign）之后', async () => {
+    const h = await runLaunchWithCleanup();
+    const purges = h.calls.purge.filter(function (c) { return c && c.purge; });
+    expect(purges.length).toBe(1);
+    expect(purges[0].afterReassign).toBe(true);
+  });
+
+  it('G11-2 · 清理发生在归档补挂之后', async () => {
+    const h = await runLaunchWithCleanup();
+    const purges = h.calls.purge.filter(function (c) { return c && c.purge; });
+    expect(purges.length).toBe(1);
+    expect(purges[0].afterArchive).toBe(true);
+  });
+
+  it('G11-3 · 同一流程只发起一次清理请求', async () => {
+    const h = await runLaunchWithCleanup();
+    const purges = h.calls.purge.filter(function (c) { return c && c.purge; });
+    expect(purges.length).toBe(1);
+  });
+
+  it('G11-4 · 清理不影响作品落库、归属转正与结果卡片', async () => {
+    const h = await runLaunchWithCleanup();
+    expect(h.calls.saveWork).toHaveLength(1);
+    expect(h.calls.planReassign).toHaveLength(1);
+    expect(h.state.planOwnerId).toBe('w1');
+    expect(h.cards.some(c => c.indexOf('发射成功') >= 0)).toBe(true);
+  });
+
+  it('G11-5 · 清理抛异常也不影响作品落库、归属转正与结果卡片', async () => {
+    // 独立沙箱：只把清理桩换成"抛异常"的版本，其余链路与 G11-1 一致
+    const state = {
+      step: 0, sel: { github: true },
+      copies: { github: { done: true } }, works: [], curWork: null,
+      project: { name: '作品一', type: 'tool', intro: '', url: '', ytUrl: '' },
+      plan: [H.stage('ps_a', { platforms: ['github'] })],
+      planOwnerId: 'draft_src', copiesOwner: 'draft_src', planDraftOwner: 'draft_src',
+      planDirty: false, pubLog: [], kpis: {}, messages: [], _pendingPubKeys: []
+    };
+    const cards = [];
+    const fn = new Function(
+      'state', 'window', 'toast', 'Promise',
+      'PLATFORMS', 'dedupeLaunchDone', 'findWork', 'SAMPLE_WORK_IDS', 'STATUS_COLOR',
+      'fmtPlay', 'demoteMainsInMemory', 'renderWorks', 'pushMilestoneIfFirst',
+      'esc', 'pf', 'STEP_DONE', 'renderRail', 'renderFlow', 'pushAIHtml', '_capPurgeAiVoice',
+      '_capPurgeTempVideos', '_workVideoDiag', '_rebindArchiveToSettledWork',
+      '_archiveFinalVideoAfterPublish', '_releaseDraftMappingAfterRebind',
+      TRANSFER_SRC + '\n' + LAUNCH_SRC + '\nreturn window.launch;'
+    );
+    const launch = fn(
+      state,
+      {
+        api: {
+          saveWork: function () { return Promise.resolve({ id: 'w1' }); },
+          planReassign: function () { return Promise.resolve({ ok: true, rescheduled: [], reschedule_kept: [] }); }
+        },
+        attachPubWork: function () {}
+      },
+      function () {}, Promise,
+      [{ id: 'github', name: 'GitHub' }],
+      function (ids) { return ids; },
+      function () { return null; }, [], { '首秀中': '#F59E0B' },
+      function () { return '0'; }, function () {}, function () {}, function () {},
+      function (s) { return String(s); }, function (id) { return { id: id, name: id }; }, 99,
+      function () {}, function () {}, function (html) { cards.push(String(html)); },
+      function () {},
+      // 清理桩：抛异常
+      function () { throw new Error('清理炸了'); },
+      function () {}, function () { return Promise.resolve(null); },
+      function () { return Promise.resolve({ ok: true }); },
+      function () { return Promise.resolve({ ok: true }); }
+    );
+    launch();
+    await new Promise(r => setTimeout(r, 0));
+    // 清理抛异常 → 作品仍落库、归属仍转正、结果卡片照常
+    expect(state.planOwnerId).toBe('w1');
+    expect(cards.some(c => c.indexOf('发射成功') >= 0)).toBe(true);
+  });
+
+  it('G11-6 · 没有任何平台完成发布时 launch 早退 → 返回 false（调用方据此补清理）', async () => {
+    const state = {
+      step: 0, sel: { github: true },
+      copies: { github: { done: false } }, works: [], curWork: null,
+      project: { name: '作品一' }, plan: [], planOwnerId: '', copiesOwner: '',
+      planDirty: false, pubLog: [], kpis: {}, messages: [], _pendingPubKeys: []
+    };
+    const fn = new Function(
+      'state', 'window', 'toast', 'Promise',
+      'PLATFORMS', 'dedupeLaunchDone', 'findWork', 'SAMPLE_WORK_IDS', 'STATUS_COLOR',
+      'fmtPlay', 'demoteMainsInMemory', 'renderWorks', 'pushMilestoneIfFirst',
+      'esc', 'pf', 'STEP_DONE', 'renderRail', 'renderFlow', 'pushAIHtml', '_capPurgeAiVoice',
+      '_capPurgeTempVideos', '_workVideoDiag', '_rebindArchiveToSettledWork',
+      '_archiveFinalVideoAfterPublish', '_releaseDraftMappingAfterRebind',
+      TRANSFER_SRC + '\n' + LAUNCH_SRC + '\nreturn window.launch;'
+    );
+    const launch = fn(
+      state, { api: {}, attachPubWork: function () {} },
+      function () {}, Promise,
+      [{ id: 'github', name: 'GitHub' }],
+      function (ids) { return ids; },
+      function () { return null; }, [], { '首秀中': '#F59E0B' },
+      function () { return '0'; }, function () {}, function () {}, function () {},
+      function (s) { return String(s); }, function (id) { return { id: id, name: id }; }, 99,
+      function () {}, function () {}, function () {},
+      function () {}, function () {}, function () { return Promise.resolve(null); },
+      function () { return Promise.resolve({ ok: true }); },
+      function () { return Promise.resolve({ ok: true }); }
+    );
+    expect(launch()).toBe(false);
+  });
+
+  it('G11-7 · _planChain 异常（reject）时仍会清理，且不渲染结果卡片', async () => {
+    const calls = { purge: 0, saveWork: [] };
+    const cards = [];
+    const state = {
+      step: 0, sel: { github: true },
+      copies: { github: { done: true } }, works: [], curWork: null,
+      project: { name: '作品一', type: 'tool', intro: '', url: '', ytUrl: '' },
+      plan: [H.stage('ps_a', { platforms: ['github'] })],
+      planOwnerId: 'draft_src', copiesOwner: 'draft_src', planDraftOwner: 'draft_src',
+      // planDirty=true → planTransferAfterSave 会走 savePlan() 分支；
+      // savePlan 直接 reject 时，该内层链没有 reject handler → _planChain 整体 reject。
+      planDirty: true, pubLog: [], kpis: {}, messages: [], _pendingPubKeys: []
+    };
+    const fn = new Function(
+      'state', 'window', 'toast', 'Promise',
+      'PLATFORMS', 'dedupeLaunchDone', 'findWork', 'SAMPLE_WORK_IDS', 'STATUS_COLOR',
+      'fmtPlay', 'demoteMainsInMemory', 'renderWorks', 'pushMilestoneIfFirst',
+      'esc', 'pf', 'STEP_DONE', 'renderRail', 'renderFlow', 'pushAIHtml', '_capPurgeAiVoice',
+      '_capPurgeTempVideos', '_workVideoDiag', '_rebindArchiveToSettledWork',
+      '_archiveFinalVideoAfterPublish', '_releaseDraftMappingAfterRebind',
+      TRANSFER_SRC + '\n' + LAUNCH_SRC + '\nreturn window.launch;'
+    );
+    const launch = fn(
+      state,
+      {
+        api: {
+          saveWork: function (w) { calls.saveWork.push(w); return Promise.resolve({ id: 'w1' }); }
+        },
+        // savePlan reject → _planChain reject
+        savePlan: function () { return Promise.reject(new Error('保存计划炸了')); },
+        attachPubWork: function () {}
+      },
+      function () {}, Promise,
+      [{ id: 'github', name: 'GitHub' }],
+      function (ids) { return ids; },
+      function () { return null; }, [], { '首秀中': '#F59E0B' },
+      function () { return '0'; }, function () {}, function () {}, function () {},
+      function (s) { return String(s); }, function (id) { return { id: id, name: id }; }, 99,
+      function () {}, function () {}, function (html) { cards.push(String(html)); },
+      function () {},
+      function () { calls.purge++; },
+      function () {}, function () { return Promise.resolve(null); },
+      function () { return Promise.resolve({ ok: true }); },
+      function () { return Promise.resolve({ ok: true }); }
+    );
+    launch();
+    await new Promise(r => setTimeout(r, 0));
+    // 异常路径仍然清理（不漏清）
+    expect(calls.purge).toBe(1);
+    // 异常不是"发射结果" → 不渲染结果卡片（原有语义不变）
+    expect(cards.length).toBe(0);
+  });
+});
+
+/* ==================================================================
+   G12 · 直接调用 launch() 的入口（_launchWithTempVideoCleanup）
+   ------------------------------------------------------------------
+   发布清单页（step 12）的「完成发布」按钮直接调用 launch()，
+   不经过 savePlanAndGo / skipPlanAndGo —— 必须由包装函数补清理兜底。
+   ================================================================== */
+describe('G12 · 直接调用 launch() 的入口的清理兜底', () => {
+  function makeWrapper(launchResult, opts) {
+    const o = opts || {};
+    const calls = { purge: 0, launch: 0 };
+    const win = { launch: function () { calls.launch++; if (o.launchThrows) throw new Error('炸了'); return launchResult; } };
+    const fn = new Function('window', '_capPurgeTempVideos', LAUNCH_WRAP_SRC + '\nreturn window._launchWithTempVideoCleanup;');
+    const wrapper = fn(win, function () { calls.purge++; });
+    return { wrapper: wrapper, calls: calls };
+  }
+
+  it('G12-1 · launch() 返回 true（已安排清理）→ 只清理一次，包装函数不补', () => {
+    const h = makeWrapper(true);
+    const r = h.wrapper();
+    expect(h.calls.launch).toBe(1);
+    // launch 内部已安排 → 包装函数**不**补清理
+    expect(h.calls.purge).toBe(0);
+    expect(r).toBe(true);
+  });
+
+  it('G12-2 · launch() 返回 false（早退）→ 包装函数补一次清理', () => {
+    const h = makeWrapper(false);
+    const r = h.wrapper();
+    expect(h.calls.launch).toBe(1);
+    expect(h.calls.purge).toBe(1);
+    expect(r).toBe(false);
+  });
+
+  it('G12-3 · launch() 抛异常 → 包装函数仍补一次清理，且不向外抛', () => {
+    const h = makeWrapper(false, { launchThrows: true });
+    let threw = false;
+    let r;
+    try { r = h.wrapper(); } catch (_e) { threw = true; }
+    expect(threw).toBe(false);
+    expect(h.calls.purge).toBe(1);
+    expect(r).toBe(false);
+  });
+
+  it('G12-4 · 清理自身抛异常 → 不影响流程（包装函数静默）', () => {
+    const win = { launch: function () { return false; } };
+    const fn = new Function('window', '_capPurgeTempVideos', LAUNCH_WRAP_SRC + '\nreturn window._launchWithTempVideoCleanup;');
+    const wrapper = fn(win, function () { throw new Error('清理炸了'); });
+    let threw = false;
+    try { wrapper(); } catch (_e) { threw = true; }
+    expect(threw).toBe(false);
+  });
+
+  it('G12-5 · 包装函数不写任何全局状态', () => {
+    // 函数体（去掉定义头 `window._launchWithTempVideoCleanup=function(){`）
+    const body = LAUNCH_WRAP_SRC.slice(LAUNCH_WRAP_SRC.indexOf('{') + 1);
+    // 源码级：包装函数体内不出现 state. 或对 window 的赋值
+    expect(body).not.toMatch(/state\./);
+    expect(body).not.toMatch(/window\.\w+\s*=/);
+    // 只有一个清理调用点
+    expect((LAUNCH_WRAP_SRC.match(/_capPurgeTempVideos\(\)/g) || []).length).toBe(1);
+  });
+
+  it('G12-6 · 发布清单页按钮已改为包装函数（不再直接调用 launch）', () => {
+    expect(HTML).not.toMatch(/onclick="launch\(\)"/);
+    expect(HTML).toMatch(/onclick="_launchWithTempVideoCleanup\(\)"/);
+  });
+
+  it('G12-7 · savePlanAndGo / skipPlanAndGo 不经过包装函数（避免二次兜底）', () => {
+    const savePlan = extractBlock(HTML, 'window.savePlanAndGo=function(){');
+    const skipPlan = extractBlock(HTML, 'window.skipPlanAndGo=function(){');
+    expect(savePlan).not.toMatch(/_launchWithTempVideoCleanup/);
+    expect(skipPlan).not.toMatch(/_launchWithTempVideoCleanup/);
+    // 两者仍各自直接读 launch() 返回值
+    expect(savePlan).toMatch(/var _launchScheduledCleanup=\(window\.launch\(\)===true\)/);
+    expect(skipPlan).toMatch(/var _launchScheduledCleanup=\(window\.launch\(\)===true\)/);
   });
 });
 
@@ -776,7 +1144,7 @@ describe('G11 · submitName 改名派生：登记新的活动草稿', () => {
       copiesOwner: 'w1',
       planDraftOwner: cfg.planDraftOwner || '',
       plan: [H.stage('ps_a', { platforms: ['github'] })],
-      planDirty: false,
+      planDirty: cfg.planDirty === undefined ? false : !!cfg.planDirty,
       project: { name: '旧名字' },
       works: [{ id: 'w1', name: '旧名字', isSample: false }],
       step: 0
@@ -807,6 +1175,19 @@ describe('G11 · submitName 改名派生：登记新的活动草稿', () => {
     expect(state.copiesOwner).toBe('draft_rename_1');
     expect(state.planDraftOwner).toBe('draft_rename_1');
     expect(state.curWork).toBe('w1');
+  });
+
+  // v1.30：普通改名（用户没编辑过计划）不得把计划标脏，
+  //   否则 launch() → planTransferAfterSave() 会隐式 savePlan()，凭空创建 plan_tasks。
+  it('普通改名（未编辑计划）→ planDirty 仍为 false，阶段 ID 原样保留', () => {
+    const state = runSubmitName({ name: '新名字' });
+    expect(state.planDirty).toBe(false);
+    // 阶段 ID 不因改名而无故改变（与数据库保持一致）
+    expect(state.plan[0].id).toBe('ps_a');
+  });
+
+  it('用户确实编辑过计划后再改名 → planDirty 保持 true，阶段 ID 换新（跨作品保护）', () => {
+    const state = runSubmitName({ name: '新名字', planDirty: true });
     expect(state.planDirty).toBe(true);
     // 阶段 ID 全部换新（不复用旧作品的阶段 ID）
     expect(state.plan.every(it => it.id.indexOf('ps_new_') === 0)).toBe(true);

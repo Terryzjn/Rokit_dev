@@ -42,11 +42,16 @@ function ffmpegDiagnostic() {
   return { ok: true, path: r.path, source: r.source };
 }
 
+// v1.22（目录统一）：临时视频统一收敛到 <userData>/temp/videos/<sub>/
+//   source/ 原视频工作副本 · final/ 发布成品 · recorder/ 临时录屏
+//   work/   可再生成的中间产物：转码 MP4 · 缩略图 · 裁剪
+//   与 caption-burn.js 的 outputDir() 必须保持完全一致。
+//   非 Electron 环境（单元测试）回退到 os.tmpdir()/rokit-temp/videos/<sub>/。
 function outputDir(sub) {
   try {
-    return path.join(app.getPath('userData'), 'video', sub || '');
+    return path.join(app.getPath('userData'), 'temp', 'videos', sub || '');
   } catch (_e) {
-    return path.join(os.tmpdir(), 'rokit-video', sub || '');
+    return path.join(os.tmpdir(), 'rokit-temp', 'videos', sub || '');
   }
 }
 
@@ -152,7 +157,7 @@ function transcodeWebmToMp4(input, opts) {
     out = opts.outputPath;
     ensureDir(path.dirname(out));
   } else {
-    const outDir = outputDir('mp4');
+    const outDir = outputDir('work');
     ensureDir(outDir);
     const baseName = path.basename(input, path.extname(input));
     out = path.join(outDir, baseName + '.mp4');
@@ -194,7 +199,7 @@ function generateThumbnail(input, opts) {
   opts = opts || {};
   if (!input || !fs.existsSync(input)) return Promise.reject(new Error('input-not-found'));
   if (!ffmpegAvailable()) return Promise.reject(ffmpegUnavailableError());
-  const outDir = outputDir('thumbs');
+  const outDir = outputDir('work');
   ensureDir(outDir);
   const baseName = path.basename(input, path.extname(input));
   const ts = typeof opts.atSeconds === 'number' && opts.atSeconds >= 0 ? String(opts.atSeconds) : '2';
@@ -224,7 +229,7 @@ function trim(input, opts) {
   if (typeof opts.startSeconds !== 'number' || typeof opts.durationSeconds !== 'number') {
     return Promise.reject(new Error('trim-needs-start-and-duration'));
   }
-  const outDir = outputDir('trim');
+  const outDir = outputDir('work');
   ensureDir(outDir);
   const baseName = path.basename(input, path.extname(input));
   const out = path.join(outDir, baseName + '_trim.mp4');

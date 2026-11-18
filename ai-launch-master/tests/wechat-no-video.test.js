@@ -54,12 +54,19 @@ describe('微信公众号 v1.3：移除视频上传流程', () => {
   });
 
   it('其他平台视频上传逻辑应保持不变（XHS / X / jike / producthunt）', () => {
-    // 验证其他平台仍读 state.videoAsset
-    expect(htmlSrc).toMatch(/id==='jike' \|\| id==='producthunt'.*state\.videoAsset/);
-    expect(htmlSrc).toMatch(/id==='xiaohongshu' && state\.videoAsset/);
-    expect(htmlSrc).toMatch(/id==='x' && state\.videoAsset/);
-    // 火箭发射里也有 jike/producthunt/xiaohongshu/x 的 videoAssetId 注入
-    expect(htmlSrc).toMatch(/state\.videoAsset\s*&&\s*state\.videoAsset\.id/);
+    // v1.29：这四个平台改用**作品关联的最终成品视频**（受管虚拟资产 wvf_<workId>），
+    //   不再直接读 state.videoAsset（原始视频工作副本）。
+    //   公众号仍然完全剥离视频字段（本测试的核心不变量）。
+    expect(htmlSrc).toMatch(/_applyPublishVideoAsset\(payload,\s*_singleVideoAsset\)/);
+    expect(htmlSrc).toMatch(/_applyPublishVideoAsset\(_xPayloadLocal,\s*_batchVideoAsset\)/);
+    // 统一解析器绝不回退到原始视频
+    var resolver = htmlSrc.slice(
+      htmlSrc.indexOf('function _workVideoAssetForPublish(){'),
+      htmlSrc.indexOf('function _applyPublishVideoAsset(payload, asset){')
+    );
+    expect(resolver).not.toMatch(/state\.videoAsset/);
+    // 公众号仍然剥离视频字段（不变）
+    expect(htmlSrc).toMatch(/delete\s+payload\.videoAssetId/);
   });
 
   it('rocketGo wechat 分支不应被 45s setTimeout 保险覆盖（v1.2 已修复，v1.3 保持）', () => {

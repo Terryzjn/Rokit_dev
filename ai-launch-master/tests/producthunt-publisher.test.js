@@ -398,10 +398,18 @@ describe('index.html · PLATFORMS 列表', () => {
   it('rocketGo 已加入 producthunt 分支', () => {
     expect(SRC).toMatch(/rocketGo/);
     // rocketGo 内有 pid==='producthunt' 分支
+    // v1.29：rocketGo 开头新增了「统一解析作品关联成品视频」的代码块，
+    //   producthunt 分支距离 rocketGo 起点变远 → 放宽窗口并按分支本身定位。
     const idx = SRC.indexOf('rocketGo=async');
     expect(idx).toBeGreaterThan(0);
-    const block = SRC.slice(idx, idx + 4000);
-    expect(block).toMatch(/pid==='producthunt'/);
+    const branchIdx = SRC.indexOf("pid==='producthunt'", idx);
+    expect(branchIdx).toBeGreaterThan(idx);
+    const block = SRC.slice(idx, branchIdx);
+    expect(block).toMatch(/rocketGo/);
+    // 分支体本身仍然是「调 autoPubProductHunt + 记 manual」
+    const body = SRC.slice(branchIdx, branchIdx + 1200);
+    expect(body).toMatch(/autoPubProductHunt\(\)/);
+    expect(body).toMatch(/markPub\('producthunt',\s*\{status:'manual'/);
   });
 
   it('不再出现「✗ Product Hunt 无法自动发布」/「安全验证失败」错误文案', () => {

@@ -10,6 +10,7 @@
 const { app, BrowserWindow, ipcMain, shell, Menu, session, desktopCapturer } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const { Store, onPubsChanged } = require('./store');
 const { chatComplete } = require('./llm');
 const { adapters } = require('./publishers');
@@ -49,9 +50,79 @@ require('./browser/platforms'); // 把 BrowserTestPublisher 等注册到 Publish
 // v1.20.3：声音档案（用户录音 + 本地声音档案管理）
 const voiceProfiles = require('./voice-profiles');
 const voiceEngine = require('./voice-engine');
+// AI 生成语音的自动清除（只清 AI 生成物；用户原始音源在 voice-profiles/ 下，不动）
+const aiVoiceCleanup = require('./ai-voice-cleanup');
+// 临时成品视频的自动清除（只清 temp/videos/final/ 下不再被需要的 final-*.mp4；
+//   删除资格完全由 store.assessFinalVideoCleanup() 判定，含已验收的多平台引用保护）
+const videoTempCleanup = require('./video-temp-cleanup');
 
 // 尽早安装全局异常兜底（在 app.whenReady 之前也要能捕获）
 logger.installGlobalHandlers({ stage: 'pre-app-ready' });
+
+// ---------- v1.22.7 成品视频归档链路诊断日志 ----------
+//
+// 目的：让「发布成功后归档最终成品视频」这条链路在真实运行时**可观测**，
+//   下次真实运行能准确定位断在哪个阶段（本批只加日志，不改任何业务逻辑）。
+//
+// 设计约定：
+//   1. 统一前缀 `[work-video-diagnostic]`，与既有日志（如 [XHS-DIAG]）同一套检索方式。
+//   2. Renderer 的诊断日志**必须能落到 rokit.log**，不能只留在 DevTools 控制台：
+//      主窗口挂 console-message 监听，把带该前缀的页面日志转发到主 logger
+//      （复用 electron/main.js 里 XHS 发布窗口已有的同一套转发机制，不新增 preload API）。
+//   3. 只记录 owner / 作品 ID / 文件路径 / 阶段 / 错误码；
+//      **不记录** OAuth Token、Cookie、Authorization 等敏感数据。
+//   4. 日志失败绝不影响业务：所有日志调用都包在 try/catch 里，失败静默。
+const WORK_VIDEO_DIAG_PREFIX = '[work-video-diagnostic]';
+
+// 主进程侧诊断日志（写 rokit.log）
+function _workVideoDiag(stage, data) {
+  try {
+    const payload = data && typeof data === 'object' ? data : { value: String(data == null ? '' : data) };
+    logger.info(WORK_VIDEO_DIAG_PREFIX + ' ' + stage, payload);
+  } catch (_e) { /* 日志失败绝不影响业务 */ }
+}
+
+// 主进程侧诊断日志（错误级）
+function _workVideoDiagError(stage, data) {
+  try {
+    const payload = data && typeof data === 'object' ? data : { value: String(data == null ? '' : data) };
+    logger.error(WORK_VIDEO_DIAG_PREFIX + ' ' + stage, payload);
+  } catch (_e) { /* 日志失败绝不影响业务 */ }
+}
+
+// 主窗口页面日志 → rokit.log 的转发（把 renderer 的诊断日志持久化）
+//   只转发带 [work-video-diagnostic] 前缀的行，其它页面日志一律不转发（避免噪音）。
+//   Electron 36 的 console-message 回调有两种签名：
+//     新版 (details) → details.message / details.level
+//     旧版 (event, level, message) → 第三参数是文本
+//   这里两种都兼容，取到文本即可。
+function _attachWorkVideoDiagForwarder(win) {
+  try {
+    if (!win || !win.webContents) return;
+    const wc = win.webContents;
+    if (!wc || typeof wc.on !== 'function') return;
+    wc.on('console-message', function () {
+      try {
+        const args = Array.prototype.slice.call(arguments);
+        let text = '';
+        let level = 0;
+        // 新版签名：第一个参数是 details 对象
+        const d = args[0];
+        if (d && typeof d === 'object' && typeof d.message === 'string') {
+          text = d.message;
+          level = d.level === 'error' ? 3 : (d.level === 'warning' ? 2 : 1);
+        } else if (typeof args[2] === 'string') {
+          // 旧版签名：(event, level, message, line, sourceId)
+          text = args[2];
+          level = Number(args[1]) || 0;
+        }
+        if (!text || text.indexOf(WORK_VIDEO_DIAG_PREFIX) !== 0) return;
+        const lv = level >= 3 ? 'error' : (level === 2 ? 'warn' : 'info');
+        try { logger[lv](text); } catch (_e) {}
+      } catch (_e) { /* 转发失败绝不影响业务 */ }
+    });
+  } catch (_e) { /* 监听失败绝不影响业务 */ }
+}
 
 let store = null;
 let mainWindow = null;
@@ -154,6 +225,9 @@ function createWindow() {
     }
   });
   mainWindow = win;
+  // v1.22.7：把 renderer 的成品视频归档诊断日志转发到主 logger（落 rokit.log）。
+  //   诊断日志不能只留在 DevTools 控制台，否则线上无法定位归档链路的断点。
+  try { _attachWorkVideoDiagForwarder(win); } catch (_e) {}
   // 启动耗时埋点：标记 BrowserWindow 创建完成的时刻，区分"创建耗时"与"首屏渲染耗时"
   win.once('ready-to-show', () => {
     stageMark('ready-to-show');
@@ -247,6 +321,27 @@ registerWorksCrudIpc(ipcMain, {
   getStore: function () { return store; }
 });
 
+// ---------- 删除作品时的关联视频引用（只读）与安全回收 ----------
+//   works:final-video-refs   只读查询：该作品关联视频是否被其它作品 / 草稿引用
+//   works:delete-with-video  删除作品 + 回收「最后引用」的 work-videos 归档视频
+//   · 两者都是**新增**通道，原有 works:delete 完全保留（参数与返回语义不变）。
+//   · 引用判断与文件删除全部在主进程完成，Renderer 不读磁盘、不数引用数量。
+ipcMain.handle('works:final-video-refs', (_e, workId) => {
+  try {
+    return listWorkVideoReferences(workId);
+  } catch (e) {
+    return { ok: false, error: 'exception', detail: String((e && e.message) || e), hasVideo: false, sharedWith: [], count: 0, draftReferenced: false };
+  }
+});
+
+ipcMain.handle('works:delete-with-video', (_e, workId) => {
+  try {
+    return deleteWorkAndReclaimVideo(workId);
+  } catch (e) {
+    return { ok: false, error: 'exception', detail: String((e && e.message) || e), workDeleted: false, videoDeleted: false };
+  }
+});
+
 // ---------- 唯一主推（同一时刻最多一个主推作品）----------
 // 唯一性在 store 层用单条原子 UPDATE 保证，IPC 只做转发。
 registerWorksMainIpc(ipcMain, {
@@ -260,11 +355,209 @@ registerPlanIpc(ipcMain, {
   getStore: function () { return store; },
   getScheduler: function () { return planScheduler; },
   // 作品最新成品视频映射（settings_kv）：写入 / 读取 / 转正迁移 / 路径校验
-  //   全部在主进程做 userData/video/final 白名单校验，渲染层拿不到任意文件能力。
+  //   全部在主进程做 userData/temp/videos/final 白名单校验，渲染层拿不到任意文件能力。
+  // v1.22.7 诊断：saveWorkFinalVideo() 内部已记录「IPC 收到请求 + 返回结果」
+  //   （plan:save-final-video handler 是它的唯一调用方）→ 无需改动 plan-ipc.js。
   saveWorkFinalVideo: saveWorkFinalVideo,
   getWorkFinalVideo: getWorkFinalVideo,
   migrateWorkFinalVideo: migrateWorkFinalVideo,
   checkFinalVideoPath: checkFinalVideoPath
+});
+
+// ---------- 成品视频归档 IPC ----------
+//   发布成功后，把本次实际使用的最终成品视频归档到 <userData>/work-videos/，
+//   归档成功并验证有效后才更新该作品的 finalVideo: 映射。
+//   独立通道（不塞进 markPub / 发布链路）：
+//     · 发布结果与归档结果**互不影响** —— 归档失败不会把已成功的发布改成失败；
+//     · 归档失败不删除源视频，用户可重试。
+ipcMain.handle('work-video:archive', (_e, workId, videoPath) => {
+  try {
+    // v1.22.7 诊断：IPC 收到请求（证明 renderer 确实把归档请求送到了主进程）
+    _workVideoDiag('ipc.work-video.archive.received', {
+      workId: String(workId == null ? '' : workId),
+      videoPath: String(videoPath == null ? '' : videoPath)
+    });
+    const r = archiveFinalVideoForWork(workId, videoPath);
+    _workVideoDiag('ipc.work-video.archive.returned', {
+      workId: String(workId == null ? '' : workId),
+      ok: !!(r && r.ok),
+      error: String((r && r.error) || ''),
+      finalPath: String((r && r.path) || ''),
+      copied: !!(r && r.copied),
+      deduplicated: !!(r && r.deduplicated)
+    });
+    return r;
+  } catch (e) {
+    _workVideoDiagError('ipc.work-video.archive.exception', {
+      workId: String(workId == null ? '' : workId),
+      error: String((e && e.message) || e)
+    });
+    return { ok: false, error: 'exception', detail: String((e && e.message) || e) };
+  }
+});
+
+// ---------- 草稿映射释放 IPC ----------
+//   作品落库后，补挂已把归档写进真实作品的 finalVideo:<workId>，
+//   这时草稿键（finalVideo:<draft_*>）就成了没人引用的孤儿映射。
+//   本通道**只删草稿键**，且必须先确认真实作品映射 == 预期归档路径。
+//   · 只删数据库映射，不删任何视频文件；
+//   · 目标映射不存在 / 路径不匹配 / 删除失败 → 保留草稿映射；
+//   · 释放失败不影响已成功的发布或已成功的补挂。
+ipcMain.handle('work-video:release-draft-mapping', (_e, draftOwner, workId, expectedPath) => {
+  try {
+    // v1.22.7 诊断：IPC 收到请求
+    _workVideoDiag('ipc.work-video.release-draft.received', {
+      draftOwner: String(draftOwner == null ? '' : draftOwner),
+      workId: String(workId == null ? '' : workId),
+      expectedPath: String(expectedPath == null ? '' : expectedPath)
+    });
+    const r = releaseDraftFinalVideoMapping(draftOwner, workId, expectedPath);
+    _workVideoDiag('ipc.work-video.release-draft.returned', {
+      ok: !!(r && r.ok),
+      released: !!(r && r.released),
+      error: String((r && r.error) || '')
+    });
+    return r;
+  } catch (e) {
+    _workVideoDiagError('ipc.work-video.release-draft.exception', {
+      error: String((e && e.message) || e)
+    });
+    return { ok: false, error: 'exception', detail: String((e && e.message) || e) };
+  }
+});
+
+// ---------- 作品关联成品视频 → 受管虚拟 VideoAsset（只读登记） ----------
+//
+// 目的：让「再次发布」（重新打开作品后再次发布）时，小红书 / 即刻 / Product Hunt / X
+//   这四个平台也能复用该作品关联的**最终成品视频**，而不是原始视频工作副本。
+//
+// 安全约定（与既有通道完全一致）：
+//   1. 入参**只有 workId** —— Renderer 无法传入任何文件路径，
+//      因此不可能借这条通道读取任意本地文件。
+//   2. 真实路径**只**来自 settings_kv 的 finalVideo:<workId> 映射，
+//      再经既有 getWorkFinalVideo() → resolveFinalVideoFile() 校验：
+//      受管目录白名单（temp/videos/final 与 work-videos）+ .mp4 + 存在 + 非空。
+//   3. **只登记内存引用**（stashInternalAsset → _internalStore.set）：
+//      不复制、不移动、不删除任何视频文件，也不创建任何媒体文件。
+//   4. 固定 ID `wvf_<workId>`：同一作品重复调用是 Map.set 覆盖（幂等、内存不增长）。
+//   5. 返回给 Renderer 的只有 assetId / fileName / fileSize / mimeType，
+//      **不含 filePath** —— 与普通 VideoAsset 的暴露口径一致。
+//
+// 与普通 va-* 资产的关系：
+//   · 普通资产来自 video:pick-local，id 前缀 `va-`，走的是 temp/videos/source/ 工作副本；
+//   · 本通道的虚拟资产 id 前缀 `wvf_`，指向受管成品目录里的最终成品；
+//   · 两者共用同一个 _internalStore（主进程统一按 assetId 反查 filePath），
+//     但**互不影响**：本通道不修改、不删除任何 va-* 条目。
+//
+// 不允许虚拟资产被普通清理流程误删：
+//   · deleteWorkAndReclaimVideo() 只按 settings_kv 映射判断引用与回收文件，
+//     不读 _internalStore → 虚拟资产登记不会影响任何视频文件的删除决策；
+//   · clearInternalAsset() 只在 video:clear-internal-asset（用户主动"重新选择/删除视频"）
+//     里被调用，且入参是 Renderer 传来的 assetId —— 本通道的虚拟资产不会被自动清理；
+//   · 本通道自身不做任何删除动作。
+function registerWorkFinalVideoAsset(workId) {
+  const id = String(workId == null ? '' : workId).trim();
+  if (!id) return { ok: false, error: 'missing-work-id' };
+  try {
+    // 1) 复用既有只读读取能力：映射读取 + 白名单 + 存在性 + .mp4 + 非空 全在里面
+    const r = getWorkFinalVideo(id);
+    if (!r || r.ok !== true || !r.path) {
+      return {
+        ok: false,
+        error: (r && r.error) || 'no-final-video',
+        detail: String((r && r.detail) || ''),
+        workId: id
+      };
+    }
+    // 2) 固定 ID：同一作品重复登记是覆盖（幂等），不会在 _internalStore 里堆积
+    const assetId = 'wvf_' + id;
+    const fileName = path.basename(r.path);
+    const fileSize = Number(r.size) || 0;
+    if (!videoSource || typeof videoSource.stashInternalAsset !== 'function') {
+      return { ok: false, error: 'video-source-unavailable', workId: id };
+    }
+    // 3) 只登记内存引用：零文件 IO，不复制、不移动、不创建媒体文件
+    videoSource.stashInternalAsset({
+      id: assetId,
+      sourceType: 'FINAL_PRODUCT',
+      filePath: r.path,
+      fileName: fileName,
+      fileSize: fileSize,
+      mimeType: 'video/mp4',
+      createdAt: Date.now()
+    });
+    _workVideoDiag('ipc.work-video.asset.registered', {
+      workId: id, assetId: assetId, fileName: fileName, fileSize: fileSize
+    });
+    // 4) 返回值不含 filePath（与普通 VideoAsset 的暴露口径一致）
+    return {
+      ok: true,
+      workId: id,
+      assetId: assetId,
+      fileName: fileName,
+      fileSize: fileSize,
+      mimeType: 'video/mp4'
+    };
+  } catch (e) {
+    _workVideoDiagError('ipc.work-video.asset.exception', {
+      workId: id, error: String((e && e.message) || e)
+    });
+    return { ok: false, error: 'exception', detail: String((e && e.message) || e), workId: id };
+  }
+}
+
+ipcMain.handle('work-video:asset', (_e, workId) => {
+  try {
+    _workVideoDiag('ipc.work-video.asset.received', { workId: String(workId == null ? '' : workId) });
+    const r = registerWorkFinalVideoAsset(workId);
+    _workVideoDiag('ipc.work-video.asset.returned', {
+      workId: String(workId == null ? '' : workId),
+      ok: !!(r && r.ok),
+      assetId: String((r && r.assetId) || ''),
+      error: String((r && r.error) || '')
+    });
+    return r;
+  } catch (e) {
+    _workVideoDiagError('ipc.work-video.asset.exception', { error: String((e && e.message) || e) });
+    return { ok: false, error: 'exception', detail: String((e && e.message) || e) };
+  }
+});
+
+// ---------- 在系统文件管理器中定位「作品关联成品视频」所在文件夹 ----------
+//
+// 用途：Product Hunt 的发布助手面板需要让用户「打开文件所在文件夹」，
+//   好让用户手动把最终成品视频拖到 Product Hunt 表单里。
+//
+// 安全约定（与 work-video:asset 同源）：
+//   1. 入参**只有 workId** —— Renderer 拿不到、也传不了任何路径；
+//   2. 真实路径只来自 finalVideo:<workId> 映射，再经 resolveFinalVideoFile() 校验
+//      （受管目录白名单 + .mp4 + 存在 + 非空）；
+//   3. 只做「在文件管理器中选中该文件」，**绝不**把绝对路径返回给 Renderer。
+ipcMain.handle('work-video:reveal', (_e, workId) => {
+  try {
+    const id = String(workId == null ? '' : workId).trim();
+    if (!id) return { ok: false, error: 'missing-work-id' };
+    const r = getWorkFinalVideo(id);
+    if (!r || r.ok !== true || !r.path) {
+      return {
+        ok: false,
+        error: (r && r.error) || 'no-final-video',
+        detail: String((r && r.detail) || ''),
+        workId: id
+      };
+    }
+    try {
+      shell.showItemInFolder(r.path);
+    } catch (e) {
+      return { ok: false, error: 'reveal-failed', detail: String((e && e.message) || e), workId: id };
+    }
+    _workVideoDiag('ipc.work-video.asset.revealed', { workId: id, fileName: path.basename(r.path) });
+    // 只回文件名，绝不回绝对路径
+    return { ok: true, workId: id, fileName: path.basename(r.path) };
+  } catch (e) {
+    _workVideoDiagError('ipc.work-video.asset.reveal-exception', { error: String((e && e.message) || e) });
+    return { ok: false, error: 'exception', detail: String((e && e.message) || e) };
+  }
 });
 
 // v1.8：「我的作品」GitHub 数据刷新（v1.10：仅 Star）
@@ -1494,19 +1787,52 @@ ipcMain.handle('github:put-file', (_e, opts) => githubPutFile(opts));
 // ---------- GitHub 成品视频 + 封面上传 ----------
 //
 // 安全约束（与 video-source.js 的 caption:read-final / caption:save-final 完全一致）：
-//   只接受 caption-burn 自己产出的目录 userData/video/final，
+//   只接受 **受管成品视频目录** 里的文件（见 managedFinalVideoRoots()），
 //   渲染层无法借此读取或上传任意本地文件。
 //   最终成品视频没有 assetId（它不是 videoAsset 里的原始视频），所以只能用路径白名单约束。
+//
+// v1.22.3（受管成品目录）：受管目录有两个 ——
+//   1) <userData>/temp/videos/final/   合成产出（临时产物，语义不变）
+//   2) <userData>/work-videos/         与作品关联的成品视频（归档目录）
+//   两个目录**任一**通过既有 path.relative 安全校验即接受；
+//   校验规则本身完全不变（路径穿越防护 / 不接受目录本身 / 仅 .mp4 / 必须存在 / 必须非空）。
+function managedFinalVideoRoots() {
+  const roots = [];
+  try {
+    const ud = app.getPath('userData');
+    if (ud) {
+      // 1) 合成产出的临时成品目录（原有语义，保持不变）
+      roots.push(path.resolve(path.join(ud, 'temp', 'videos', 'final')));
+      // 2) 与作品关联的成品视频目录（归档）
+      roots.push(path.resolve(path.join(ud, 'work-videos')));
+    }
+  } catch (_e) { /* 非 Electron 环境 / app 未就绪 → 无根 */ }
+  return roots;
+}
+
+// 判断某个已解析路径是否落在**任一**受管成品目录之内（不要求文件存在）。
+//   复用与既有校验完全一致的安全判定：
+//     · 相对路径非空（目录本身不算合法文件）
+//     · 不能以 '..' 开头（路径穿越）
+//     · 不能是绝对路径
+function isInsideManagedFinalDir(resolvedPath, roots) {
+  const list = roots || managedFinalVideoRoots();
+  for (let i = 0; i < list.length; i++) {
+    const rel = path.relative(list[i], resolvedPath);
+    if (!rel || rel.indexOf('..') === 0 || path.isAbsolute(rel)) continue;
+    return true;
+  }
+  return false;
+}
+
 function resolveFinalVideoFile(filePath) {
   if (!filePath || typeof filePath !== 'string') {
     return { ok: false, error: 'no-final-video', detail: '尚未生成成品视频，请先完成字幕与配音生成' };
   }
   const resolved = path.resolve(filePath);
-  let allowedRoot = '';
-  try { allowedRoot = path.resolve(path.join(app.getPath('userData'), 'video', 'final')); } catch (_e) {}
-  if (!allowedRoot) return { ok: false, error: 'no-allowed-root' };
-  const rel = path.relative(allowedRoot, resolved);
-  if (!rel || rel.indexOf('..') === 0 || path.isAbsolute(rel)) {
+  const allowedRoots = managedFinalVideoRoots();
+  if (!allowedRoots.length) return { ok: false, error: 'no-allowed-root' };
+  if (!isInsideManagedFinalDir(resolved, allowedRoots)) {
     return { ok: false, error: 'path-not-allowed', detail: '只能上传 Rokit 生成的成品视频' };
   }
   if (path.extname(resolved).toLowerCase() !== '.mp4') {
@@ -1525,7 +1851,8 @@ function resolveFinalVideoFile(filePath) {
 // ---------- 作品最新成品视频映射（settings_kv，不新增数据库表） ----------
 //   键：finalVideo:<workId>   值：成品视频绝对路径
 //   约定：每个作品只维护一个「最新成品视频」；多个计划可以引用同一个视频。
-//   - 只允许写入/读取 userData/video/final 下的 .mp4（复用 resolveFinalVideoFile 白名单）
+//   - 只允许写入/读取**受管成品视频目录**下的 .mp4（复用 resolveFinalVideoFile 白名单：
+//     temp/videos/final 与 work-videos 两个目录）
 //   - 必须通过 workId 精确关联；绝不扫描目录 / 取最新文件来推断作品归属
 //   - 读取时再次校验路径与文件是否存在，避免文件被删除后静默降级
 const FINAL_VIDEO_KEY_PREFIX = 'finalVideo:';
@@ -1549,17 +1876,48 @@ function normalizeVideoOwnerId(workId) {
 // 写入作品最新成品视频（白名单校验通过后才落库；不删除旧映射文件）
 function saveWorkFinalVideo(workId, videoPath) {
   try {
+    // v1.22.7 诊断：入口（不改变任何判定）
+    //   注：plan:save-final-video 是本函数的唯一调用方 → 这里即等价于「IPC 收到请求」。
+    _workVideoDiag('ipc.plan.save-final-video.received', {
+      workId: String(workId == null ? '' : workId),
+      videoPath: String(videoPath == null ? '' : videoPath)
+    });
     const own = normalizeVideoOwnerId(workId);
-    if (!own.ok) return own;
+    if (!own.ok) {
+      _workVideoDiagError('main.save-final-video.owner-rejected', {
+        workId: String(workId == null ? '' : workId),
+        error: String(own.error || '')
+      });
+      return own;
+    }
+    _workVideoDiag('main.save-final-video.owner-ok', { workId: own.id, draft: !!own.draft });
     if (!store || typeof store.upsertSettingKv !== 'function' || typeof store.getSettingKv !== 'function') {
+      _workVideoDiagError('main.save-final-video.store-unavailable', { workId: own.id });
       return { ok: false, error: 'store-unavailable' };
     }
     const fin = resolveFinalVideoFile(videoPath);
     if (!fin.ok) {
+      _workVideoDiagError('main.save-final-video.path-rejected', {
+        workId: own.id,
+        error: String(fin.error || 'invalid-final-video'),
+        detail: String(fin.detail || ''),
+        videoPath: String(videoPath == null ? '' : videoPath)
+      });
       return { ok: false, error: fin.error || 'invalid-final-video', detail: String(fin.detail || ''), workId: own.id };
     }
+    _workVideoDiag('main.save-final-video.path-ok', { workId: own.id, resolvedPath: fin.filePath, size: fin.size });
     const prev = store.getSettingKv(FINAL_VIDEO_KEY_PREFIX + own.id);
-    store.upsertSettingKv(FINAL_VIDEO_KEY_PREFIX + own.id, fin.filePath);
+    try {
+      store.upsertSettingKv(FINAL_VIDEO_KEY_PREFIX + own.id, fin.filePath);
+    } catch (e) {
+      _workVideoDiagError('main.save-final-video.map-write-failed', {
+        workId: own.id, resolvedPath: fin.filePath, error: String((e && e.message) || e)
+      });
+      throw e;
+    }
+    _workVideoDiag('ipc.plan.save-final-video.returned', {
+      workId: own.id, ok: true, resolvedPath: fin.filePath
+    });
     // 旧视频的清理资格（只读判断，**不删除任何文件**）：
     //   仅当它不再是作品最新视频、且没有任何未完成计划引用时才 eligible；
     //   非 Rokit 白名单目录内的文件一律不合格。
@@ -1600,12 +1958,14 @@ function getWorkFinalVideo(workId) {
   }
 }
 
-// 路径是否位于 Rokit 成品视频目录（不要求文件存在；仅用于「是否受 Rokit 管理」判定）。
+// 路径是否位于 Rokit 受管成品视频目录（不要求文件存在；仅用于「是否受 Rokit 管理」判定）。
+//   v1.22.3：受管目录有两个 —— temp/videos/final（合成产出）与 work-videos（作品关联归档）。
+//   两个目录都算「Rokit 管理的成品视频」；目录之外的路径一律不算。
 function isInsideFinalVideoDir(filePath) {
   try {
-    const root = path.resolve(path.join(app.getPath('userData'), 'video', 'final'));
-    const rel = path.relative(root, path.resolve(String(filePath || '')));
-    return !!rel && rel.indexOf('..') !== 0 && !path.isAbsolute(rel);
+    const roots = managedFinalVideoRoots();
+    if (!roots.length) return false;
+    return isInsideManagedFinalDir(path.resolve(String(filePath || '')), roots);
   } catch (_e) { return false; }
 }
 
@@ -1618,6 +1978,12 @@ function checkFinalVideoPath(filePath) {
 
 // 草稿归属转正：把 finalVideo:<draft> 迁移到真实作品 ID。
 //   目标已有映射时不覆盖（避免把另一条视频写到这个作品名下）。
+//   v1.22.2（映射生命周期）：迁移**成功**后清理源草稿映射。
+//     · 只在「目标原本不存在 + 目标写入成功」时才删源键；
+//     · 目标已有映射 → 目标与源**都保留**（目标绝不覆盖，源也保守留存，
+//       因为该草稿的视频可能正被别的作品复用）；
+//     · 写入抛错 → 源键保留（异常分支不删任何东西）。
+//     · 删除映射**只动数据库**，不触碰任何磁盘视频文件。
 function migrateWorkFinalVideo(fromOwner, toOwner) {
   try {
     const from = String(fromOwner == null ? '' : fromOwner).trim();
@@ -1630,10 +1996,565 @@ function migrateWorkFinalVideo(fromOwner, toOwner) {
     if (!val) return { ok: true, migrated: false };
     if (!store.getSettingKv(FINAL_VIDEO_KEY_PREFIX + to)) {
       store.upsertSettingKv(FINAL_VIDEO_KEY_PREFIX + to, String(val));
+      // 目标已成功写入 → 源草稿映射不再需要，安全清理（失败静默，不影响迁移结论）。
+      if (typeof store.deleteSettingKv === 'function') {
+        try { store.deleteSettingKv(FINAL_VIDEO_KEY_PREFIX + from); } catch (_e) {}
+      }
+      return { ok: true, migrated: true };
     }
-    return { ok: true, migrated: true };
+    // 目标已有映射：不覆盖目标，也不删除源映射（两边都保留）。
+    return { ok: true, migrated: false };
   } catch (e) {
     return { ok: false, error: 'exception', detail: String((e && e.message) || e) };
+  }
+}
+
+// ---------- 作品成品视频归档（发布成功后把最终成品复制到 work-videos/） ----------
+//
+// v1.22.4：发布成功后，**本次实际使用的**最终成品视频归档到 <userData>/work-videos/，
+//   归档成功并验证有效后才更新 finalVideo:<workId> 映射。
+//   这样「重新打开作品」时能从作品关联目录读回可复用的成品视频，供再次发布使用。
+//
+// v1.22.5（内容去重）：同一份成品视频**只归档一次**，多个作品 / 多次发布复用同一文件。
+//   去重判据 = **内容 SHA-256**（流式计算），不是文件名、不是大小、不是修改时间。
+//   · 来源已在 work-videos/ → 直接复用该路径，不复制到自身；
+//   · 来源是临时目录里的文件，但已有归档的**内容**与之完全相同 → 复用那份归档，不复制；
+//   · 没有内容相同的归档 → 按现有逻辑复制 + 校验（同名不覆盖）。
+//
+// 安全 / 正确性约定：
+//   1. 来源必须是受管成品目录里的文件（resolveFinalVideoFile 校验：白名单 + .mp4 + 存在 + 非空）
+//   2. 来源已经位于 work-videos/ → **直接复用该路径**，不复制到自身
+//   3. 同名不覆盖：追加 -1 / -2 … 直到不冲突（绝不覆盖其它作品的视频）
+//   4. 复制后校验：目标存在、是普通文件、非空、且与源**同尺寸**（复制完整）
+//   5. 校验通过后才写映射；复制或写映射失败 → **不删源文件**、**不建无效映射**
+//   6. 同一个最终成品允许被多个作品引用：不同 workId 各自写自己的映射，指向同一个文件
+//   7. 去重只**复用**已有归档，绝不删除 / 覆盖 / 移动任何已有视频文件
+//   8. SHA-256 计算失败 → 不写映射、不删源文件（保守失败，不猜内容）
+function workVideosDir() {
+  try {
+    const ud = app.getPath('userData');
+    if (!ud) return '';
+    return path.join(ud, 'work-videos');
+  } catch (_e) { return ''; }
+}
+
+// 流式计算文件的 SHA-256（内容指纹）。
+//   · 用流式读取，避免把上百 MB 的视频整个读进内存；
+//   · 计算失败（文件不存在 / 读失败）→ 返回空串（调用方按「无法判断内容」处理）。
+function _fileSha256(filePath) {
+  try {
+    const p = String(filePath || '').trim();
+    if (!p) return '';
+    if (!fs.existsSync(p)) return '';
+    const hash = crypto.createHash('sha256');
+    const fd = fs.openSync(p, 'r');
+    try {
+      const buf = Buffer.alloc(1024 * 1024);   // 1MB 分块
+      for (;;) {
+        const n = fs.readSync(fd, buf, 0, buf.length, null);
+        if (n <= 0) break;
+        hash.update(buf.slice(0, n));
+      }
+    } finally {
+      try { fs.closeSync(fd); } catch (_e) {}
+    }
+    return hash.digest('hex');
+  } catch (_e) {
+    return '';
+  }
+}
+
+// 查找「内容与给定 SHA-256 相同」的既有归档文件。
+//   · 只在 finalVideo: 映射里找（不扫描整个 work-videos/ 目录）：
+//     这样既不触碰历史孤儿文件，也不会误复用无人引用的文件；
+//   · 只认位于 work-videos/ 内、且当前真实存在的普通文件；
+//   · 指纹算不出来（读失败）→ 跳过该候选，绝不猜。
+//   · srcSize 只是**预筛**（跳过大小明显不同的候选，避免无谓的全文件读取）；
+//     最终「内容相同」的判定**只认 SHA-256**，大小永远不是判定依据。
+function _findArchivedBySha256(sha, dir, srcSize) {
+  const target = String(sha || '').trim();
+  if (!target) return '';
+  if (!store || typeof store._listSettingKv !== 'function') return '';
+  let rows = [];
+  try { rows = store._listSettingKv(FINAL_VIDEO_KEY_PREFIX) || []; } catch (_e) { return ''; }
+  const resolvedDir = path.resolve(dir);
+  const wantSize = Number(srcSize);
+  for (const row of rows) {
+    const v = String((row && row.v) || '').trim();
+    if (!v) continue;
+    let resolved;
+    try { resolved = path.resolve(v); } catch (_e) { continue; }
+    // 只在归档目录内
+    if (!isInsideManagedFinalDir(resolved, [resolvedDir])) continue;
+    // 必须仍然存在且是普通文件
+    let size = 0;
+    try {
+      const st = fs.statSync(resolved);
+      if (!st.isFile() || st.size <= 0) continue;
+      size = st.size;
+    } catch (_e) { continue; }
+    // 预筛：大小不同 → 内容必然不同（SHA-256 相同必然同长），直接跳过
+    if (wantSize > 0 && size !== wantSize) continue;
+    const s = _fileSha256(resolved);
+    if (!s) continue;          // 指纹算不出来 → 跳过，不猜
+    if (s === target) return resolved;
+  }
+  return '';
+}
+
+// 目标文件名去冲突：<base>.mp4 → <base>-1.mp4 → <base>-2.mp4 …
+function _uniqueArchivePath(dir, fileName) {
+  let dest = path.join(dir, fileName);
+  if (!fs.existsSync(dest)) return dest;
+  const base = fileName.replace(/\.mp4$/i, '');
+  let n = 1;
+  for (;;) {
+    const candidate = path.join(dir, base + '-' + n + '.mp4');
+    if (!fs.existsSync(candidate)) return candidate;
+    n++;
+    if (n > 9999) return '';
+  }
+}
+
+// 归档一个最终成品视频到 work-videos/，成功后更新作品映射。
+//   workId    作品 ID（必须能通过归属校验）
+//   videoPath 本次实际使用的最终成品视频绝对路径
+//   返回 { ok, path?, size?, error?, detail?, copied?, reused?, deduplicated? }
+function archiveFinalVideoForWork(workId, videoPath) {
+  try {
+    // v1.22.7 诊断：入口（不改变任何判定）
+    _workVideoDiag('main.archive.enter', {
+      workId: String(workId == null ? '' : workId),
+      videoPath: String(videoPath == null ? '' : videoPath)
+    });
+    const own = normalizeVideoOwnerId(workId);
+    if (!own.ok) {
+      _workVideoDiagError('main.archive.owner-rejected', {
+        workId: String(workId == null ? '' : workId),
+        error: String(own.error || '')
+      });
+      return own;
+    }
+    _workVideoDiag('main.archive.owner-ok', { workId: own.id, draft: !!own.draft });
+    if (!store || typeof store.upsertSettingKv !== 'function') {
+      _workVideoDiagError('main.archive.store-unavailable', { workId: own.id });
+      return { ok: false, error: 'store-unavailable' };
+    }
+    // 1) 来源校验（白名单 + .mp4 + 存在 + 非空）
+    const fin = resolveFinalVideoFile(videoPath);
+    if (!fin.ok) {
+      _workVideoDiagError('main.archive.path-rejected', {
+        workId: own.id,
+        error: String(fin.error || 'invalid-final-video'),
+        detail: String(fin.detail || ''),
+        videoPath: String(videoPath == null ? '' : videoPath)
+      });
+      return { ok: false, error: fin.error || 'invalid-final-video', detail: String(fin.detail || '') };
+    }
+    _workVideoDiag('main.archive.path-ok', { workId: own.id, resolvedPath: fin.filePath, size: fin.size });
+
+    const dir = workVideosDir();
+    if (!dir) {
+      _workVideoDiagError('main.archive.no-archive-dir', { workId: own.id });
+      return { ok: false, error: 'no-archive-dir', detail: '无法确定作品视频归档目录' };
+    }
+
+    // 2) 来源已在 work-videos/ → 直接复用，不复制到自身
+    const alreadyArchived = isInsideManagedFinalDir(fin.filePath, [path.resolve(dir)]);
+    let finalPath = fin.filePath;
+    let copied = false;
+    let deduplicated = false;
+    _workVideoDiag('main.archive.dir-resolved', { workId: own.id, archiveDir: dir, alreadyArchived: alreadyArchived });
+
+    if (!alreadyArchived) {
+      // 2b) 内容去重：来源是临时文件，但已有归档的**内容**与它完全相同 → 复用那份归档
+      //   · 判据是 SHA-256，不是文件名 / 大小 / 修改时间；
+      //   · 来源指纹算不出来 → **保守失败**：不写映射、不删源文件（绝不猜内容）。
+      const srcSha = _fileSha256(fin.filePath);
+      if (!srcSha) {
+        _workVideoDiagError('main.archive.hash-failed', { workId: own.id, resolvedPath: fin.filePath });
+        return {
+          ok: false, error: 'archive-hash-failed',
+          detail: '无法计算成品视频内容指纹，已放弃本次归档（未写入映射，源文件保持不动）'
+        };
+      }
+      _workVideoDiag('main.archive.hash-ok', { workId: own.id, sha256: srcSha, size: fin.size });
+      const hit = _findArchivedBySha256(srcSha, dir, fin.size);
+      _workVideoDiag('main.archive.dedup-checked', { workId: own.id, deduplicated: !!hit, hitPath: hit || '' });
+      if (hit) {
+        finalPath = hit;
+        copied = false;
+        deduplicated = true;
+      }
+    }
+
+    if (!alreadyArchived && !deduplicated) {
+      try { fs.mkdirSync(dir, { recursive: true }); } catch (e) {
+        _workVideoDiagError('main.archive.mkdir-failed', {
+          workId: own.id, archiveDir: dir, error: String((e && e.message) || e)
+        });
+        return { ok: false, error: 'archive-dir-failed', detail: '归档目录创建失败：' + String((e && e.message) || e) };
+      }
+      _workVideoDiag('main.archive.mkdir-ok', { workId: own.id, archiveDir: dir });
+      const fileName = path.basename(fin.filePath);
+      const dest = _uniqueArchivePath(dir, fileName);
+      if (!dest) {
+        _workVideoDiagError('main.archive.name-conflict', { workId: own.id, fileName: fileName });
+        return { ok: false, error: 'too-many-same-name', detail: '归档目录中同名文件过多' };
+      }
+      _workVideoDiag('main.archive.copy-target', { workId: own.id, source: fin.filePath, dest: dest });
+      // 3) 复制（不覆盖：dest 由 _uniqueArchivePath 保证不存在）
+      try {
+        fs.copyFileSync(fin.filePath, dest);
+      } catch (e) {
+        _workVideoDiagError('main.archive.copy-failed', {
+          workId: own.id, source: fin.filePath, dest: dest, error: String((e && e.message) || e)
+        });
+        return { ok: false, error: 'archive-copy-failed', detail: '归档复制失败：' + String((e && e.message) || e) };
+      }
+      // 4) 复制后校验：存在 + 普通文件 + 非空 + 与源同尺寸（复制完整）
+      let dst;
+      try { dst = fs.statSync(dest); } catch (e) {
+        try { fs.unlinkSync(dest); } catch (_e) {}
+        _workVideoDiagError('main.archive.verify-missing', { workId: own.id, dest: dest });
+        return { ok: false, error: 'archive-verify-failed', detail: '归档校验失败：目标文件未生成' };
+      }
+      if (!dst.isFile() || dst.size <= 0) {
+        try { fs.unlinkSync(dest); } catch (_e) {}
+        _workVideoDiagError('main.archive.verify-invalid', { workId: own.id, dest: dest, size: dst.size });
+        return { ok: false, error: 'archive-verify-failed', detail: '归档校验失败：目标文件无效或为空' };
+      }
+      if (dst.size !== fin.size) {
+        try { fs.unlinkSync(dest); } catch (_e) {}
+        _workVideoDiagError('main.archive.verify-size-mismatch', {
+          workId: own.id, dest: dest, destSize: dst.size, srcSize: fin.size
+        });
+        return { ok: false, error: 'archive-verify-failed', detail: '归档校验失败：目标文件大小不一致' };
+      }
+      _workVideoDiag('main.archive.copy-verified', { workId: own.id, dest: dest, size: dst.size });
+      finalPath = dest;
+      copied = true;
+    }
+
+    // 5) 校验通过后才写映射（失败则不建无效映射，源文件保持不动）
+    try {
+      store.upsertSettingKv(FINAL_VIDEO_KEY_PREFIX + own.id, finalPath);
+    } catch (e) {
+      _workVideoDiagError('main.archive.map-write-failed', {
+        workId: own.id, finalPath: finalPath, error: String((e && e.message) || e)
+      });
+      return { ok: false, error: 'archive-map-failed', detail: '作品视频映射写入失败：' + String((e && e.message) || e), path: finalPath };
+    }
+    _workVideoDiag('main.archive.map-written', {
+      workId: own.id, finalPath: finalPath, copied: copied, deduplicated: deduplicated
+    });
+    return {
+      ok: true, workId: own.id, path: finalPath, size: fin.size,
+      copied: copied, reused: !copied, deduplicated: deduplicated
+    };
+  } catch (e) {
+    _workVideoDiagError('main.archive.exception', {
+      workId: String(workId == null ? '' : workId),
+      error: String((e && e.message) || e)
+    });
+    return { ok: false, error: 'exception', detail: String((e && e.message) || e) };
+  }
+}
+
+// ---------- 草稿映射释放（补挂成功后清掉草稿归属的 finalVideo 键） ----------
+//
+// 背景：发布成功时作品可能还没落库，归档先落在草稿归属键（finalVideo:<draft_*>）上。
+//   作品落库后由 plan:reassign 的 migrateWorkFinalVideo 迁移该映射；渲染层在迁移
+//   没赶上时还会补挂一次。补挂成功后，草稿键就成了没人引用的孤儿 —— 它会让那份归档
+//   在 assessFinalVideoCleanup 里永远被判为"仍是作品最新视频"而受保护、永不清理。
+//   这里提供一条**只删草稿键**的窄通道，把它释放掉。
+//
+// 安全约束：
+//   1. 只允许删除明确符合草稿 ID 格式的 key（draft_ 前缀 + store 的命名规则）；
+//   2. 不允许删除真实作品 ID 对应的映射（真实作品由 deleteWork 自行清理）；
+//   3. 调用必须同时传入真实 workId 与**预期归档路径**；
+//   4. 主进程先确认 finalVideo:<workId> 当前值 == 预期归档路径，才允许删草稿键；
+//   5. 只删数据库映射，**不删任何视频文件**；
+//   6. 目标映射不存在 / 路径不匹配 / 删除失败 → 保留草稿映射。
+function releaseDraftFinalVideoMapping(draftOwner, workId, expectedPath) {
+  try {
+    const draft = String(draftOwner == null ? '' : draftOwner).trim();
+    const real = String(workId == null ? '' : workId).trim();
+    const expected = String(expectedPath == null ? '' : expectedPath).trim();
+    // 1) 草稿 ID 格式校验（与 store 的 PLAN_DRAFT_OWNER_RE 同一套规则）
+    if (!draft) return { ok: false, error: 'missing-draft-owner' };
+    if (!/^draft_[0-9a-z]+(_[0-9a-z]+)*$/.test(draft)) {
+      return { ok: false, error: 'not-a-draft-owner' };
+    }
+    // 2) 不允许拿真实作品 ID 走这条通道
+    if (!real) return { ok: false, error: 'missing-work-id' };
+    if (/^draft_/i.test(real)) return { ok: false, error: 'work-id-is-draft' };
+    if (real === draft) return { ok: false, error: 'same-owner' };
+    if (!store || typeof store.getSettingKv !== 'function' || typeof store.deleteSettingKv !== 'function') {
+      return { ok: false, error: 'store-unavailable' };
+    }
+    // 3) 必须先确认真实作品映射存在且与预期归档路径一致
+    const cur = store.getSettingKv(FINAL_VIDEO_KEY_PREFIX + real);
+    if (!cur) return { ok: false, error: 'no-target-mapping' };
+    if (String(cur) !== expected) return { ok: false, error: 'target-path-mismatch', current: String(cur) };
+    // 4) 草稿键存在才删；不存在视为「已释放」，不报错
+    const draftKey = FINAL_VIDEO_KEY_PREFIX + draft;
+    const draftVal = store.getSettingKv(draftKey);
+    if (!draftVal) return { ok: true, released: false, reason: 'draft-mapping-absent' };
+    // 5) 只删数据库映射，不碰任何磁盘文件
+    let res = null;
+    try {
+      res = store.deleteSettingKv(draftKey);
+    } catch (e) {
+      return { ok: false, error: 'draft-release-failed', detail: String((e && e.message) || e) };
+    }
+    if (!res || res.ok === false) {
+      return { ok: false, error: 'draft-release-failed', detail: String((res && res.error) || '') };
+    }
+    return { ok: true, released: true, draftOwner: draft, workId: real, path: expected };
+  } catch (e) {
+    return { ok: false, error: 'exception', detail: String((e && e.message) || e) };
+  }
+}
+
+// ---------- 删除作品时的关联视频引用检查与安全回收 ----------
+//
+// v1.22.6：删除作品时判断它关联的最终成品视频是否仍被其它作品引用：
+//   · 还有其它作品引用 → 只删作品数据，视频保留；
+//   · 当前作品是最后一个引用者 → 连同 <userData>/work-videos/ 里的视频一起删除；
+//   · 没有关联视频 → 只删作品数据。
+//
+// 设计约定：
+//   1. 引用判断与文件删除**全部在主进程**完成 —— Renderer 不读磁盘、不数引用数量。
+//   2. 规范化路径比较规则与 store.assessFinalVideoCleanup() 完全一致：
+//      path.resolve() → Windows 下转小写（同一份视频的不同写法必须判为同一文件）。
+//   3. **只回收 <userData>/work-videos/ 里的普通文件**：
+//      temp/videos/final/、saved-videos/、videos/、voice-profiles/ 等目录永远不在范围内。
+//   4. 不按文件名推断归属；只认 finalVideo: 映射里精确指向该路径的引用。
+//   5. 草稿映射（finalVideo:draft_*）同样构成引用保护 —— 没有真实作品引用它时也保留文件。
+//   6. 不清理历史孤儿文件（没有映射的文件一律不碰）。
+//   7. store.deleteWork() 的参数与返回值语义完全不变；文件回收在它之后独立进行。
+
+// 规范化路径（与 store.assessFinalVideoCleanup 同口径）
+function _normVideoPath(p) {
+  try {
+    const r = path.resolve(String(p == null ? '' : p));
+    return process.platform === 'win32' ? r.toLowerCase() : r;
+  } catch (_e) { return ''; }
+}
+
+// 判断一个映射键里的归属 ID 是「真实作品」还是「草稿」
+function _isDraftOwnerKey(ownerId) {
+  return /^draft_/i.test(String(ownerId || ''));
+}
+
+// 列出全部 finalVideo: 映射里指向同一规范化路径的归属 ID（可排除某个作品）
+//   返回 { realWorkIds: [], draftOwnerIds: [] }
+function _collectVideoMappingOwners(targetPath, excludeWorkId) {
+  const out = { realWorkIds: [], draftOwnerIds: [] };
+  const target = _normVideoPath(targetPath);
+  if (!target) return out;
+  if (!store || typeof store._listSettingKv !== 'function') return out;
+  let rows = [];
+  try { rows = store._listSettingKv(FINAL_VIDEO_KEY_PREFIX) || []; } catch (_e) { return out; }
+  const excl = String(excludeWorkId == null ? '' : excludeWorkId).trim();
+  for (const row of rows) {
+    const k = String((row && row.k) || '');
+    const v = String((row && row.v) || '');
+    if (!k || !v) continue;
+    if (k.indexOf(FINAL_VIDEO_KEY_PREFIX) !== 0) continue;
+    const ownerId = k.slice(FINAL_VIDEO_KEY_PREFIX.length);
+    if (!ownerId) continue;
+    if (excl && ownerId === excl) continue;              // 排除当前作品自身
+    if (_normVideoPath(v) !== target) continue;          // 规范化后必须完全一致
+    if (_isDraftOwnerKey(ownerId)) out.draftOwnerIds.push(ownerId);
+    else out.realWorkIds.push(ownerId);
+  }
+  return out;
+}
+
+// 只读查询：某个作品关联的成品视频及其引用情况（不修改任何数据或文件）
+//   返回 { hasVideo, sharedWith, count, videoPath, draftReferenced }
+//     hasVideo         该作品是否有 finalVideo: 映射
+//     sharedWith       其它**真实作品**的 ID 列表（用于确认界面提示）
+//     count            其它真实作品引用数量
+//     draftReferenced  是否有草稿映射也指向同一文件（true 时文件受保护，不可删）
+function listWorkVideoReferences(workId) {
+  try {
+    const id = String(workId == null ? '' : workId).trim();
+    if (!id) return { ok: false, error: 'missing-work-id', hasVideo: false, sharedWith: [], count: 0, draftReferenced: false };
+    if (!store || typeof store.getSettingKv !== 'function') {
+      return { ok: false, error: 'store-unavailable', hasVideo: false, sharedWith: [], count: 0, draftReferenced: false };
+    }
+    const raw = store.getSettingKv(FINAL_VIDEO_KEY_PREFIX + id);
+    if (!raw) {
+      return { ok: true, workId: id, hasVideo: false, sharedWith: [], count: 0, videoPath: '', draftReferenced: false };
+    }
+    const videoPath = String(raw);
+    const owners = _collectVideoMappingOwners(videoPath, id);
+    return {
+      ok: true,
+      workId: id,
+      hasVideo: true,
+      videoPath: videoPath,
+      sharedWith: owners.realWorkIds,
+      count: owners.realWorkIds.length,
+      draftReferenced: owners.draftOwnerIds.length > 0
+    };
+  } catch (e) {
+    return {
+      ok: false, error: 'exception', detail: String((e && e.message) || e),
+      hasVideo: false, sharedWith: [], count: 0, draftReferenced: false
+    };
+  }
+}
+
+// 安全删除 <userData>/work-videos/ 内的**普通文件**
+//   1) 只接受 work-videos/ 内的路径（其它目录一律拒绝）
+//   2) path.resolve() + path.relative() 做边界校验（拒绝穿越、拒绝目录本身）
+//   3) fs.lstatSync() 检查（**不跟随符号链接**）：必须是普通文件
+//   4) 删除前再次检查目标路径（防止检查与删除之间被替换）
+//   5) 只删文件，不删目录
+//   返回 { ok, error?, detail? }
+function _safeUnlinkManagedArchive(filePath) {
+  try {
+    const raw = String(filePath == null ? '' : filePath).trim();
+    if (!raw) return { ok: false, error: 'no-path' };
+    const dir = workVideosDir();
+    if (!dir) return { ok: false, error: 'no-archive-dir', detail: '无法确定作品视频归档目录' };
+    const root = path.resolve(dir);
+    const resolved = path.resolve(raw);
+    // 1) 边界校验：必须在 work-videos/ 之内；目录本身、穿越路径、其它目录全部拒绝
+    const rel = path.relative(root, resolved);
+    if (!rel) return { ok: false, error: 'path-is-directory-root', detail: '拒绝删除归档目录本身' };
+    if (rel.indexOf('..') === 0 || path.isAbsolute(rel)) {
+      return { ok: false, error: 'path-not-allowed', detail: '拒绝删除归档目录之外的文件' };
+    }
+    // 2) lstat 检查（不跟随符号链接）
+    let st;
+    try { st = fs.lstatSync(resolved); } catch (e) {
+      return { ok: false, error: 'file-missing', detail: String((e && e.message) || e) };
+    }
+    if (st.isSymbolicLink()) {
+      return { ok: false, error: 'is-symlink', detail: '拒绝删除符号链接' };
+    }
+    if (st.isDirectory()) {
+      return { ok: false, error: 'is-directory', detail: '拒绝删除目录' };
+    }
+    if (!st.isFile()) {
+      return { ok: false, error: 'not-regular-file', detail: '拒绝删除非普通文件' };
+    }
+    // 3) 删除前再次确认目标仍是同一个普通文件（防止检查与删除之间被替换）
+    let st2;
+    try { st2 = fs.lstatSync(resolved); } catch (e) {
+      return { ok: false, error: 'file-missing', detail: String((e && e.message) || e) };
+    }
+    if (st2.isSymbolicLink() || st2.isDirectory() || !st2.isFile()) {
+      return { ok: false, error: 'target-changed', detail: '删除前目标已变化，已放弃删除' };
+    }
+    // 4) 只删这一个文件
+    try { fs.unlinkSync(resolved); } catch (e) {
+      return { ok: false, error: 'unlink-failed', detail: String((e && e.message) || e) };
+    }
+    return { ok: true, path: resolved };
+  } catch (e) {
+    return { ok: false, error: 'exception', detail: String((e && e.message) || e) };
+  }
+}
+
+// 删除作品 + 安全回收最后引用的归档视频
+//   执行时**重新检查**当前映射与全部引用关系（不依赖 Renderer 之前的查询结果）。
+//   返回 { ok, workId, workDeleted, videoDeleted, videoKept, videoPath, reason?, error?, detail? }
+function deleteWorkAndReclaimVideo(workId) {
+  try {
+    const id = String(workId == null ? '' : workId).trim();
+    if (!id) return { ok: false, error: 'missing-work-id', workDeleted: false, videoDeleted: false };
+    if (!store || typeof store.deleteWork !== 'function') {
+      return { ok: false, error: 'store-unavailable', workDeleted: false, videoDeleted: false };
+    }
+    // 1) 作品必须存在（真实作品）
+    let exists = false;
+    try {
+      const ws = (typeof store.listWorks === 'function') ? (store.listWorks() || []) : [];
+      exists = ws.some(function (w) { return w && String(w.id) === id; });
+    } catch (_e) { exists = false; }
+    if (!exists) {
+      return { ok: false, error: 'unknown-work', workId: id, workDeleted: false, videoDeleted: false };
+    }
+    // 2) 读取当前作品的 finalVideo: 映射
+    let raw = null;
+    try {
+      raw = (typeof store.getSettingKv === 'function')
+        ? store.getSettingKv(FINAL_VIDEO_KEY_PREFIX + id)
+        : null;
+    } catch (_e) { raw = null; }
+    const videoPath = raw ? String(raw) : '';
+    // 3) 只有映射路径位于 work-videos/ 内时，才列为候选删除文件
+    //    （temp/videos/final/ 等其它目录的文件**永远不删**）
+    let candidate = '';
+    if (videoPath) {
+      const dir = workVideosDir();
+      if (dir) {
+        const root = path.resolve(dir);
+        const resolved = path.resolve(videoPath);
+        const rel = path.relative(root, resolved);
+        if (rel && rel.indexOf('..') !== 0 && !path.isAbsolute(rel)) candidate = resolved;
+      }
+    }
+    // 4) + 5) 检查其它真实作品 / 草稿映射是否引用同一路径
+    let owners = { realWorkIds: [], draftOwnerIds: [] };
+    if (candidate) owners = _collectVideoMappingOwners(candidate, id);
+    // 6) 删除作品数据（作品行 + 发布记录 + 计划 + 自己的映射）
+    let delOk = false;
+    try {
+      delOk = store.deleteWork(id) !== false;
+    } catch (e) {
+      return {
+        ok: false, error: 'work-delete-failed', workId: id, workDeleted: false, videoDeleted: false,
+        detail: String((e && e.message) || e)
+      };
+    }
+    if (!delOk) {
+      // 7) 作品数据删除失败 → 立即中止，**绝不删除文件**
+      return {
+        ok: false, error: 'work-delete-failed', workId: id, workDeleted: false, videoDeleted: false,
+        detail: '作品数据删除失败，已放弃删除视频文件'
+      };
+    }
+    // 作品数据已删除
+    if (!candidate) {
+      // 没有关联视频（或不在可回收范围内）→ 只删作品数据
+      return {
+        ok: true, workId: id, workDeleted: true, videoDeleted: false, videoKept: false,
+        videoPath: videoPath, reason: videoPath ? 'video-out-of-scope' : 'no-video'
+      };
+    }
+    // 8) 还有其它作品 / 草稿引用 → 保留文件
+    if (owners.realWorkIds.length > 0 || owners.draftOwnerIds.length > 0) {
+      return {
+        ok: true, workId: id, workDeleted: true, videoDeleted: false, videoKept: true,
+        videoPath: candidate, sharedWith: owners.realWorkIds, draftReferenced: owners.draftOwnerIds.length > 0,
+        reason: owners.realWorkIds.length > 0 ? 'still-shared' : 'draft-referenced'
+      };
+    }
+    // 9) 没有任何其它引用 → 安全删除文件
+    const un = _safeUnlinkManagedArchive(candidate);
+    if (!un.ok) {
+      // 10) 删除失败：不恢复已删除的作品数据与映射，留下文件作为孤儿
+      return {
+        ok: true, workId: id, workDeleted: true, videoDeleted: false, videoKept: true,
+        videoPath: candidate, reason: 'video-delete-failed', error: un.error, detail: un.detail
+      };
+    }
+    return {
+      ok: true, workId: id, workDeleted: true, videoDeleted: true, videoKept: false,
+      videoPath: candidate, reason: 'video-reclaimed'
+    };
+  } catch (e) {
+    return {
+      ok: false, error: 'exception', detail: String((e && e.message) || e),
+      workDeleted: false, videoDeleted: false
+    };
   }
 }
 
@@ -2469,12 +3390,10 @@ function _enrichXhsPayloadForFill(payload) {
       return payload;
     }
     var stat = fs.statSync(internal.filePath);
-    var MAX_BYTES = 80 * 1024 * 1024; // 80MB 上限：超出则跳过自动上传（避免 IPC 卡死）
-    if (stat.size > MAX_BYTES) {
-      logger.warn('[XHS] 视频文件过大，跳过自动上传', { size: stat.size, max: MAX_BYTES, filePath: internal.filePath });
-      payload.videoUploadSkipped = true;
-      return payload;
-    }
+    // v1.29：移除既有的 80MB 跳过上限。
+    //   原因：作品关联的**最终成品视频**通常比原始视频更大，80MB 上限会让
+    //   「再次发布」时的成品视频被静默跳过（videoUploadSkipped=true）→ 平台不带视频。
+    //   不新增任何其它大小限制或预先拦截；读取 / base64 / 上传链路完全保持原样。
     var buf = fs.readFileSync(internal.filePath);
     var mime = payload.videoMime || (internal.mimeType) || 'video/mp4';
     var base64 = Buffer.from(buf).toString('base64');
@@ -3984,7 +4903,7 @@ function installXhsObserverHooks(win) {
 let videoSource = null;
 try { videoSource = require('./video-source'); } catch (_e) { videoSource = null; }
 
-// v1.15：AI 自动演示（屏幕录制 + 主进程 IO 桥接）
+// 录屏基础设施（共享主进程 IO 桥接：窗口源 / 边界 / 保存 / MP4 导出）
 let aiDemo = null;
 try { aiDemo = require('./ai-demo'); } catch (_e) { aiDemo = null; }
 
@@ -4002,13 +4921,13 @@ function safeSendYoutubeProgress(progress) {
 // YouTube 上传专用分支（v1.6 新增）：不走 BrowserWindow，走 YouTube Data API v3
 // payload 期望字段：title / description / tags / categoryId / privacyStatus / finalVideoPath
 //   finalVideoPath 指向「字幕 + AI 配音」最终合成成品 MP4（caption-burn 产出，
-//   位于 userData/video/final）。YouTube 与 GitHub 发布的是同一个成品文件。
+//   位于 userData/temp/videos/final）。YouTube 与 GitHub 发布的是同一个成品文件。
 //   绝不上传原始本地视频 / AI 录屏原始 WebM：这里没有任何回退分支。
 // 返回值统一映射到标准 pubLaunch 协议：{ status, platformId, videoId?, url?, error?, note?, hint? }
 async function pubExecYouTube(payload) {
   payload = payload || {};
   // 校验复用 resolveFinalVideoFile（与 GitHub 发布完全一致）：
-  //   userData/video/final 目录白名单 + .mp4 扩展名 + 存在 + 非空。
+  //   userData/temp/videos/final 目录白名单 + .mp4 扩展名 + 存在 + 非空。
   // 校验不通过 → 明确失败，绝不退回上传原始视频。
   var fin = resolveFinalVideoFile(payload.finalVideoPath);
   if (!fin.ok) {
@@ -4273,12 +5192,10 @@ function _enrichXVideoPayloadForFill(payload) {
       return payload;
     }
     var stat = fs.statSync(internal.filePath);
-    var MAX_BYTES = 80 * 1024 * 1024; // X 与 XHS 同源限制
-    if (stat.size > MAX_BYTES) {
-      logger.warn('[X] 视频文件过大，跳过自动上传', { size: stat.size, max: MAX_BYTES, filePath: internal.filePath });
-      payload.videoUploadSkipped = true;
-      return payload;
-    }
+    // v1.29：移除既有的 80MB 跳过上限（与 _enrichXhsPayloadForFill 同批移除）。
+    //   原因：作品关联的**最终成品视频**通常比原始视频更大，80MB 上限会让
+    //   「再次发布」时的成品视频被静默跳过（videoUploadSkipped=true）→ 平台不带视频。
+    //   不新增任何其它大小限制或预先拦截；读取 / base64 / 上传链路完全保持原样。
     var buf = fs.readFileSync(internal.filePath);
     var mime = payload.videoMime || (internal.mimeType) || 'video/mp4';
     var base64 = Buffer.from(buf).toString('base64');
@@ -4330,9 +5247,13 @@ async function pubExec(platformId, stage, payload) {
       //   这里加一次调用，a.fill IIFE 内的 fetchToBlob 才有 data URL 可读。
       // v1.X：X (Twitter) 加入 videoAssetId 富化链路——jike / producthunt / xiaohongshu 仍走原主链路，
       //   但 X 已经有专用 BrowserManager 入口，所以这里只做"标记兼容"不动流程。
+      // v1.29：把 **jike** 也纳入富化链路 —— publishers.js 的 jike.fill 只读
+      //   payload.videoDataUrl（不读 videoAssetId），此前没有富化 → 即刻的视频永远是 null。
+      //   复用既有的 _enrichXhsPayloadForFill（同一套 videoAssetId → videoDataUrl 逻辑），
+      //   不新增第二套实现、不改变小红书的既有行为。
       if (platformId === 'jike' || platformId === 'producthunt' || platformId === 'xiaohongshu' || platformId === 'x') {
         try {
-          if (platformId === 'xiaohongshu') _enrichXhsPayloadForFill(payload);
+          if (platformId === 'xiaohongshu' || platformId === 'jike') _enrichXhsPayloadForFill(payload);
           try { logger.info('[XHS-UPLOAD] PUBEXEC-FILL 富化完成', {
             videoAssetId: (payload && payload.videoAssetId) || '',
             videoDataUrlLen: ((payload && payload.videoDataUrl) || '').length,
@@ -4593,6 +5514,15 @@ function chooseCaptureSource(sources) {
 }
 
 app.whenReady().then(() => {
+  // 启动时清除上次会话遗留的 AI 生成语音文件
+  //   （意外中断 / 崩溃后没走到 before-quit 的残留）。
+  //   只清 AI 生成物，用户原始音源（voice-profiles/）不动；失败静默。
+  try {
+    if (aiVoiceCleanup && typeof aiVoiceCleanup.cleanupAiVoiceFiles === 'function') {
+      var _startupCleanup = aiVoiceCleanup.cleanupAiVoiceFiles();
+      try { logger.info('[ai-voice] startup cleanup', { removed: _startupCleanup.removedCount }); } catch (_e) {}
+    }
+  } catch (_e) {}
   // v1.20.3：初始化声音档案存储（需要 userData 路径，依赖 app.getPath）
   try {
     const vpInit = voiceProfiles.init(app);
@@ -4607,6 +5537,65 @@ app.whenReady().then(() => {
     }
   } catch (_e) {
     try { logger.warn('[voice-profiles] attachIpc failed', { error: String((_e && _e.message) || _e) }); } catch (__) {}
+  }
+  // AI 生成语音清除 IPC：作品完成时由 renderer 调用（只清 AI 生成物，不动用户原始音源）
+  try {
+    ipcMain.handle('ai-voice:cleanup', function () {
+      try {
+        var r = aiVoiceCleanup.cleanupAiVoiceFiles();
+        try { logger.info('[ai-voice] cleanup', { removed: r.removedCount, failed: r.failed.length }); } catch (_e) {}
+        return { ok: true, removedCount: r.removedCount, failedCount: r.failed.length };
+      } catch (e) {
+        // 清除失败绝不影响作品完成状态
+        try { logger.warn('[ai-voice] cleanup failed', { error: String((e && e.message) || e) }); } catch (__) {}
+        return { ok: false, error: String((e && e.message) || e) };
+      }
+    });
+  } catch (_e) {
+    try { logger.warn('[ai-voice] cleanup IPC failed', { error: String((_e && _e.message) || _e) }); } catch (__) {}
+  }
+  // 临时成品视频清除 IPC：作品流程最终完成后由 renderer 调用
+  //   · 只清 <userData>/temp/videos/final/ 下的 final-*.mp4；
+  //   · 删除资格**完全**由 store.assessFinalVideoCleanup() 判定
+  //     （已是作品最新视频 / 被未完成计划引用 / 引用关系无法确认 → 一律保留）；
+  //   · 绝不触碰 work-videos/、saved-videos/、videos/、voice-profiles/。
+  //   清除失败绝不影响作品完成状态。
+  //
+  // ★ 后台低优先级执行：用 setImmediate 把实际清理推迟到**下一次事件循环**，
+  //   让本次 IPC 立即返回 —— 文件扫描与删除都不占用调用方（渲染层 UI）的时间。
+  try {
+    ipcMain.handle('video-temp:cleanup', function (_e, protectPath) {
+      return new Promise(function (resolve) {
+        setImmediate(function () {
+          try {
+            if (!videoTempCleanup || typeof videoTempCleanup.cleanupTempFinalVideos !== 'function') {
+              resolve({ ok: false, error: 'cleanup-unavailable' });
+              return;
+            }
+            var r = videoTempCleanup.cleanupTempFinalVideos(store, {
+              // 白名单判定与 resolveFinalVideoFile 同口径：只有受管成品目录里的文件才可能被删
+              isManaged: function (filePath) { return isInsideFinalVideoDir(filePath); },
+              // 当前会话仍在使用的成品视频 → 一律保留（同一会话内再次发布要用）
+              //   ★ 只加入**有效的非空路径**：空串会被 path.resolve('') 规范化成 cwd，
+              //     误当成一个真实路径写进保护集合（语义错误）。
+              protectPaths: (String(protectPath || '').trim()) ? [String(protectPath)] : []
+            });
+            try { logger.info('[video-temp] cleanup', { removed: r.removedCount, skipped: r.skipped.length, failed: r.failed.length }); } catch (_e) {}
+            resolve({
+              ok: r.ok !== false,
+              removedCount: r.removedCount,
+              skippedCount: r.skipped.length,
+              failedCount: r.failed.length
+            });
+          } catch (e) {
+            try { logger.warn('[video-temp] cleanup failed', { error: String((e && e.message) || e) }); } catch (__) {}
+            resolve({ ok: false, error: String((e && e.message) || e) });
+          }
+        });
+      });
+    });
+  } catch (_e) {
+    try { logger.warn('[video-temp] cleanup IPC failed', { error: String((_e && _e.message) || _e) }); } catch (__) {}
   }
   // v1.20.6：挂载 voice-engine:* IPC（listEngines / probe / testGenerate / getDefaults）
   try {
@@ -4825,7 +5814,7 @@ app.whenReady().then(() => {
   // 注册视频来源 IPC（VideoSource / VideoAsset 选择与缓存）
   try { require('./video-source').registerVideoSourceIpc(ipcMain); }
   catch (_e) { logger.warn('[video-source] IPC 注册失败', { error: String(_e && _e.message || _e) }); }
-  // v1.15：注册 AI 自动演示相关 IPC（屏幕源 / 录制保存 / MP4 导出 / 时长探测）
+  // 注册录屏共享 IPC（capture:list-sources / capture:probe / capture:get-rokit-bounds / demo:save-recording / demo:export-mp4）
   try { aiDemo && aiDemo.attachIpc(ipcMain, { app: app }); }
   catch (_e) { logger.warn('[ai-demo] IPC 注册失败', { error: String(_e && _e.message || _e) }); }
   createWindow();
@@ -4989,6 +5978,13 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   try {
     if (planScheduler) planScheduler.stop();
+  } catch (_e) {}
+  // 应用正常关闭 → 清除遗留的 AI 生成语音文件（只清 AI 生成物，用户原始音源不动）。
+  //   失败静默，绝不影响退出流程。
+  try {
+    if (aiVoiceCleanup && typeof aiVoiceCleanup.cleanupAiVoiceFiles === 'function') {
+      aiVoiceCleanup.cleanupAiVoiceFiles();
+    }
   } catch (_e) {}
 });
 

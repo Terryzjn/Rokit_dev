@@ -24,11 +24,45 @@
 //   AI 视频生成的所有代码都保留；只是不在主流程中调用。
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { dialog, app } = require('electron');
 const crypto = require('crypto');
 
 const logger = require('./logger');
+
+// ---------- 受管成品视频目录（v1.22.3） ----------
+//
+// 「成品视频」= 字幕 + AI 配音合成出的最终 MP4。它有两个合法落点：
+//   1) <userData>/temp/videos/final/   合成产出（临时产物）
+//   2) <userData>/work-videos/         与作品关联的成品视频（归档目录）
+//
+// 安全约束：**只接受这两个目录里的文件**，渲染层无法借此读取 / 复制任意本地文件。
+//   判定规则与 electron/main.js 的同名逻辑完全一致：
+//     · 相对路径非空（目录本身不算合法文件）
+//     · 不能以 '..' 开头（路径穿越）
+//     · 不能是绝对路径
+function managedFinalVideoRoots() {
+  const roots = [];
+  try {
+    const ud = app.getPath('userData');
+    if (ud) {
+      roots.push(path.resolve(path.join(ud, 'temp', 'videos', 'final')));
+      roots.push(path.resolve(path.join(ud, 'work-videos')));
+    }
+  } catch (_e) { /* 非 Electron 环境 / app 未就绪 → 无根 */ }
+  return roots;
+}
+
+function isInsideManagedFinalDir(resolvedPath, roots) {
+  const list = roots || managedFinalVideoRoots();
+  for (let i = 0; i < list.length; i++) {
+    const rel = path.relative(list[i], resolvedPath);
+    if (!rel || rel.indexOf('..') === 0 || path.isAbsolute(rel)) continue;
+    return true;
+  }
+  return false;
+}
 
 // ---------- VideoSource 枚举 ----------
 // 当前已实现的来源类型；保留 AI_GENERATED / SCREEN_RECORDING 给未来恢复
@@ -115,6 +149,54 @@ function buildAsset(filePath, sourceType) {
   };
 }
 
+// ---------- 原视频工作副本 ----------
+// v1.22（目录统一）：用户从电脑选择的外部视频，其**原文件始终留在用户原位置**
+//   （不移动、不覆盖、不删除）。Rokit 复制一份到 <userData>/temp/videos/source/
+//   作为工作副本，后续预览 / 字幕合成 / 冻结帧提取 / 各平台读取统一走副本；
+//   所有平台共用**同一份**副本（按 assetId 唯一命名，复制一次后不再重复复制）。
+//
+//   只对 VideoSource.LOCAL_FILE 生效；手动录屏等其它来源（ai-demo.js 走
+//   stashInternalAsset）不受影响，仍直接使用它们自己的落盘路径。
+function _sourceWorkingCopyDir() {
+  try {
+    const dir = path.join(app.getPath('userData'), 'temp', 'videos', 'source');
+    try { fs.mkdirSync(dir, { recursive: true }); } catch (_e) {}
+    return dir;
+  } catch (_e) {
+    // 非 Electron 环境（单元测试）回退
+    const dir = path.join(os.tmpdir(), 'rokit-temp', 'videos', 'source');
+    try { fs.mkdirSync(dir, { recursive: true }); } catch (_e) {}
+    return dir;
+  }
+}
+
+// 复制一份工作副本。
+//   成功 → 返回副本绝对路径（副本已校验存在且与源同尺寸）
+//   失败 → 抛错；调用方**不得**登记资产（避免出现指向不存在副本的资产）
+function _createSourceWorkingCopy(srcPath, assetId) {
+  const dir = _sourceWorkingCopyDir();
+  // 文件名用唯一 assetId（'va-<hex16>'），保留原视频扩展名
+  const ext = path.extname(srcPath).toLowerCase() || '.mp4';
+  const dest = path.join(dir, assetId + ext);
+  fs.copyFileSync(srcPath, dest);
+  // 校验：副本必须是有效文件且与源同尺寸；不合格则删掉副本并抛错
+  let st;
+  try { st = fs.statSync(dest); } catch (e) {
+    try { fs.unlinkSync(dest); } catch (_e2) {}
+    throw new Error('工作副本创建失败：目标文件未生成');
+  }
+  if (!st.isFile() || st.size <= 0) {
+    try { fs.unlinkSync(dest); } catch (_e2) {}
+    throw new Error('工作副本创建失败：目标文件无效');
+  }
+  const srcStat = fs.statSync(srcPath);
+  if (st.size !== srcStat.size) {
+    try { fs.unlinkSync(dest); } catch (_e2) {}
+    throw new Error('工作副本创建失败：文件大小不一致（源 ' + srcStat.size + ' / 副本 ' + st.size + '）');
+  }
+  return dest;
+}
+
 /**
  * 把 VideoAsset 中**可以暴露给 Renderer 的非敏感字段**返回。
  * 注意：不返回 filePath（spec 第十七节：Renderer 不应拥有任意文件系统访问权限）。
@@ -168,6 +250,18 @@ async function handlePickLocal(event) {
     logger.warn('[video-source] buildAsset failed', { filePath, error: String(e && e.message || e) });
     return { ok: false, error: e && e.message || String(e) };
   }
+  // v1.22（原视频工作副本）：原文件保留在用户原位置，这里复制一份工作副本，
+  //   内部资产的 filePath 改指向副本 —— 之后所有读取（预览 / 字幕合成 / 冻结帧 / 平台）
+  //   都通过 getInternalAsset() 拿到同一份副本。
+  //   复制失败 → 直接返回错误，**不登记资产**（不留下指向不存在副本的资产）。
+  let _workingCopy = '';
+  try {
+    _workingCopy = _createSourceWorkingCopy(filePath, asset.id);
+  } catch (e) {
+    logger.warn('[video-source] working copy failed', { filePath, error: String(e && e.message || e) });
+    return { ok: false, error: '工作副本创建失败：' + String((e && e.message) || e) };
+  }
+  asset.filePath = _workingCopy;
   // 尝试异步补 metadata（ffprobe）。失败也不阻断；UI 显示「—」。
   try {
     const meta = await probeMetadata(asset.filePath);
@@ -182,7 +276,8 @@ async function handlePickLocal(event) {
     sizeMB: Math.round(asset.fileSize / 1024 / 1024 * 10) / 10,
     duration: asset.duration || null,
     width: asset.width || null,
-    height: asset.height || null
+    height: asset.height || null,
+    workingCopy: true
   });
   return { ok: true, asset: toRendererAsset(asset), _internalFilePath: asset.filePath };
 }
@@ -359,18 +454,17 @@ function registerVideoSourceIpc(ipcMain) {
   });
 
   // 读取已合成成品视频的字节，供渲染层 <video> 播放。
-  //   安全约束：只允许读 caption-burn 自己产出的目录（userData/video/final），
+  //   安全约束：只允许读 **受管成品视频目录** 里的文件（见 managedFinalVideoRoots），
   //   避免渲染层借这条 IPC 读取任意本地文件。
+  //   v1.22.3：受管目录有两个 —— temp/videos/final（合成产出）与 work-videos（作品关联归档）。
   ipcMain.handle('caption:read-final', function (_e, filePath) {
     try {
       if (!filePath || typeof filePath !== 'string') return { ok: false, error: 'no-path' };
       const resolved = path.resolve(filePath);
-      let allowedRoot = '';
-      try { allowedRoot = path.resolve(path.join(app.getPath('userData'), 'video', 'final')); } catch (_e) {}
-      if (!allowedRoot) return { ok: false, error: 'no-allowed-root' };
-      const rel = path.relative(allowedRoot, resolved);
-      // 必须在 allowedRoot 之内（不能是 .. 开头，也不能是绝对路径）
-      if (!rel || rel.indexOf('..') === 0 || path.isAbsolute(rel)) {
+      const allowedRoots = managedFinalVideoRoots();
+      if (!allowedRoots.length) return { ok: false, error: 'no-allowed-root' };
+      // 必须在某个 allowedRoot 之内（不能是 .. 开头，也不能是绝对路径，也不能是目录本身）
+      if (!isInsideManagedFinalDir(resolved, allowedRoots)) {
         return { ok: false, error: 'path-not-allowed' };
       }
       if (!fs.existsSync(resolved)) return { ok: false, error: 'file-missing' };
@@ -381,11 +475,13 @@ function registerVideoSourceIpc(ipcMain) {
     }
   });
 
-  // 「保存视频」：把已合成的最终成品 MP4 复制到用户自选目录。
-  //   - 只接受 caption-burn 自己产出的目录（与 read-final 同一白名单），
+  // 「保存视频」：把已合成的最终成品 MP4 复制到固定目录 <userData>/saved-videos/。
+  //   - 只接受**受管成品视频目录**里的文件（与 read-final 同一白名单），
   //     渲染层无法借此复制任意本地文件。
-  //   - 只做文件复制，不重新执行视频合成。
-  //   - 用户取消对话框 → { ok:false, canceled:true }，渲染层安静返回不报错。
+  //   - 只做文件复制，不重新执行视频合成，**不移动**原成品（源目录里的原件仍在）。
+  //   - v1.22（目录统一）：不再弹系统保存位置对话框，固定写入 saved-videos/。
+  //     saved-videos/ 是用户主动保留的成品目录，**不参与**任何临时文件自动清理。
+  //   - 同名文件不覆盖：自动追加 -1 / -2 … 生成不冲突的文件名。
   ipcMain.handle('caption:save-final', async function (_e, payload) {
     try {
       const p = payload || {};
@@ -393,11 +489,10 @@ function registerVideoSourceIpc(ipcMain) {
         return { ok: false, error: 'no-source-path:尚未生成成品视频' };
       }
       const resolved = path.resolve(p.filePath);
-      let allowedRoot = '';
-      try { allowedRoot = path.resolve(path.join(app.getPath('userData'), 'video', 'final')); } catch (_e) {}
-      if (!allowedRoot) return { ok: false, error: 'no-allowed-root' };
-      const rel = path.relative(allowedRoot, resolved);
-      if (!rel || rel.indexOf('..') === 0 || path.isAbsolute(rel)) {
+      const allowedRoots = managedFinalVideoRoots();
+      if (!allowedRoots.length) return { ok: false, error: 'no-allowed-root' };
+      // v1.22.3：源文件白名单同样接受两个受管目录（temp/videos/final 与 work-videos）
+      if (!isInsideManagedFinalDir(resolved, allowedRoots)) {
         return { ok: false, error: 'path-not-allowed' };
       }
       // 成品必须真实存在且非空，否则明确报错，绝不生成空文件
@@ -409,21 +504,40 @@ function registerVideoSourceIpc(ipcMain) {
         return { ok: false, error: '成品文件为空，无法保存' };
       }
 
-      const win = _e && _e.sender && _e.sender.getOwnerBrowserWindow && _e.sender.getOwnerBrowserWindow();
-      const opts = {
-        title: '保存成品视频',
-        defaultPath: p.defaultPath || undefined,
-        filters: [{ name: 'MP4 视频', extensions: ['mp4'] }]
-      };
-      const r = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts);
-      if (!r || r.canceled || !r.filePath) {
-        return { ok: false, canceled: true };
+      // 目标目录固定：<userData>/saved-videos/（不存在则自动创建）
+      let savedDir = '';
+      try { savedDir = path.join(app.getPath('userData'), 'saved-videos'); } catch (_e) {}
+      if (!savedDir) return { ok: false, error: 'no-saved-dir:无法确定保存目录' };
+      try { fs.mkdirSync(savedDir, { recursive: true }); } catch (e) {
+        return { ok: false, error: '保存目录创建失败：' + String((e && e.message) || e) };
       }
 
-      const dest = r.filePath;
-      ensureDirForFile(dest);
-      // 覆盖已有文件：先尝试删除（Windows 下 fs.copyFile 不会自动覆盖）
-      try { if (fs.existsSync(dest)) fs.unlinkSync(dest); } catch (_e) {}
+      // 文件名：沿用 Renderer 传入的名称（defaultPath）；只取 basename，杜绝路径穿越。
+      //   缺省或非法时回退到源文件名。
+      const rawName = (typeof p.defaultPath === 'string' && p.defaultPath.trim())
+        ? path.basename(p.defaultPath.trim())
+        : '';
+      let fileName = rawName || path.basename(resolved);
+      // 扩展名固定 .mp4（成品就是 mp4；用户传入的名字若没有 .mp4 则补上）
+      if (!/\.mp4$/i.test(fileName)) {
+        fileName = fileName.replace(/\.[^.]*$/, '') + '.mp4';
+        if (!/\.mp4$/i.test(fileName)) fileName = fileName + '.mp4';
+      }
+
+      // 同名不覆盖：追加 -1 / -2 … 直到找到未占用的文件名
+      let dest = path.join(savedDir, fileName);
+      if (fs.existsSync(dest)) {
+        const base = fileName.replace(/\.mp4$/i, '');
+        let n = 1;
+        for (;;) {
+          const candidate = path.join(savedDir, base + '-' + n + '.mp4');
+          if (!fs.existsSync(candidate)) { dest = candidate; break; }
+          n++;
+          if (n > 9999) return { ok: false, error: '保存失败：同名文件过多，无法生成新文件名' };
+        }
+      }
+
+      // 只复制，不移动；目标不存在时 fs.copyFileSync 直接写入（不会覆盖既有文件）
       fs.copyFileSync(resolved, dest);
 
       // 保存后校验：目标必须存在且与源同尺寸
@@ -441,10 +555,8 @@ function registerVideoSourceIpc(ipcMain) {
   });
 }
 
-// 确保目标文件的父目录存在
-function ensureDirForFile(filePath) {
-  try { fs.mkdirSync(path.dirname(filePath), { recursive: true }); } catch (_e) {}
-}
+// v1.22：原 ensureDirForFile 已无调用方（保存目标目录固定为 <userData>/saved-videos/，
+//   由 caption:save-final 内部直接 mkdirSync），此处移除以免留下死代码。
 
 // 给 handlePickLocal 增加 stash 副作用
 const _origHandle = handlePickLocal;

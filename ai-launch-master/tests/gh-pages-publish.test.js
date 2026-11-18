@@ -432,7 +432,10 @@ describe('main.js / index.html 约束', () => {
   });
 
   it('未改动其他平台的 videoAssetId 逻辑', () => {
-    expect(htmlSrc).toMatch(/payload\.videoAssetId\s*=\s*state\.videoAsset\.id/);
+    // v1.29：小红书 / 即刻 / X 的视频来源改为「作品关联的最终成品视频」
+    //   （受管虚拟资产 wvf_<workId>），不再直接读 state.videoAsset。
+    expect(htmlSrc).toMatch(/_applyPublishVideoAsset\(payload,\s*_singleVideoAsset\)/);
+    expect(htmlSrc).toMatch(/_applyPublishVideoAsset\(_xPayloadLocal,\s*_batchVideoAsset\)/);
     expect(htmlSrc).toMatch(/delete\s+payload\.videoAssetId/);
   });
 

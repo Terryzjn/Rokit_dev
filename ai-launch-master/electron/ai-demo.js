@@ -1,10 +1,10 @@
-// Rokit · 「AI 自动演示」基础设施（v1.15）
+// Rokit · 录屏基础设施（共享主进程桥接）
 //
-// 范围：只在第一版交付"AI 自动演示项目"工作区需要的主进程桥接：
-//   - 屏幕 / 窗口源列表（用 desktopCapturer）
+// 范围：为「手动录屏」提供主进程桥接：
 //   - 把 recorder.js 产出的临时 WebM 移入 userData/videos/<id>.webm
 //   - 通过 ffmpeg-static 把 WebM 转为真正可播放的 MP4（不修改扩展名）
-//   - 用 ffmpeg-static 探测视频时长
+//   - 列出可用于录制的"窗口"源 + 返回 Rokit 主窗口的真实屏幕坐标
+//     （capture:list-sources / capture:probe / capture:get-rokit-bounds）
 //
 // 设计原则：
 //   - 不发布、不上传：纯本地文件 IO
@@ -20,7 +20,6 @@ const crypto = require('crypto');
 
 let _app = null;
 let _ipcMain = null;
-let _recorder = null;
 let _video = null;
 
 function newSafeId() {
@@ -36,38 +35,29 @@ function videosDir(app) {
   catch (_e) { return path.join(__dirname, '_fallback_videos'); }
 }
 
-// -------- 屏幕 / 窗口源列表（renderer 端通常自己拿，但 main 提供端备份）
-async function listSources() {
-  // 兼容：在 main 进程里，desktopCapturer.getSources 必须等到 app.whenReady 后才能用
-  // v1.20：仅枚举 window 类型（不再暴露整个屏幕/桌面，避免被误捕获桌面）
-  try {
-    const electron = require('electron');
-    if (!electron || !electron.desktopCapturer) return { ok: false, error: 'desktopCapturer-not-available', sources: [] };
-    const raw = await electron.desktopCapturer.getSources({ types: ['window'], thumbnailSize: { width: 0, height: 0 } });
-    // 返回精简版（不把缩略图搬到 IPC 通道）：仅 sourceId + name + type
-    const sources = (raw || []).map(function (s) {
-      return { id: s.id, name: s.name || '(未命名)', type: 'window' };
-    });
-    return { ok: true, sources: sources };
-  } catch (e) {
-    return { ok: false, error: (e && e.message) || String(e), sources: [] };
-  }
+// v1.22（录屏生命周期）：手动录屏的**临时**保存目录。
+//   停止录屏后自动写入这里（临时保存）；只有用户主动点「保留录屏」才移动到 videos/。
+//   非 Electron 环境（单元测试）也保持独立目录，不与 videos/ 混用。
+function recorderTempDir(app) {
+  try { return path.join(app.getPath('userData'), 'temp', 'videos', 'recorder'); }
+  catch (_e) { return path.join(__dirname, '_fallback_videos', 'temp', 'recorder'); }
 }
 
 // -------- 保存录制产物：支持两种入参
-//   1) { tempPath, ext, id? }：把 recorder 产出的临时文件 rename 到 userData/videos
-//   2) { blobBase64, ext, id? }：直接把 base64 写到 userData/videos（适配 renderer FileReader）
+//   1) { tempPath, ext, id? }：把已有的临时文件 rename 到临时录屏目录
+//   2) { blobBase64, ext, id? }：直接把 base64 写到临时录屏目录（适配 renderer FileReader）
 // v1.19：把 capture region / 来源信息一并写入 .meta.json 同名 sidecar，方便后续审计
-// sourceType：资产来源标记。默认 'AI_RECORDING'（AI 自动演示）；
-//   手动录屏传 'MANUAL_RECORDING'，避免两种来源混淆。
+// v1.22（录屏生命周期）：默认落盘到**临时**目录 <userData>/temp/videos/recorder/
+//   —— 停止录屏即自动保存（无额外确认），但只是"临时保存"；
+//   只有用户主动点「保留录屏」才移动到 <userData>/videos/（见 retainRecording）。
+// sourceType：资产来源标记，默认 'MANUAL_RECORDING'（手动录屏）。
 //   白名单校验：只接受已知枚举值，非法值一律回退默认（不写入任意字符串）。
 const SOURCE_TYPES = Object.freeze({
-  AI_RECORDING: 'AI_RECORDING',
   MANUAL_RECORDING: 'MANUAL_RECORDING'
 });
 function normalizeSourceType(v) {
   const s = String(v || '').trim().toUpperCase();
-  return Object.prototype.hasOwnProperty.call(SOURCE_TYPES, s) ? SOURCE_TYPES[s] : SOURCE_TYPES.AI_RECORDING;
+  return Object.prototype.hasOwnProperty.call(SOURCE_TYPES, s) ? SOURCE_TYPES[s] : SOURCE_TYPES.MANUAL_RECORDING;
 }
 function writeCaptureMeta(target, opts) {
   try {
@@ -90,7 +80,8 @@ async function saveRecording(opts) {
   const ext = (opts.ext || 'webm').replace(/[^a-z0-9]/gi, '').toLowerCase() || 'webm';
   if (!/^(webm|mp4|mov|mkv)$/.test(ext)) return { ok: false, error: 'unsupported-ext' };
   const id = opts.id && /^[a-f0-9]{8,32}$/i.test(String(opts.id)) ? String(opts.id) : newSafeId();
-  const dir = videosDir(_app);
+  // v1.22：默认落到临时录屏目录（临时保存，非永久保留）
+  const dir = recorderTempDir(_app);
   safeDir(dir);
   const target = path.join(dir, id + '.' + ext);
   if (opts.blobBase64 && typeof opts.blobBase64 === 'string') {
@@ -145,16 +136,154 @@ async function saveRecording(opts) {
   return { ok: true, asset: asset };
 }
 
+// -------- 保留录屏：把临时录屏移动到 <userData>/videos/（用户主动操作）
+//
+// 安全约束：
+//   1. 只接受 assetId —— 真实路径**一律**从主进程 videoSource._internalStore 取，
+//      绝不信任 Renderer 传入的绝对路径（否则渲染层可借此移动任意本地文件）。
+//   2. **移动**原文件，不创建第二份副本。
+//   3. 主文件与 sidecar（<file>.meta.json）一起移动；sidecar 内的 filePath 同步更新。
+//   4. 目标重名 → 自动编号（-1 / -2 …），绝不覆盖已有文件。
+//   5. 任何一步失败都回滚，绝不留下「主文件与 sidecar 分处两个目录」的半完成状态。
+//   6. 成功后用**原 assetId** 重新登记（stashInternalAsset 是 Map.set，同 id 覆盖）。
+function _moveFileSync(src, dest) {
+  try {
+    fs.renameSync(src, dest);
+    return true;
+  } catch (_e) {
+    // 跨卷时 rename 失败 → 复制 + 删源
+    try {
+      fs.copyFileSync(src, dest);
+      try { fs.unlinkSync(src); } catch (_e2) {}
+      return true;
+    } catch (_e3) {
+      return false;
+    }
+  }
+}
+
+async function retainRecording(opts) {
+  opts = opts || {};
+  const assetId = String(opts.assetId || '').trim();
+  if (!assetId) return { ok: false, error: 'no-asset-id' };
+
+  // 从主进程内部存储取真实资产（不信任 Renderer 传入的路径）
+  let vs = null;
+  try { vs = require('./video-source'); } catch (_e) { vs = null; }
+  if (!vs || typeof vs.getInternalAsset !== 'function') {
+    return { ok: false, error: 'video-source-unavailable' };
+  }
+  const asset = vs.getInternalAsset(assetId);
+  if (!asset || !asset.filePath) {
+    return { ok: false, error: 'asset-not-found' };
+  }
+  const srcPath = String(asset.filePath);
+  const srcMeta = String(asset.metaPath || (srcPath + '.meta.json'));
+  if (!fs.existsSync(srcPath)) {
+    return { ok: false, error: 'file-missing' };
+  }
+  // 源必须位于临时录屏目录（只允许把"临时录屏"提升为"保留"）
+  const tempRoot = recorderTempDir(_app);
+  const rel = path.relative(tempRoot, srcPath);
+  if (!rel || rel.indexOf('..') === 0 || path.isAbsolute(rel)) {
+    // 已经在 videos/ 或其它位置 → 视为已保留，幂等返回当前资产
+    if (path.dirname(srcPath) === path.resolve(videosDir(_app))) {
+      return { ok: true, asset: asset, alreadyRetained: true };
+    }
+    return { ok: false, error: 'not-a-temp-recording' };
+  }
+
+  // 目标：<userData>/videos/；重名自动编号，绝不覆盖
+  const keepDir = videosDir(_app);
+  safeDir(keepDir);
+  const baseName = path.basename(srcPath);
+  const stem = baseName.replace(/\.[^.]*$/, '');
+  const ext = path.extname(baseName);
+  let dest = path.join(keepDir, baseName);
+  if (fs.existsSync(dest)) {
+    let n = 1;
+    for (;;) {
+      const candidate = path.join(keepDir, stem + '-' + n + ext);
+      if (!fs.existsSync(candidate)) { dest = candidate; break; }
+      n++;
+      if (n > 9999) return { ok: false, error: 'too-many-same-name' };
+    }
+  }
+  const destMeta = dest + '.meta.json';
+
+  // ---- 移动主文件 ----
+  if (!_moveFileSync(srcPath, dest)) {
+    return { ok: false, error: 'move-failed' };
+  }
+  // ---- 移动 sidecar（没有 sidecar 也算正常：不是失败）----
+  let metaMoved = false;
+  if (fs.existsSync(srcMeta)) {
+    if (!_moveFileSync(srcMeta, destMeta)) {
+      // sidecar 移动失败 → 回滚主文件（放回临时目录），不留半完成状态
+      try { _moveFileSync(dest, srcPath); } catch (_e) {}
+      return { ok: false, error: 'sidecar-move-failed' };
+    }
+    metaMoved = true;
+  }
+  // ---- 更新 sidecar 内的 filePath ----
+  if (metaMoved) {
+    try {
+      const meta = JSON.parse(fs.readFileSync(destMeta, 'utf8'));
+      meta.filePath = dest;
+      fs.writeFileSync(destMeta, JSON.stringify(meta, null, 2));
+    } catch (e) {
+      // sidecar 内容更新失败 → 回滚两个文件（主文件 + sidecar 一起放回临时目录）
+      //   注意顺序：先回滚 sidecar（它还在 destMeta），再回滚主文件。
+      //   早期实现先 unlink(destMeta) 再判断 srcMeta 是否存在 —— 此时 srcMeta 已被移走，
+      //   判断恒为 false → sidecar 丢失（半完成状态）。
+      try { _moveFileSync(destMeta, srcMeta); } catch (_e) {}
+      try { _moveFileSync(dest, srcPath); } catch (_e) {}
+      return { ok: false, error: 'sidecar-update-failed' };
+    }
+  }
+
+  // ---- 用原 assetId 重新登记（Map.set 覆盖，id 不变）----
+  const updated = Object.assign({}, asset, {
+    fileName: path.basename(dest),
+    filePath: dest,
+    metaPath: metaMoved ? destMeta : (dest + '.meta.json')
+  });
+  try {
+    if (typeof vs.stashInternalAsset === 'function') vs.stashInternalAsset(updated);
+  } catch (_e) {
+    // 登记失败：文件已移动但登记没更新 → 回滚文件，避免 _internalStore 指向旧路径
+    try { _moveFileSync(dest, srcPath); } catch (_e) {}
+    if (metaMoved) { try { _moveFileSync(destMeta, srcMeta); } catch (_e) {} }
+    return { ok: false, error: 'restake-failed' };
+  }
+  return { ok: true, asset: updated, retained: true };
+}
+
 // -------- WebM -> MP4（只做容器/编码转换，不上传、不修改内容）
+//
+// v1.22.1（导出路径统一）：未显式指定 outputPath 时，转码产物落到
+//   <userData>/temp/videos/work/ —— 与 video.js 的 outputDir('work') 完全同口径。
+//   · work/ 是「可再生成的中间产物」目录（转码 MP4 · 缩略图 · 裁剪）。
+//   · 显式传入 opts.outputPath 时**仍按调用方给定的路径输出**（行为不变）。
+//   · 非 Electron 环境（单元测试）回退到 os.tmpdir()/rokit-temp/videos/work/
+//     （与 video.js outputDir() 的 fallback 完全一致）。
+function _transcodeMp4Dir(app) {
+  try {
+    return path.join(app.getPath('userData'), 'temp', 'videos', 'work');
+  } catch (_e) {
+    return path.join(require('os').tmpdir(), 'rokit-temp', 'videos', 'work');
+  }
+}
+
 async function exportMp4(opts) {
   opts = opts || {};
   if (!_video) return { ok: false, error: 'video-module-missing' };
   const src = opts.inputPath || opts.filePath;
   if (!src || !fs.existsSync(src)) return { ok: false, error: 'input-not-found' };
-  // 用户显式传入 path 时保留；未指定时落到 videosDir
+  // 用户显式传入 path 时保留；未指定时落到临时转码目录 temp/videos/work/
   let out = opts.outputPath;
   if (!out) {
-    const dir = videosDir(_app);
+    const dir = _transcodeMp4Dir(_app);
     safeDir(dir);
     const baseName = path.basename(src, path.extname(src));
     out = path.join(dir, baseName + '.mp4');
@@ -168,36 +297,16 @@ async function exportMp4(opts) {
   }
 }
 
-// -------- 探测 mp4 文件时长
-async function probeDurationMs(opts) {
-  opts = opts || {};
-  if (!_recorder) return { ok: false, error: 'recorder-missing' };
-  try {
-    // v1.20.1：走统一 resolver（不再直接信任 require('ffmpeg-static') 的裸路径）
-    let ffmpegPath = '';
-    try { ffmpegPath = require('./ffmpeg-resolver').ffmpegPath(); } catch (_e) { ffmpegPath = ''; }
-    const ms = await _recorder.probeDurationMs(opts.path, ffmpegPath);
-    return { ok: true, durationMs: ms || 0 };
-  } catch (e) {
-    return { ok: false, error: (e && e.message) || String(e) };
-  }
-}
-
 // -------- IPC 安装
 function attachIpc(ipcMain, ctx) {
   if (!ipcMain || typeof ipcMain.handle !== 'function') return;
   if (_ipcMain) return; // 幂等
   _ipcMain = ipcMain;
   _app = (ctx && ctx.app) || require('electron').app;
-  try { _recorder = require('./recorder'); } catch (_e) { _recorder = null; }
   try { _video = require('./video'); } catch (_e) { _video = null; }
 
-  // 让 renderer 用的录制 IPC（之前 preload 暴露了但 main 未挂载，这里补上）
-  if (_recorder && typeof _recorder.attachIpc === 'function') {
-    try { _recorder.attachIpc(ipcMain); } catch (_e) {}
-  }
-
-  ipcMain.handle('demo:list-sources', async function () { return await listSources(); });
+  // 注：recorder.js 的 IPC（recorder:*）已由 main.js 单独注册，
+  //   这里**不再**重复调用 recorder.attachIpc（重复注册会被 ipcMain 拒绝）。
 
   // v1.19：列出可用于录制的"窗口 / 屏幕"源（renderer 选择 Rokit 主窗口时使用）
   // v1.20：默认仅枚举"窗口"类型源，不主动暴露整个屏幕/桌面，避免误捕获桌面
@@ -359,25 +468,28 @@ function attachIpc(ipcMain, ctx) {
     return await saveRecording(payload || {});
   });
 
+  // 保留录屏：把临时录屏移动到 <userData>/videos/（用户主动操作）。
+  //   Renderer 只传 assetId；真实路径由主进程从 _internalStore 取。
+  ipcMain.handle('demo:retain-recording', async function (_e, payload) {
+    return await retainRecording(payload || {});
+  });
+
   ipcMain.handle('demo:export-mp4', async function (_e, payload) {
     return await exportMp4(payload || {});
   });
 
-  ipcMain.handle('demo:probe-duration', async function (_e, payload) {
-    return await probeDurationMs(payload || {});
-  });
-
-  // 不允许删除 / 列举：v1.15 只输出；删除由"删除样本"统一在 voice.js 内做
+  // 不允许删除 / 列举：只输出；删除由"删除样本"统一在 voice.js 内做
 }
 
 module.exports = {
   attachIpc: attachIpc,
   // 单测 / 调试用
-  listSources: listSources,
   saveRecording: saveRecording,
+  retainRecording: retainRecording,
   exportMp4: exportMp4,
-  probeDurationMs: probeDurationMs,
   videosDir: videosDir,
+  // v1.22：手动录屏的临时保存目录（停止即存；主动保留才移动到 videos/）
+  recorderTempDir: recorderTempDir,
   // 资产来源枚举（手动录屏用 MANUAL_RECORDING）
   SOURCE_TYPES: SOURCE_TYPES,
   normalizeSourceType: normalizeSourceType

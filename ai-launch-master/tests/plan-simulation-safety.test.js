@@ -649,7 +649,7 @@ describe('T8 · 既有状态转换 / 隔离 / 阶段删除 / 手动发布无回�
    T9 · 迁移保留既有数据
    ================================================================== */
 describe('T9 · 新增迁移保留原有工作 / 发布记录 / 计划数据', () => {
-  it('从 v7 升级到 v9：既有 works / pubs / plan 行全部保留', () => {
+  it('从 v7 升级到 v11：既有 works / pubs / plan 行全部保留', () => {
     const store = newStore('sqlite');
     H.seedWork(store, 'w1', '作品一');
     store.addPub({ work_id: 'w1', platform: 'GitHub', platform_id: 'github', status: 'ok', pub_key: 'k1' });
@@ -666,11 +666,14 @@ describe('T9 · 新增迁移保留原有工作 / 发布记录 / 计划数据', (
     const beforeTasks = store.listPlanTasks('w1').length;
 
     const upgraded = newStore('sqlite');
-    expect(upgraded.version).toBe(10);
+    expect(upgraded.version).toBe(11);
     expect(upgraded.listWorks()).toHaveLength(beforeWorks);
     expect(upgraded.listPubs()).toHaveLength(beforePubs);
     expect(upgraded.listPlanStages('w1')).toHaveLength(beforeStages);
     expect(upgraded.listPlanTasks('w1')).toHaveLength(beforeTasks);
+    // v11 只新增锁表，既有业务数据完全不动
+    const tables = upgraded.all("SELECT name FROM sqlite_master WHERE type='table'").map(function (r) { return r.name; });
+    expect(tables).toContain('video_cleanup_locks');
     // 历史任务默认不是模拟任务、也不处于等待真实执行（行为不变）
     expect(upgraded.listPlanTasks('w1')[0].simulated).toBe(0);
     expect(upgraded.listPlanTasks('w1')[0].real_only).toBe(0);

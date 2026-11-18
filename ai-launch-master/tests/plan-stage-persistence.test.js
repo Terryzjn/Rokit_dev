@@ -141,9 +141,9 @@ function stage(id, o) {
    L1 · SQLite 迁移
    ================================================================== */
 describe('L1 · SQLite 迁移与重复迁移安全', () => {
-  it('CURRENT_VERSION 提升到 10（v7 建表，v8 模拟标识，v9 等待真实执行标记，v10 发布键唯一索引）', () => {
+  it('CURRENT_VERSION 提升到 11（v7 建表，v8 模拟标识，v9 等待真实执行标记，v10 发布键唯一索引，v11 视频清理占用锁）', () => {
     const { CURRENT_VERSION, migrations } = require('../electron/store');
-    expect(CURRENT_VERSION).toBe(10);
+    expect(CURRENT_VERSION).toBe(11);
     const v7 = migrations.filter(function (m) { return m.version === 7; })[0];
     expect(v7).toBeTruthy();
     expect(v7.up.toString()).toContain('plan_stages');
@@ -160,6 +160,11 @@ describe('L1 · SQLite 迁移与重复迁移安全', () => {
     expect(v10).toBeTruthy();
     expect(v10.up.toString()).toContain('idx_pubs_pub_key');
     expect(v10.up.toString()).toContain("pub_key <> ''");
+    // v11：新增视频清理占用锁表（只建表，不改任何既有业务数据）
+    const v11 = migrations.filter(function (m) { return m.version === 11; })[0];
+    expect(v11).toBeTruthy();
+    expect(v11.up.toString()).toContain('video_cleanup_locks');
+    expect(v11.up.toString()).toContain('expires_at');
   });
 
   it('迁移在真实 SQLite 上执行成功（v7 表存在）', () => {

@@ -1,4 +1,4 @@
-// Rokit · ai-demo.js 单元测试
+// Rokit · 录屏共享后端（electron/ai-demo.js）单元测试
 // 验证：saveRecording 支持 base64 + tempPath 双协议；file traversal 防护；exportMp4 缺失时返回 ok=false
 'use strict';
 const fs = require('fs');
@@ -64,16 +64,5 @@ describe('ai-demo · exportMp4', () => {
     // 直接传一个不存在的源路径；不依赖 ffmpeg-static
     const r = await aiDemo.exportMp4({ inputPath: path.join(os.tmpdir(), 'rokit-no-such.webm') });
     expect(r.ok).toBe(false);
-  });
-});
-
-describe('ai-demo · listSources', () => {
-  test('desktopCapturer 不可用时，返回 ok=false 但不抛', async () => {
-    const r = await aiDemo.listSources();
-    expect(r).toHaveProperty('ok');
-    // 沙箱里 desktopCapturer 是 null，预期 ok=false
-    expect(r.ok).toBe(false);
-    expect(Array.isArray(r.sources)).toBe(true);
-    expect(r.sources.length).toBe(0);
   });
 });

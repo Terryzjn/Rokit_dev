@@ -31,14 +31,14 @@ describe('v1.20.6 · 语音引擎 UI 锁定', () => {
     expect(/id="vstudioFooter"/.test(INDEX)).toBe(true);
     // 返回按钮：始终是 returnFromVoiceStep
     expect(/onclick="returnFromVoiceStep\(\)"/.test(INDEX)).toBe(true);
-    // 跳过声音克隆 / 下一步主按钮的 onclick 由 _skipOnClick / _isAiDemo 在 JS 里动态拼接；
+    // 跳过声音克隆 / 下一步主按钮的 onclick 由 _skipOnClick / _isManualRec 在 JS 里动态拼接；
     // 函数本身仍存在，并在 footer 拼接处被引用。
-    expect(/window\.skipVoiceInAiDemo\b/.test(INDEX)).toBe(true);
-    expect(/window\.proceedFromVoiceInAiDemo\b/.test(INDEX)).toBe(true);
+    expect(/window\.skipVoiceInRecording\b/.test(INDEX)).toBe(true);
+    expect(/window\.proceedFromVoice\b/.test(INDEX)).toBe(true);
     expect(/window\.skipVoiceInLocalVideo\b/.test(INDEX)).toBe(true);
-    expect(/_skipOnClick[\s\S]{0,200}skipVoiceInAiDemo\(\)/.test(INDEX)).toBe(true);
+    expect(/_skipOnClick[\s\S]{0,200}skipVoiceInRecording\(\)/.test(INDEX)).toBe(true);
     expect(/_skipOnClick[\s\S]{0,200}skipVoiceInLocalVideo\(\)/.test(INDEX)).toBe(true);
-    expect(/proceedFromVoiceInAiDemo\(\)/.test(INDEX)).toBe(true); // 在拼接的 _nextBtn 内
+    expect(/proceedFromVoice\(\)/.test(INDEX)).toBe(true); // 在拼接的 _nextBtn 内
     expect(/下一步：选择语音生成方式/.test(INDEX)).toBe(true);
     // 旧的「去打通平台」不应再出现在 footer 按钮文案
     var m = INDEX.match(/var _nextBtn[\s\S]{0,400}<\/button>/);
@@ -46,8 +46,8 @@ describe('v1.20.6 · 语音引擎 UI 锁定', () => {
     if (m) expect(m[0].indexOf('去打通平台')).toBe(-1);
   });
 
-  it('AI 演示进入录音：voiceNextStep=13', () => {
-    var m = INDEX.match(/window\.aiDemoNext=function\(\)\{([\s\S]*?)\};/);
+  it('录屏进入录音：voiceNextStep=13', () => {
+    var m = INDEX.match(/window\.manualRecordingNext\s*=\s*function[^{]*\{([\s\S]*?)\};/);
     expect(m).toBeTruthy();
     expect(/state\.voiceNextStep\s*=\s*13/.test(m[1])).toBe(true);
   });
